@@ -23,8 +23,8 @@ The design rule is **implement the frozen contract, do not translate the referen
 
 | Phase | What | Status |
 |---|---|---|
-| **G0** | Reproduce the frozen protocol vectors (canonical JSON / audit hash chain / delegation token / risk levels / governance binding) | ✅ **this repo** |
-| G1 | Runtime core + trust loop (Identity → Permission → Governance → Confirmation → Audit → Revoke) | ⬜ |
+| **G0** | Reproduce the frozen protocol vectors (canonical JSON / audit hash chain / delegation token / risk levels / governance binding) | ✅ **42/42** |
+| **G1** | Runtime core + trust loop (Identity → Permission → Governance → Confirmation → Audit → Revoke) | ✅ **this repo** |
 | G2 | Generator: NL → Business Spec → Application Model → real Java/Spring source | ⬜ |
 | G3 | Changeability (semantic change → code change → migration → tests) | ⬜ |
 
@@ -59,6 +59,31 @@ Current result: **42/42 green**.
 CI (`.github/workflows/ci.yml`) runs the same suite on every push/PR, plus a *vector-drift* check
 that the vendored vectors still match the authoritative copy in the main repo — the snapshot here
 must never be hand-edited.
+
+### G1 — runtime and the trust loop
+
+A minimal Spring Boot app (`KeelBase4JApplication`) whose AI operations run only inside the trust
+boundary. Tools declare a risk level; the runtime — not a prompt — enforces what may run:
+
+| Tool | Risk | Behaviour |
+|---|---|---|
+| `analyze_customer_risk` | R1 | executes immediately (read) |
+| `create_followup` | R3 | **not executed** until a human approves |
+
+Endpoints (`X-User-Id` / `X-User-Role` headers carry the principal in the spike):
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/ai/chat` | deterministic intent router → governed tool call |
+| POST | `/ai/confirmations/{token}` | `approve` (executes) or `decline` (writes nothing) |
+| GET | `/ai/tool-effects` | list recorded side effects |
+| DELETE | `/ai/tool-effects/{id}` | revoke → local compensation (soft delete) |
+| GET | `/audit/verify` | recompute and verify the audit hash chain |
+
+`TrustLoopTest` walks the whole loop over HTTP: read auto-executes → write is gated (nothing
+written) → approve executes and records a side effect → the audit chain verifies → revoke soft-
+deletes → cross-user access is 403 with no side effect. Because it runs over HTTP against a
+standalone app, it is the S3 evidence too: no generator involved.
 
 ## Protocol sources
 

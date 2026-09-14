@@ -4,17 +4,24 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.2.5</version>
+    <relativePath/>
+  </parent>
+
   <groupId>cn.com.keelbase</groupId>
   <artifactId>keelbase4j-protocol</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
-  <name>KeelBase4J Protocol</name>
+  <name>KeelBase4J</name>
   <description>
-    KeelBase4J — Java conformance implementation of the KeelBase AI Governance Protocol
-    (audit hash chain / delegation token / tool risk levels). G0 spike: reproduce the
-    frozen language-neutral vectors from Server-NestJS/specs/protocol without importing
-    any reference implementation.
+    KeelBase4J — Java runtime for KeelBase. Phase-0 spike (feasibility probe):
+    G0 reproduces the frozen AI Governance Protocol vectors; G1 is a minimal Spring Boot
+    app whose AI operations run through the governance trust loop
+    (Identity → Permission → Governance → Confirmation → Audit → Revoke).
   </description>
   <licenses>
     <license>
@@ -27,18 +34,25 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.release>17</maven.compiler.release>
-    <junit.version>5.10.2</junit.version>
   </properties>
 
   <dependencies>
-    <!--
-      Deliberately dependency-free at runtime: the protocol implementation uses only the JDK
-      (javax.crypto for HMAC, java.util for the JSON model). JUnit is test-scope only.
-    -->
     <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>${junit.version}</version>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -46,19 +60,14 @@
   <build>
     <plugins>
       <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.13.0</version>
-        <configuration>
-          <encoding>UTF-8</encoding>
-        </configuration>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.2.5</version>
         <configuration>
-          <!-- pass the vector directory to tests; default = vendored copy -->
+          <!-- G0 conformance suite reads the vendored vectors from here. -->
           <systemPropertyVariables>
             <keelbase.vectors.dir>${project.basedir}/conformance/vectors</keelbase.vectors.dir>
           </systemPropertyVariables>
