@@ -1,0 +1,26 @@
+# Frozen protocol vectors (vendored snapshot)
+
+These JSON files are a **read-only snapshot** of the language-neutral conformance vectors from the
+main KeelBase repository:
+
+```
+KeelBase/Server-NestJS/specs/protocol/
+├── canonical-json-v1-vector.json
+├── audit-hash-v1-vector.json
+├── delegation-token-v1-vector.json
+├── risk-level-v1-vector.json
+└── governance-binding-v1-vector.json
+```
+
+**Source of truth stays in the main repo.** The main repo's CI keeps these vectors evergreen
+(gold-sample regeneration diff + conformance). This copy exists so the Java project is
+self-contained and buildable offline.
+
+## Rules
+
+- **Do not hand-edit.** To refresh, copy again from the main repo.
+- A protocol change is made in the main repo first (vector → then implementations), never here.
+  See `docs/manual/semantic-change-checklist.md` in the main repo.
+- The vector files intentionally contain **no timestamps** — deterministic and diff-able.
+
+Copied: 2026-09-14 from `Server-NestJS/specs/protocol/` (vector version `v1`).
