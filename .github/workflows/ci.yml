@@ -30,31 +30,17 @@ jobs:
   vector-drift:
     name: Vendored vectors match the main repo
     runs-on: ubuntu-latest
-    env:
-      # Authoritative source of truth for the protocol vectors.
-      MAIN_REPO: rain6fish/KeelBase
-      MAIN_REF: main
-      VECTOR_DIR: Server-NestJS/specs/protocol
     steps:
       - uses: actions/checkout@v5
-      - name: Diff vendored vectors against the main repo
-        run: |
-          set -euo pipefail
-          files="canonical-json-v1-vector.json audit-hash-v1-vector.json delegation-token-v1-vector.json risk-level-v1-vector.json governance-binding-v1-vector.json"
-          raw="https://raw.githubusercontent.com/${MAIN_REPO}/${MAIN_REF}/${VECTOR_DIR}"
-          fail=0
-          for f in $files; do
-            curl -fsSL "${raw}/${f}" -o "/tmp/${f}"
-            if diff -u "/tmp/${f}" "conformance/vectors/${f}" >/dev/null; then
-              echo "  ok   ${f}"
-            else
-              echo "::error::drift in ${f} — the vendored copy differs from ${MAIN_REPO}@${MAIN_REF}"
-              diff -u "/tmp/${f}" "conformance/vectors/${f}" || true
-              fail=1
-            fi
-          done
-          if [ "$fail" -ne 0 ]; then
-            echo "::error::Vendored vectors are stale. Refresh from ${MAIN_REPO} (${VECTOR_DIR}); never hand-edit them here."
-            exit 1
-          fi
-          echo "All vendored vectors match the main repo."
+      # The authoritative vectors live in the main repo. It is checked out (rather than fetched
+      # file-by-file against a hard-coded list) so the same script that refreshes the snapshot
+      # also gates it: one implementation, and it catches vectors that are missing here or stale,
+      # not just ones whose content changed.
+      - name: Check out the main repo's vectors
+        uses: actions/checkout@v5
+        with:
+          repository: rain6fish/KeelBase
+          ref: main
+          path: main-repo
+      - name: Vendored vectors must match the main repo
+        run: scripts/sync-vectors.sh main-repo --check
