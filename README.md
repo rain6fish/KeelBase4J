@@ -25,7 +25,7 @@ The design rule is **implement the frozen contract, do not translate the referen
 |---|---|---|
 | **G0** | Reproduce the frozen protocol vectors (canonical JSON / audit hash chain / delegation token / risk levels / governance binding) | ✅ **42/42** |
 | **G1** | Runtime core + trust loop (Identity → Permission → Governance → Confirmation → Audit → Revoke) | ✅ **this repo** |
-| G2 | Generator: NL → Business Spec → Application Model → real Java/Spring source | ⬜ |
+| **G2** | Generator: NL → Business Spec → real Spring Boot source | ✅ **this repo** |
 | G3 | Changeability (semantic change → code change → migration → tests) | ⬜ |
 
 G0 is a **feasibility probe**, not a product positioning decision. The Spike's success criteria
@@ -84,6 +84,24 @@ Endpoints (`X-User-Id` / `X-User-Role` headers carry the principal in the spike)
 written) → approve executes and records a side effect → the audit chain verifies → revoke soft-
 deletes → cross-user access is 403 with no side effect. Because it runs over HTTP against a
 standalone app, it is the S3 evidence too: no generator involved.
+
+### G2 — the generator
+
+`BusinessSpecParser` (S1) turns a natural-language business request into a `BusinessSpec`; `JavaGenerator`
+(S2) turns that spec into an ordinary Spring Boot project:
+
+```
+Business description
+   → BusinessSpecParser → BusinessSpec        (entities, fields, ownership rule, AI tools + risk)
+   → JavaGenerator      → Spring Boot project  (real .java sources + pom.xml + README)
+```
+
+The output is real, editable source — a Maven project that builds on its own. The generated
+`GovernanceGate` reads the risk level through the **frozen protocol** (`cn.com.keelbase.protocol.RiskLevel`),
+so a generated app makes the same decisions the protocol defines.
+
+`GeneratorTest` asserts the spec is complete (S1) and that the generated project **compiles** (S2),
+checked with the JDK compiler against the current classpath.
 
 ## Protocol sources
 
