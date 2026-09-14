@@ -103,6 +103,19 @@ so a generated app makes the same decisions the protocol defines.
 `GeneratorTest` asserts the spec is complete (S1) and that the generated project **compiles** (S2),
 checked with the JDK compiler against the current classpath.
 
+The generated app is **self-contained** — it carries its own governance wiring and depends only on
+the frozen protocol *library* (risk levels, canonical JSON, audit chain), never on a KeelBase4J
+runtime service. So it builds and runs on its own (S3 axis A) and needs no KeelBase4J service at
+all (S3 axis B). To see the whole loop end to end on the *generated* artifact:
+
+```bash
+bash scripts/demo-generated-app.sh
+```
+
+It generates the project, builds it into a runnable jar, starts it, and checks that a read tool
+auto-executes, a write tool is gated, approving executes and records a side effect, the audit chain
+verifies, and revoke marks the effect revoked.
+
 ## Protocol sources
 
 The authoritative protocol lives in the main repository:

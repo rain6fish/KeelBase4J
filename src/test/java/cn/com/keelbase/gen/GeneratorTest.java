@@ -74,7 +74,11 @@ class GeneratorTest {
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("domain/FollowUp.java")), "FollowUp.java");
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/AnalyzeCustomerRiskTool.java")), "read tool");
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/CreateFollowupTool.java")), "write tool");
-        assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/AiController.java")), "controller");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/GovernanceEngine.java")), "engine");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/ConfirmationStore.java")), "confirmations");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/AuditChainStore.java")), "audit");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/AiController.java")), "ai controller");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/GovernanceController.java")), "governance controller");
 
         String customer = Files.readString(out.resolve("src/main/java/com/example/crm/domain/Customer.java"));
         assertTrue(customer.contains("@Entity"), "a real JPA entity");

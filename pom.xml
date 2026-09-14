@@ -62,6 +62,12 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- Keep the plain jar as the main artifact so it can be used as a library
+               (the protocol/runtime classes sit at the jar root). The runnable boot jar
+               is published separately with the `exec` classifier. -->
+          <classifier>exec</classifier>
+        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
