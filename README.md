@@ -56,6 +56,10 @@ The conformance suite reads the frozen vectors from `conformance/vectors`
 
 Current result: **42/42 green**.
 
+CI (`.github/workflows/ci.yml`) runs the same suite on every push/PR, plus a *vector-drift* check
+that the vendored vectors still match the authoritative copy in the main repo — the snapshot here
+must never be hand-edited.
+
 ## Protocol sources
 
 The authoritative protocol lives in the main repository:

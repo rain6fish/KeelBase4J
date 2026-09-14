@@ -1,0 +1,60 @@
+# KeelBase4J CI — protocol conformance.
+#
+# The point of this repository is that a Java implementation reproduces the language-neutral
+# vectors of the KeelBase AI Governance Protocol. CI proves exactly that, on every push:
+#   1. conformance — the implementation still reproduces the vendored vectors;
+#   2. vector-drift — the vendored vectors still match the authoritative copy in the main repo
+#      (they must never be hand-edited here; a divergence means one side moved without the other).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  conformance:
+    name: Protocol conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Reproduce the frozen protocol vectors
+        run: mvn -B -ntp verify
+
+  vector-drift:
+    name: Vendored vectors match the main repo
+    runs-on: ubuntu-latest
+    env:
+      # Authoritative source of truth for the protocol vectors.
+      MAIN_REPO: rain6fish/KeelBase
+      MAIN_REF: main
+      VECTOR_DIR: Server-NestJS/specs/protocol
+    steps:
+      - uses: actions/checkout@v5
+      - name: Diff vendored vectors against the main repo
+        run: |
+          set -euo pipefail
+          files="canonical-json-v1-vector.json audit-hash-v1-vector.json delegation-token-v1-vector.json risk-level-v1-vector.json governance-binding-v1-vector.json"
+          raw="https://raw.githubusercontent.com/${MAIN_REPO}/${MAIN_REF}/${VECTOR_DIR}"
+          fail=0
+          for f in $files; do
+            curl -fsSL "${raw}/${f}" -o "/tmp/${f}"
+            if diff -u "/tmp/${f}" "conformance/vectors/${f}" >/dev/null; then
+              echo "  ok   ${f}"
+            else
+              echo "::error::drift in ${f} — the vendored copy differs from ${MAIN_REPO}@${MAIN_REF}"
+              diff -u "/tmp/${f}" "conformance/vectors/${f}" || true
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Vendored vectors are stale. Refresh from ${MAIN_REPO} (${VECTOR_DIR}); never hand-edit them here."
+            exit 1
+          fi
+          echo "All vendored vectors match the main repo."
