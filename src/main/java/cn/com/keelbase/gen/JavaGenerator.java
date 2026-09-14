@@ -33,31 +33,35 @@ public class JavaGenerator {
         Path resources = outDir.resolve("src/main/resources");
         List<Path> written = new ArrayList<>();
 
-        written.add(write(outDir.resolve("pom.xml"), pom(spec)));
-        written.add(write(outDir.resolve("README.md"), readme(spec)));
-        written.add(write(resources.resolve("application.properties"), properties(spec.module())));
-        written.add(write(javaDir.resolve("Application.java"), application(pkg)));
+        written.add(writePreserving(outDir.resolve("pom.xml"), pom(spec)));
+        written.add(writePreserving(outDir.resolve("README.md"), readme(spec)));
+        written.add(writePreserving(resources.resolve("application.properties"), properties(spec.module())));
+        written.add(writePreserving(javaDir.resolve("Application.java"), application(pkg)));
 
         for (EntitySpec entity : spec.entities()) {
-            written.add(write(javaDir.resolve("domain/" + entity.name() + ".java"), entityClass(pkg, entity)));
-            written.add(write(javaDir.resolve("domain/" + entity.name() + "Repository.java"), repository(pkg, entity)));
+            written.add(writePreserving(javaDir.resolve("domain/" + entity.name() + ".java"), entityClass(pkg, entity)));
+            written.add(writePreserving(javaDir.resolve("domain/" + entity.name() + "Repository.java"), repository(pkg, entity)));
         }
 
         // Governance wiring (self-contained; the runtime is generated into the app).
-        written.add(write(javaDir.resolve("ai/AiTool.java"), aiToolInterface(pkg)));
-        written.add(write(javaDir.resolve("ai/GovernanceGate.java"), governanceGate(pkg)));
-        written.add(write(javaDir.resolve("ai/ToolRegistry.java"), toolRegistry(pkg)));
-        written.add(write(javaDir.resolve("ai/ConfirmationStore.java"), confirmationStore(pkg)));
-        written.add(write(javaDir.resolve("ai/SideEffectStore.java"), sideEffectStore(pkg)));
-        written.add(write(javaDir.resolve("ai/AuditChainStore.java"), auditChainStore(pkg)));
-        written.add(write(javaDir.resolve("ai/GovernanceEngine.java"), governanceEngine(pkg)));
+        written.add(writePreserving(javaDir.resolve("ai/AiTool.java"), aiToolInterface(pkg)));
+        written.add(writePreserving(javaDir.resolve("ai/GovernanceGate.java"), governanceGate(pkg)));
+        written.add(writePreserving(javaDir.resolve("ai/ToolRegistry.java"), toolRegistry(pkg)));
+        written.add(writePreserving(javaDir.resolve("ai/ConfirmationStore.java"), confirmationStore(pkg)));
+        written.add(writePreserving(javaDir.resolve("ai/SideEffectStore.java"), sideEffectStore(pkg)));
+        written.add(writePreserving(javaDir.resolve("ai/AuditChainStore.java"), auditChainStore(pkg)));
+        written.add(writePreserving(javaDir.resolve("ai/GovernanceEngine.java"), governanceEngine(pkg)));
 
         for (ToolSpec tool : spec.tools()) {
-            written.add(write(javaDir.resolve("ai/" + pascal(tool.name()) + "Tool.java"), toolClass(pkg, tool, spec)));
+            written.add(writePreserving(javaDir.resolve("ai/" + pascal(tool.name()) + "Tool.java"), toolClass(pkg, tool, spec)));
         }
 
-        written.add(write(javaDir.resolve("web/AiController.java"), aiController(pkg)));
-        written.add(write(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg)));
+        written.add(writePreserving(javaDir.resolve("web/AiController.java"), aiController(pkg)));
+        written.add(writePreserving(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg)));
+        // One CRUD controller for the primary entity, enforcing the spec's policy rules.
+        EntitySpec primary = spec.entities().get(0);
+        written.add(writePreserving(javaDir.resolve("web/" + primary.name() + "Controller.java"),
+                entityController(pkg, primary, spec)));
         return written;
     }
 
@@ -192,7 +196,8 @@ public class JavaGenerator {
         sb.append("    public String getOwnerUserId() {\n        return ownerUserId;\n    }\n\n");
         sb.append("    public void setOwnerUserId(String ownerUserId) {\n        this.ownerUserId = ownerUserId;\n    }\n\n");
         sb.append("    public Instant getDeletedAt() {\n        return deletedAt;\n    }\n\n");
-        sb.append("    public void setDeletedAt(Instant deletedAt) {\n        this.deletedAt = deletedAt;\n    }\n");
+        sb.append("    public void setDeletedAt(Instant deletedAt) {\n        this.deletedAt = deletedAt;\n    }\n\n");
+        sb.append(userCodeBlock());
         sb.append("}\n");
         return sb.toString();
     }
@@ -716,6 +721,101 @@ public class JavaGenerator {
 
     // ── helpers ─────────────────────────────────────────────────────────────────
 
+    /**
+     * A CRUD controller for the primary entity: list (own-scope; a manager sees all) and update.
+     * When the spec carries an {@code update} policy for this entity, the update is gated on the
+     * required role — the rule is enforced in code, not in a prompt.
+     */
+    private String entityController(String pkg, EntitySpec entity, BusinessSpec spec) {
+        String name = entity.name();
+        String plural = table(name);
+        String policyRole = spec.policies().stream()
+                .filter(p -> p.entity().equals(name) && p.action().equals("update"))
+                .map(BusinessSpec.PolicyRule::requiredRole)
+                .findFirst()
+                .orElse(null);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("package ").append(pkg).append(".web;\n\n");
+        sb.append("import ").append(pkg).append(".domain.").append(name).append(";\n");
+        sb.append("import ").append(pkg).append(".domain.").append(name).append("Repository;\n");
+        sb.append("import java.util.List;\nimport java.util.Objects;\n");
+        sb.append("import org.springframework.http.HttpStatus;\n");
+        sb.append("import org.springframework.web.bind.annotation.GetMapping;\n");
+        sb.append("import org.springframework.web.bind.annotation.PatchMapping;\n");
+        sb.append("import org.springframework.web.bind.annotation.PostMapping;\n");
+        sb.append("import org.springframework.web.bind.annotation.PathVariable;\n");
+        sb.append("import org.springframework.web.bind.annotation.RequestBody;\n");
+        sb.append("import org.springframework.web.bind.annotation.RequestHeader;\n");
+        sb.append("import org.springframework.web.bind.annotation.RestController;\n");
+        sb.append("import org.springframework.web.server.ResponseStatusException;\n\n");
+        sb.append("@RestController\npublic class ").append(name).append("Controller {\n\n");
+        sb.append("    private final ").append(name).append("Repository repository;\n\n");
+        sb.append("    public ").append(name).append("Controller(").append(name).append("Repository repository) {\n");
+        sb.append("        this.repository = repository;\n    }\n\n");
+
+        sb.append("    @PostMapping(\"/").append(plural).append("\")\n");
+        sb.append("    public ").append(name).append(" create(@RequestBody ").append(name).append(" body,\n");
+        sb.append("            @RequestHeader(value = \"X-User-Id\", required = false) String userId) {\n");
+        sb.append("        body.setOwnerUserId(userId);\n");
+        sb.append("        return repository.save(body);\n    }\n\n");
+
+        sb.append("    @GetMapping(\"/").append(plural).append("\")\n");
+        sb.append("    public List<").append(name).append("> list(\n");
+        sb.append("            @RequestHeader(value = \"X-User-Id\", required = false) String userId,\n");
+        sb.append("            @RequestHeader(value = \"X-User-Role\", required = false) String role) {\n");
+        sb.append("        if (isManager(role)) {\n            return repository.findAll();\n        }\n");
+        sb.append("        return repository.findAll().stream()\n");
+        sb.append("                .filter(row -> Objects.equals(row.getOwnerUserId(), userId))\n");
+        sb.append("                .toList();\n    }\n\n");
+
+        sb.append("    @PatchMapping(\"/").append(plural).append("/{id}\")\n");
+        sb.append("    public ").append(name).append(" update(\n");
+        sb.append("            @PathVariable Long id,\n");
+        sb.append("            @RequestBody ").append(name).append(" patch,\n");
+        sb.append("            @RequestHeader(value = \"X-User-Id\", required = false) String userId,\n");
+        sb.append("            @RequestHeader(value = \"X-User-Role\", required = false) String role) {\n");
+        if (policyRole != null) {
+            sb.append("        if (!\"").append(policyRole).append("\".equals(role)) {\n");
+            sb.append("            throw new ResponseStatusException(HttpStatus.FORBIDDEN, \"only a ")
+                    .append(policyRole).append(" may update a ").append(name).append("\");\n");
+            sb.append("        }\n");
+        }
+        sb.append("        ").append(name).append(" entity = repository.findById(id)\n");
+        sb.append("                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));\n");
+        for (FieldSpec f : entity.fields()) {
+            String g = capitalize(f.name());
+            sb.append("        if (patch.get").append(g).append("() != null) { entity.set").append(g)
+                    .append("(patch.get").append(g).append("()); }\n");
+        }
+        sb.append("        return repository.save(entity);\n    }\n\n");
+        sb.append("    private static boolean isManager(String role) {\n");
+        sb.append("        return \"manager\".equals(role) || \"admin\".equals(role);\n    }\n\n");
+        sb.append(userCodeBlock());
+        sb.append("}\n");
+        return sb.toString();
+    }
+
+    static final String USER_BEGIN = "// <keelbase:user-code>";
+    static final String USER_END = "// </keelbase:user-code>";
+
+    /** The empty user-code region as emitted by the generator (content between the markers). */
+    static final String USER_EMPTY = "\n    ";
+
+    private static String userCodeBlock() {
+        return "    " + USER_BEGIN + USER_EMPTY + USER_END + "\n";
+    }
+
+    /** Extract the content between the user-code markers, or {@code null} if absent. */
+    static String userCode(String content) {
+        int b = content.indexOf(USER_BEGIN);
+        int e = content.indexOf(USER_END);
+        if (b < 0 || e < 0 || e < b) {
+            return null;
+        }
+        return content.substring(b + USER_BEGIN.length(), e);
+    }
+
     private static Path write(Path path, String content) {
         try {
             Files.createDirectories(path.getParent());
@@ -724,6 +824,28 @@ public class JavaGenerator {
         } catch (IOException e) {
             throw new UncheckedIOException("cannot write " + path, e);
         }
+    }
+
+    /**
+     * Write a file, preserving any developer code that lives inside the {@code keelbase:user-code}
+     * region of an existing file. This is what makes regeneration safe: generated parts are
+     * refreshed, hand-written parts survive.
+     */
+    static Path writePreserving(Path path, String content) {
+        String merged = content;
+        if (Files.exists(path)) {
+            try {
+                String existing = Files.readString(path, StandardCharsets.UTF_8);
+                String existingBlock = userCode(existing);
+                String freshBlock = userCode(content);
+                if (existingBlock != null && freshBlock != null) {
+                    merged = content.replace(USER_BEGIN + freshBlock + USER_END, USER_BEGIN + existingBlock + USER_END);
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException("cannot read " + path, e);
+            }
+        }
+        return write(path, merged);
     }
 
     static String javaType(String type) {

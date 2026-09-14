@@ -162,6 +162,22 @@ verifiable.
 
 ---
 
+## 5b. Authorization & identity (decision: ADR-0004 D3/D4)
+
+- **Security ≠ Trust.** Spring Security answers *"who is this request"* (authentication); KeelBase
+  answers *"may this AI action happen under enterprise rules"* (authorization / policy / confirmation
+  / audit / revoke). They are separate concerns.
+- **Don't own identity infrastructure; own enterprise authorization semantics.** Identity is a
+  **pluggable adapter** (OIDC/OAuth2 as the protocol entry; Keycloak is one reference adapter, not a
+  hard dependency). In this repo that is the `IdentityResolver` seam — the spike resolves the
+  principal from request headers; a real deployment swaps in a session / delegation token without
+  touching the rest of the runtime.
+- **No new "identity contract".** Authorization semantics map onto the wire contracts already frozen
+  in the KeelBase main repo (`authorization`, `permission-decision`, `permission-capability-list`,
+  `org-member-item`, `org-membership-scope`, `delegation-token-claims`). Java adds only a thin SPI.
+- **Spike scope:** no Keycloak, no unified permission console (parked). Row-level permission is
+  enforced by `OwnershipGuard` (own vs manager) and, in generated apps, by per-entity policy rules.
+
 ## 6. Build & verification
 
 ```bash
@@ -183,7 +199,7 @@ CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-
 | G1 | runtime core + trust loop (S3/S4 on a hand-written app) | ✅ |
 | G2 | generator: NL → spec → real Spring Boot source (S1/S2) | ✅ |
 | G2+ | generated app runs standalone; trust loop holds on the artifact (S3 axes A+B, S4) | ✅ |
-| G3 | changeability (S5 — the spike's kill gate) | ⬜ |
+| G3 | changeability (S5 — the spike's kill gate): change applied, hand edits preserved, rule enforced | ✅ |
 
 **Not yet in scope (by design):** authentication stack (identity is a pluggable seam), multi-tenancy,
 HA, UI, and the KeelBase AI pipeline (agent / RAG / memory) — the latter belongs to a Java AI

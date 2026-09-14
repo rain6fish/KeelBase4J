@@ -6,15 +6,16 @@ import java.util.List;
 /**
  * The Business Specification — the human-reviewable output of S1 and the input to generation (S2).
  *
- * <p>It is deliberately small: the entities and their fields, the ownership rule, and the AI tools
- * with their governance metadata. It is <b>not</b> a runtime dialect — it is a source from which
- * ordinary Java is generated.
+ * <p>It is deliberately small: the entities and their fields, the ownership rule, the AI tools with
+ * their governance metadata, and any policy rules (e.g. "only a manager may update a customer").
+ * It is <b>not</b> a runtime dialect — it is a source from which ordinary Java is generated.
  */
 public record BusinessSpec(
         String module,
         List<EntitySpec> entities,
         RoleRule roleRule,
-        List<ToolSpec> tools) {
+        List<ToolSpec> tools,
+        List<PolicyRule> policies) {
 
     /** An entity and its fields. */
     public record EntitySpec(String name, List<FieldSpec> fields) {
@@ -35,5 +36,9 @@ public record BusinessSpec(
             boolean requiresConfirmation,
             String resultType,
             String description) {
+    }
+
+    /** A policy rule: {@code action} on {@code entity} requires {@code requiredRole}. */
+    public record PolicyRule(String entity, String action, String requiredRole) {
     }
 }

@@ -19,10 +19,20 @@ public final class GeneratorMain {
     private GeneratorMain() {
     }
 
+    /** A change request (used when the second argument is {@code changed}). */
+    private static final String CHANGE = "给客户增加客户等级字段 tier，只有经理才能修改客户。";
+
     public static void main(String[] args) {
         Path out = Path.of(args.length > 0 ? args[0] : "target/gen-demo");
-        BusinessSpec spec = new BusinessSpecParser().parse(REQUEST);
+        boolean changed = args.length > 1 && "changed".equals(args[1]);
+
+        BusinessSpecParser parser = new BusinessSpecParser();
+        BusinessSpec spec = parser.parse(REQUEST);
+        if (changed) {
+            spec = parser.applyChange(spec, CHANGE);
+        }
         var files = new JavaGenerator().generate(spec, out);
-        System.out.println("generated " + files.size() + " files into " + out);
+        System.out.println("generated " + files.size() + " files into " + out
+                + (changed ? " (change applied)" : ""));
     }
 }
