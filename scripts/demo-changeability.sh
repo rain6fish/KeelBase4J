@@ -14,7 +14,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-if [ -n "${JAVA_HOME:-}" ]; then PATH="$JAVA_HOME/bin:$PATH"; export PATH; fi
+if [ -n "${JAVA_HOME:-}" ]; then
+  # Accept Windows-style JAVA_HOME (C:\x or C:/x) under Git Bash: normalize to a POSIX path.
+  JH="${JAVA_HOME//\\//}"
+  if [[ "$JH" =~ ^([A-Za-z]):/ ]]; then JH="/${BASH_REMATCH[1],,}${JH:2}"; fi
+  PATH="$JH/bin:$PATH"; export PATH
+fi
 
 GEN_DIR="target/s5-demo"
 PORT="${PORT:-18081}"
