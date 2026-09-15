@@ -2,9 +2,9 @@
 
 Java runtime for **KeelBase** — a conformance implementation of the KeelBase AI Governance Protocol.
 
-> **Status: Phase-0 Spike (G0) — feasibility probe.** This repository currently holds only the
-> protocol conformance layer. It does **not** yet implement a runtime, generator, or application.
-> See "Scope & status" below.
+> **Status: Phase-0 Spike (G0–G3) — feasibility probe.** The repository holds the protocol
+> conformance layer, a minimal governed runtime, and a generator whose output is real, editable
+> Spring Boot source. Positioning is **not** decided here — see "Scope & status" below.
 
 ## What this is
 
@@ -23,10 +23,10 @@ The design rule is **implement the frozen contract, do not translate the referen
 
 | Phase | What | Status |
 |---|---|---|
-| **G0** | Reproduce the frozen protocol vectors (canonical JSON / audit hash chain / delegation token / risk levels / governance binding) | ✅ **42/42** |
+| **G0** | Reproduce the frozen protocol vectors (canonical JSON / audit hash chain / delegation token / risk levels / governance binding / confirmation lifecycle / failure semantics) | ✅ **7/7 vectors** |
 | **G1** | Runtime core + trust loop (Identity → Permission → Governance → Confirmation → Audit → Revoke) | ✅ **this repo** |
 | **G2** | Generator: NL → Business Spec → real Spring Boot source | ✅ **this repo** |
-| G3 | Changeability (semantic change → code change → migration → tests) | ⬜ |
+| G3 | Changeability (semantic change → code change → migration → tests) | ✅ **this repo** |
 
 G0 is a **feasibility probe**, not a product positioning decision. The Spike's success criteria
 (S1–S5) and its guardrails are recorded in the private planning repo; this codebase only claims
@@ -53,8 +53,12 @@ The conformance suite reads the frozen vectors from `conformance/vectors`
 | `DelegationTokenTest` | `delegation-token-v1-vector.json` | JWT HS256 sign/verify, `aud` scoping, expiry, tamper detection, `sub` semantics |
 | `RiskLevelTest` | `risk-level-v1-vector.json` | risk-strategy table + derivation (write → R3, read → R1) |
 | `GovernanceBindingTest` | `governance-binding-v1-vector.json` | strategy → gate outcome, denial-reason vocabulary |
+| `ConfirmationLifecycleTest` | `confirmation-lifecycle-v1-vector.json` | state set, decision set, initial/terminal states, transition table, resolve guards, default TTL, `reject` → `decline` alias |
+| `FailureSemanticsTest` | `failure-semantics-v1-vector.json` | each failure disposition driven through the runtime: timeout surfaces as failure, unreachable compensation is never "revoked", empty upstream stays null, duplicate call reuses the effect, duplicate key cannot fork, DB error rethrows, replayed token is rejected, audit fails closed |
+| `PermissionWireTest` | the frozen `permission-decision` / `permission-capability-list` / `org-membership-scope` / `authorization` schemas | the Java carriers emit exactly the contract's properties and value domains, and reproduce the reference's wording verbatim |
+| `AuthorizationMappingTest` | the same contracts, through the runtime | the decision reproduces the reference's semantics; the capability list is served at `GET /auth/me/permissions` in the frozen shape; row-level access is derived from the decision, not from a role check; the identity projects onto `sub`/`oidcSub` |
 
-Current result: **42/42 green**.
+Current result: **78/78 green** (`mvn test`).
 
 CI (`.github/workflows/ci.yml`) runs the same suite on every push/PR, plus a *vector-drift* check
 that the vendored vectors still match the authoritative copy in the main repo — the snapshot here
@@ -79,6 +83,16 @@ Endpoints (`X-User-Id` / `X-User-Role` headers carry the principal in the spike)
 | GET | `/ai/tool-effects` | list recorded side effects |
 | DELETE | `/ai/tool-effects/{id}` | revoke → local compensation (soft delete) |
 | GET | `/audit/verify` | recompute and verify the audit hash chain |
+| GET | `/auth/me/permissions` | the caller's capability list, in the frozen `permission-capability-list` contract |
+
+Identity is a thin SPI (`IdentityResolver`): the spike's adapter reads `X-User-Id` / `X-User-Role`
+and an optional `X-Oidc-Sub`, and maps it onto the frozen identity contracts (`sub` / `oidcSub` /
+`org-membership-scope`). Authorization is **self-built** — `PermissionAuthorizer` reproduces the
+reference's ability/condition semantics and emits the frozen `permission-decision` /
+`permission-capability-list`, and `OwnershipGuard` derives row-level access from that decision rather
+than from a role check. No OPA / Casbin / Cedar, no Keycloak, no `roles`/`permissions` table (the
+rules are declared — delivery tier A). See ADR-0004 D4 and the main repo's
+`docs/authorization-architecture.md`.
 
 `TrustLoopTest` walks the whole loop over HTTP: read auto-executes → write is gated (nothing
 written) → approve executes and records a side effect → the audit chain verifies → revoke soft-

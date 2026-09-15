@@ -26,7 +26,7 @@ vectors (`Server-NestJS/specs/protocol/`) are the source of truth.
 |---|---|---|
 | Protocol semantics | main repo `docs/protocols/ai-governance-protocol.md` | the specification to implement |
 | Frozen vectors + wire schemas | main repo `Server-NestJS/specs/protocol/` | vendored read-only snapshot in `conformance/vectors/` |
-| Conformance evidence | this repo `mvn test` (42 assertions) | proves cross-runtime parity (CE-1 role ③) |
+| Conformance evidence | this repo `mvn test` (78 assertions) | proves cross-runtime parity (CE-1 role ③) |
 
 The vendored vectors are a snapshot; the main repo stays authoritative. CI job `vector-drift` diffs
 them so the snapshot cannot silently diverge.
@@ -47,6 +47,11 @@ Pure Java, **zero third-party runtime dependencies** (JDK crypto only). Language
 | `DelegationToken` | §3 JWT HS256 sign/verify with `aud`/`iss`/`exp`/`sub` |
 | `RiskLevel` | §4 risk-strategy table + derivation |
 | `GovernanceBinding` | §4 strategy → gate outcome + denial-reason vocabulary |
+| `ConfirmationLifecycle` | the frozen confirmation state machine: states, decisions, transitions, guards, default TTL |
+| `PermissionDecision` | carrier of the frozen `permission-decision` wire contract |
+| `PermissionCapabilityList` | carrier of the frozen `permission-capability-list` wire contract |
+| `OrgMembershipScope` | carrier of the frozen `org-membership-scope` wire contract |
+| `AuthorizationReasons` | carrier of the frozen `authorization` wire contract (why a tool call was allowed / refused) |
 
 ### 3.2 `cn.com.keelbase.runtime` — the runtime core (G1 ✅)
 
@@ -56,14 +61,14 @@ boundary.
 | Package | Responsibility |
 |---|---|
 | `domain` | `Customer` / `FollowUp` entities + repositories (own-scope, soft-deletable) |
-| `identity` | `Principal`, `IdentityResolver` (pluggable identity seam) |
-| `authz` | `OwnershipGuard` — row-level permission (own vs manager) |
+| `identity` | `Principal` (wire-shaped identity) + `IdentityResolver` SPI + `IdentityEvidence` + `HeaderIdentityResolver` (the spike's adapter) |
+| `authz` | `AuthorizationRules` (declared role → capability) · `PermissionAuthorizer` (self-built decision function → frozen `permission-decision` / `permission-capability-list`) · `OwnershipGuard` (row-level enforcement, driven by the decision) |
 | `tool` | `AiTool` contract, `ToolRegistry`, the two AI tools (R1 read / R3 write) |
 | `governance` | `GovernanceService` (risk → gate), confirmation store + entity |
 | `effect` | `SideEffect` + record/revoke (content-derived idempotency, class-aware revoke) |
 | `audit` | `AuditService` — hash-chained AI audit + verify |
 | `engine` | `GovernedExecutionEngine` — the loop: gate → confirm → execute → audit → effect |
-| `web` | REST: `/ai/chat`, confirmations, tool-effects, `/audit/verify` |
+| `web` | REST: `/ai/chat`, confirmations, tool-effects, `/audit/verify`, `/auth/me/permissions` |
 
 ### 3.3 `cn.com.keelbase.gen` — the generator (G2 ✅)
 
@@ -169,19 +174,38 @@ verifiable.
   / audit / revoke). They are separate concerns.
 - **Don't own identity infrastructure; own enterprise authorization semantics.** Identity is a
   **pluggable adapter** (OIDC/OAuth2 as the protocol entry; Keycloak is one reference adapter, not a
-  hard dependency). In this repo that is the `IdentityResolver` seam — the spike resolves the
-  principal from request headers; a real deployment swaps in a session / delegation token without
-  touching the rest of the runtime.
+  hard dependency). In this repo the seam is the single-method `IdentityResolver` SPI: the adapter
+  maps whatever evidence its deployment offers (`IdentityEvidence` — request headers in the spike,
+  validated OIDC/JWT claims or an LDAP bind result later) to a wire-shaped `Principal`. Swapping the
+  adapter touches nothing else; exactly one implementation must be a bean.
 - **No new "identity contract".** Authorization semantics map onto the wire contracts already frozen
-  in the KeelBase main repo (`authorization`, `permission-decision`, `permission-capability-list`,
-  `org-member-item`, `org-membership-scope`, `delegation-token-claims`). Java adds only a thin SPI.
-- **Spike scope:** no Keycloak, no unified permission console (parked). Row-level permission is
-  enforced by `OwnershipGuard` (own vs manager) and, in generated apps, by per-entity policy rules.
+  in the KeelBase main repo — `authorization`, `permission-decision`, `permission-capability-list`,
+  `org-member-item`, `org-membership-scope`, `delegation-token-claims`. Each is carried in
+  `cn.com.keelbase.protocol` as an explicit `toWire()` shape, and `Principal` projects onto it
+  (`subject()` = the `delegation-token-claims` `sub`; `org()` = `org-membership-scope`).
+- **The decision function is self-built.** `PermissionAuthorizer` reproduces the reference's
+  ability/condition semantics and emits the frozen `permission-decision` / `permission-capability-list`
+  — same shape, same closed values, same wording — so a shared frontend reads the same thing from
+  either runtime (Rev-8). No OPA / Casbin / Cedar is embedded: the engine would buy the easy part
+  (boolean evaluation) while costing a parallel contract (ADR-0004 Option E). Rules come from
+  `AuthorizationRules`, which is *declared* (delivery tier A: no `roles`/`permissions` table); tier B
+  swaps the rule source and leaves the decision function untouched.
+- **Row-level permission is derived, not hardcoded.** `OwnershipGuard` asks the authorizer for the
+  decision and the capability's scope; `scope=all` reaches any row, `scope=own` requires ownership.
+  The cross-user 403 is therefore a consequence of the same contract either runtime serves.
+- **Served surface:** `GET /auth/me/permissions` returns the frozen `permission-capability-list` at
+  the same path and in the same shape as the reference (PC-1) — the single capability source a
+  frontend keys page/menu/button visibility off.
+- **Spike scope:** no Keycloak, no unified permission console, no Spring Security wiring (parked —
+  authentication is the request-entry layer, `docs/authorization-architecture.md` §7.1). Organization
+  data ranges are carried on the identity but not enforced at row level (that is tier B; the spike's
+  row scope is `own`). Generated apps still carry their own header seam — the runtime SPI and the
+  generated seam are **not** yet unified.
 
 ## 6. Build & verification
 
 ```bash
-mvn test                              # G0 conformance (42) + G1 trust loop (1) + G2 generator (2)
+mvn test                              # conformance (57) + runtime (18, incl. the trust loop) + generator (3)
 mvn -DskipTests install               # install the protocol library into the local repo
 bash scripts/demo-generated-app.sh    # generate → build → run → exercise the generated app
 ```
@@ -195,7 +219,7 @@ CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-
 
 | Phase | Scope | Status |
 |---|---|---|
-| G0 | protocol conformance (5 vectors, 42 assertions) | ✅ |
+| G0 | protocol conformance (7 vectors + the permission/identity wire contracts, 57 assertions) | ✅ |
 | G1 | runtime core + trust loop (S3/S4 on a hand-written app) | ✅ |
 | G2 | generator: NL → spec → real Spring Boot source (S1/S2) | ✅ |
 | G2+ | generated app runs standalone; trust loop holds on the artifact (S3 axes A+B, S4) | ✅ |

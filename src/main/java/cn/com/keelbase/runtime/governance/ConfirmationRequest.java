@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.governance;
 
+import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -33,9 +34,9 @@ public class ConfirmationRequest {
     @Column(name = "risk_level", nullable = false)
     private String riskLevel;
 
-    /** pending | approved | declined. */
+    /** pending | approved | declined | timeout — see {@link ConfirmationLifecycle}. */
     @Column(nullable = false)
-    private String status = "pending";
+    private String status = ConfirmationLifecycle.PENDING;
 
     @Column(name = "result_id")
     private Long resultId;

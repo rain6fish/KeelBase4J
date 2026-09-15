@@ -19,12 +19,12 @@ import org.junit.jupiter.api.DynamicTest;
  * the vendored {@code conformance/vectors}). The vendored copy is a snapshot of
  * {@code KeelBase/Server-NestJS/specs/protocol} — the authoritative source stays in the main repo.
  */
-final class Vectors {
+public final class Vectors {
 
     private Vectors() {
     }
 
-    static Path dir() {
+    public static Path dir() {
         String d = System.getProperty("keelbase.vectors.dir");
         if (d == null || d.isBlank()) {
             throw new IllegalStateException("keelbase.vectors.dir system property is not set");
@@ -32,7 +32,7 @@ final class Vectors {
         return Path.of(d);
     }
 
-    static Object read(String fileName) {
+    public static Object read(String fileName) {
         try {
             String text = Files.readString(dir().resolve(fileName), StandardCharsets.UTF_8);
             return Json.parse(text);
@@ -42,21 +42,21 @@ final class Vectors {
     }
 
     @SuppressWarnings("unchecked")
-    static Map<String, Object> map(Object o) {
+    public static Map<String, Object> map(Object o) {
         return (Map<String, Object>) o;
     }
 
-    static String str(Map<String, Object> m, String key) {
+    public static String str(Map<String, Object> m, String key) {
         return (String) m.get(key);
     }
 
     @SuppressWarnings("unchecked")
-    static List<Object> list(Map<String, Object> m, String key) {
+    public static List<Object> list(Map<String, Object> m, String key) {
         return (List<Object>) m.get(key);
     }
 
     /** Turn a JSON array of cases into JUnit dynamic tests, using each case's {@code id} as name. */
-    static List<DynamicTest> dynamic(List<Object> cases, Consumer<Object> check) {
+    public static List<DynamicTest> dynamic(List<Object> cases, Consumer<Object> check) {
         List<DynamicTest> tests = new ArrayList<>();
         for (Object c : cases) {
             String name = String.valueOf(map(c).get("id"));

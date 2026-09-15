@@ -1,25 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.identity;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Component;
-import org.springframework.web.server.ResponseStatusException;
-
 /**
- * Resolves the acting {@link Principal} from request headers.
+ * The identity SPI — the pluggable seam between "who the deployment authenticated" and the
+ * runtime's wire-shaped {@link Principal}.
  *
- * <p>Spike stub: {@code X-User-Id} (required) and {@code X-User-Role} (default {@code user}).
- * The semantic contract — "every AI operation carries an identity; nothing runs anonymously" —
- * is what matters; the physical source of identity is a deployment concern.
+ * <p>KeelBase does not own identity infrastructure; it owns enterprise authorization semantics
+ * (ADR-0004 D4). So this is a <em>single-method</em> seam an adapter satisfies for whatever identity
+ * the deployment already has — request headers in the spike, enterprise OIDC/Keycloak/Sa-Token/LDAP
+ * later. It adds no contract of its own: its output is the {@link Principal} projected onto the main
+ * repo's frozen identity wire contracts ({@code delegation-token-claims} {@code sub}/{@code oidcSub},
+ * {@code org-membership-scope}).
+ *
+ * <p>Authentication and request security belong to Spring Security (main repo
+ * {@code docs/authorization-architecture.md} §7.1, ADR-0004 D3); an adapter for it implements this
+ * interface and hands over the authenticated identity. The runtime never sees a credential.
+ *
+ * <p>Exactly one implementation must be a Spring bean.
  */
-@Component
-public class IdentityResolver {
+public interface IdentityResolver {
 
-    public Principal resolve(String userIdHeader, String roleHeader) {
-        if (userIdHeader == null || userIdHeader.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "missing X-User-Id");
-        }
-        String role = (roleHeader == null || roleHeader.isBlank()) ? "user" : roleHeader;
-        return new Principal(userIdHeader, role);
-    }
+    /** Map validated evidence to the acting principal. Adapters reject evidence they cannot trust. */
+    Principal resolve(IdentityEvidence evidence);
 }

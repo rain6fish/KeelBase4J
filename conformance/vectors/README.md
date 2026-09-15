@@ -29,6 +29,19 @@ self-contained and buildable offline.
 Copied: 2026-09-15 from `Server-NestJS/specs/protocol/` (main repo `a434292e`, vector version `v1`)
 via `scripts/sync-vectors.sh`.
 
-> **Coverage note**: `confirmation-lifecycle-v1` and `failure-semantics-v1` are synced but **not yet
-> consumed by a Java test class** — the snapshot is complete, the conformance coverage is not. See
+> **Coverage note**: every vendored vector is consumed by a Java test class — the snapshot and the
+> conformance coverage are both complete.
+>
+> | Vector | Java consumer |
+> |---|---|
+> | `canonical-json-v1` | `CanonicalJsonTest` |
+> | `audit-hash-v1` | `AuditChainTest` |
+> | `delegation-token-v1` | `DelegationTokenTest` |
+> | `risk-level-v1` | `RiskLevelTest` |
+> | `governance-binding-v1` | `GovernanceBindingTest` |
+> | `confirmation-lifecycle-v1` | `ConfirmationLifecycleTest` + `ConfirmationLifecycle` |
+> | `failure-semantics-v1` | `FailureSemanticsTest` |
+>
+> Two `failure-semantics-v1` invariants are reproduced only in part — the spike has no surface for
+> the rest; both are listed with reasons in `FailureSemanticsTest`'s class comment. See
 > `KeelBase4J-Spike-报告_2026-09-14.md` §5.

@@ -2,6 +2,7 @@
 package cn.com.keelbase.runtime.engine;
 
 import cn.com.keelbase.protocol.CanonicalJson;
+import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectService;
@@ -57,7 +58,8 @@ public class GovernedExecutionEngine {
         switch (decision) {
             case BLOCK:
                 audit.append("tool_call", principal.userId(), toolName + " blocked (risk policy)");
-                return new ExecutionOutcome("blocked", null, null, null, "blocked by risk policy");
+                return new ExecutionOutcome("blocked", governance.reasons(tool).toWire(), null, null,
+                        "blocked by risk policy");
             case REQUIRE_APPROVAL:
                 audit.append("tool_call", principal.userId(), toolName + " requires approval");
                 return new ExecutionOutcome("requires_approval", null, null, null, null);
@@ -78,7 +80,7 @@ public class GovernedExecutionEngine {
         AiTool tool = registry.require(req.getToolName());
         audit.append("tool_confirmation", principal.userId(), tool.name() + " approved");
         ExecutionOutcome outcome = run(tool, parseArgs(req.getArgsJson()), principal);
-        req.setStatus("approved");
+        req.setStatus(ConfirmationLifecycle.APPROVED);
         req.setDecidedAt(Instant.now());
         req.setResultId(outcome.effectId());
         confirmations.save(req);
@@ -88,11 +90,11 @@ public class GovernedExecutionEngine {
     /** Decline a pending confirmation — nothing is written. */
     public ExecutionOutcome decline(String token, Principal principal) {
         ConfirmationRequest req = confirmations.requireOwnedPending(token, principal);
-        req.setStatus("declined");
+        req.setStatus(ConfirmationLifecycle.DECLINED);
         req.setDecidedAt(Instant.now());
         confirmations.save(req);
         audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined");
-        return new ExecutionOutcome("declined", null, null, null, null);
+        return new ExecutionOutcome(ConfirmationLifecycle.DECLINED, null, null, null, null);
     }
 
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal) {

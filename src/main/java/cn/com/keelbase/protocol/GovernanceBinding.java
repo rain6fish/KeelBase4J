@@ -12,9 +12,12 @@ import java.util.List;
  */
 public final class GovernanceBinding {
 
+    /** The check that refuses a tool on its risk level alone (R5 — irreversible or external). */
+    public static final String DENY_RISK_POLICY = "risk_policy";
+
     /** Closed set of denial reasons a gate may report. */
     public static final List<String> DENY_CHECKS = List.of(
-            "risk_policy",
+            DENY_RISK_POLICY,
             "tool_enabled",
             "role_allowed",
             "feature_flag",

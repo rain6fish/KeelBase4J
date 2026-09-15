@@ -2,6 +2,7 @@
 package cn.com.keelbase.runtime.tool;
 
 import cn.com.keelbase.runtime.authz.OwnershipGuard;
+import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
 import cn.com.keelbase.runtime.identity.Principal;
@@ -47,7 +48,7 @@ public class AnalyzeCustomerRiskTool implements AiTool {
         if (customer == null) {
             return ToolResult.fail("customer not found: " + customerId);
         }
-        guard.requireAccess(principal, customer.getOwnerUserId());
+        guard.requireAccess(principal, "Customer", PermissionAuthorizer.ACTION_READ, customer.getOwnerUserId());
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("customerId", customer.getId());

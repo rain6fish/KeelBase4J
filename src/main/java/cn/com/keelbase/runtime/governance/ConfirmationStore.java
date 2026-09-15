@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.governance;
 
+import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -32,7 +33,7 @@ public class ConfirmationStore {
         if (!req.getOperatorId().equals(principal.userId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "confirmation belongs to another operator");
         }
-        if (!"pending".equals(req.getStatus())) {
+        if (!ConfirmationLifecycle.PENDING.equals(req.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "confirmation already " + req.getStatus());
         }
         return req;

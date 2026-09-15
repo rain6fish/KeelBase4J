@@ -4,6 +4,7 @@ package cn.com.keelbase.runtime.web;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.effect.SideEffectService;
+import cn.com.keelbase.runtime.identity.IdentityEvidence;
 import cn.com.keelbase.runtime.identity.IdentityResolver;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.util.LinkedHashMap;
@@ -33,8 +34,9 @@ public class EffectController {
     @GetMapping("/ai/tool-effects")
     public List<Map<String, Object>> list(
             @RequestHeader(value = "X-User-Id", required = false) String userId,
-            @RequestHeader(value = "X-User-Role", required = false) String role) {
-        Principal principal = identities.resolve(userId, role);
+            @RequestHeader(value = "X-User-Role", required = false) String role,
+            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+        Principal principal = identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
         List<SideEffect> effects = principal.isManager()
                 ? repository.findAll()
                 : repository.findByUserIdOrderByIdDesc(principal.userId());
@@ -45,8 +47,9 @@ public class EffectController {
     public Map<String, Object> revoke(
             @PathVariable Long id,
             @RequestHeader(value = "X-User-Id", required = false) String userId,
-            @RequestHeader(value = "X-User-Role", required = false) String role) {
-        Principal principal = identities.resolve(userId, role);
+            @RequestHeader(value = "X-User-Role", required = false) String role,
+            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+        Principal principal = identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
         SideEffect effect = sideEffects.revoke(id, principal);
         return Map.of(
                 "effectId", effect.getId(),

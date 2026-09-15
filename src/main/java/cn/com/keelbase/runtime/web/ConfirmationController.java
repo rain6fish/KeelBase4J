@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.web;
 
+import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
+import cn.com.keelbase.runtime.identity.IdentityEvidence;
 import cn.com.keelbase.runtime.identity.IdentityResolver;
 import cn.com.keelbase.runtime.identity.Principal;
 import org.springframework.http.HttpStatus;
@@ -30,15 +32,18 @@ public class ConfirmationController {
             @PathVariable String token,
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-User-Role", required = false) String role,
+            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject,
             @RequestBody DecisionRequest request) {
-        Principal principal = identities.resolve(userId, role);
-        String decision = request.decision();
-        if ("approve".equals(decision)) {
+        Principal principal = identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+        String decision;
+        try {
+            decision = ConfirmationLifecycle.normalizeDecision(request.decision());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+        if (ConfirmationLifecycle.APPROVE.equals(decision)) {
             return engine.approve(token, principal);
         }
-        if ("decline".equals(decision) || "reject".equals(decision)) {
-            return engine.decline(token, principal);
-        }
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "decision must be approve or decline");
+        return engine.decline(token, principal);
     }
 }

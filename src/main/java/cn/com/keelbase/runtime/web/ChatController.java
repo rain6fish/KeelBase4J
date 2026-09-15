@@ -3,6 +3,7 @@ package cn.com.keelbase.runtime.web;
 
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
+import cn.com.keelbase.runtime.identity.IdentityEvidence;
 import cn.com.keelbase.runtime.identity.IdentityResolver;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.util.LinkedHashMap;
@@ -34,8 +35,9 @@ public class ChatController {
     public ExecutionOutcome chat(
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-User-Role", required = false) String role,
+            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject,
             @RequestBody ChatRequest request) {
-        Principal principal = identities.resolve(userId, role);
+        Principal principal = identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
         String message = request.message() == null ? "" : request.message();
         Map<String, Object> args = new LinkedHashMap<>();
         args.put("customerId", request.customerId());
