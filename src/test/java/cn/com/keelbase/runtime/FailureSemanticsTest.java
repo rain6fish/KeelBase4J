@@ -53,15 +53,11 @@ import org.springframework.web.server.ResponseStatusException;
  * to the contract instead of to whatever the code happens to do. Every vector id must be handled —
  * a new outcome in the vector fails here rather than passing unnoticed.
  *
- * <p>Honest boundaries (not reproduced — the spike has no surface for them):
+ * <p>Honest boundary (not reproduced — the spike has no surface for it):
  * <ul>
  *   <li>{@code timeout} — the spike's tools make no external calls, so the <em>boundedness</em> of a
  *       real upstream timeout is not exercised; what is reproduced is the wire half: a failed call
  *       surfaces as a failure and records no side effect (never a fake success).</li>
- *   <li>{@code unique_conflict_idempotent} — reproduced as "no fork is possible" (the DB unique
- *       constraint is the backstop). The graceful idempotent-skip on a true concurrent race is
- *       <em>not</em> implemented: the reference catches the conflict and re-reads the existing row,
- *       Java would surface the integrity violation.</li>
  * </ul>
  * The main repo's gate additionally checks that each {@code wireSchema} is a frozen registry object;
  * the registry is not vendored here, so only the presence of the binding is asserted.
@@ -184,14 +180,42 @@ class FailureSemanticsTest {
         assertEquals(first.getId(), second.getId(), "a repeat call must reuse the existing effect");
     }
 
-    /** FP-5 — a duplicate effect key cannot fork: the DB unique constraint is the backstop. */
+    /**
+     * FP-5 — a duplicate effect key cannot fork: the DB unique constraint is the backstop, and the
+     * loser of a concurrent race resolves to the winner's row instead of surfacing an error.
+     */
     private void duplicateEffectKeyCannotFork() {
         String key = "failure-semantics:fp5:" + UUID.randomUUID();
-        sideEffectRepository.saveAndFlush(
+        SideEffect winner = sideEffectRepository.saveAndFlush(
                 new SideEffect(key, "alice", "create_followup", "follow_up", 1L, "local_compensate"));
 
         assertThrows(DataIntegrityViolationException.class, () -> sideEffectRepository.saveAndFlush(
                 new SideEffect(key, "alice", "create_followup", "follow_up", 2L, "local_compensate")));
+
+        // The same race driven through the service: the lookup misses, the insert hits the unique
+        // key, and the call is an idempotent skip onto the winner's row — not a failure.
+        SideEffectRepository racing = mock(SideEffectRepository.class);
+        when(racing.findByIdempotencyKey(anyString()))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winner));
+        when(racing.saveAndFlush(any(SideEffect.class)))
+                .thenThrow(new DataIntegrityViolationException("unique idempotency_key"));
+        SideEffectService secondRacer = new SideEffectService(racing, mock(FollowUpRepository.class));
+
+        SideEffect resolved = secondRacer.record(new Principal("alice", "user"), "create_followup",
+                "follow_up", 2L, "{}", "local_compensate");
+        assertEquals(winner.getId(), resolved.getId(), "the loser must reuse the winner's effect");
+
+        // A conflict that is NOT this key must still fail: the re-read finds nothing, so the original
+        // violation stands rather than being swallowed into a fake idempotent hit.
+        SideEffectRepository unrelated = mock(SideEffectRepository.class);
+        when(unrelated.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+        when(unrelated.saveAndFlush(any(SideEffect.class)))
+                .thenThrow(new DataIntegrityViolationException("unique result_id"));
+        SideEffectService otherConflict = new SideEffectService(unrelated, mock(FollowUpRepository.class));
+
+        assertThrows(DataIntegrityViolationException.class, () -> otherConflict.record(
+                new Principal("alice", "user"), "create_followup", "follow_up", 1L, "{}", "local_compensate"));
     }
 
     /** FP-4 — a DB error is rethrown, not swallowed into a fake idempotent hit. */

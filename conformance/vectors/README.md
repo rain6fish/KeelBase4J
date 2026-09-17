@@ -42,6 +42,6 @@ via `scripts/sync-vectors.sh`.
 > | `confirmation-lifecycle-v1` | `ConfirmationLifecycleTest` + `ConfirmationLifecycle` |
 > | `failure-semantics-v1` | `FailureSemanticsTest` |
 >
-> Two `failure-semantics-v1` invariants are reproduced only in part — the spike has no surface for
-> the rest; both are listed with reasons in `FailureSemanticsTest`'s class comment. See
+> One `failure-semantics-v1` invariant is reproduced only in part — the spike has no surface for the
+> rest; it is listed with its reason in `FailureSemanticsTest`'s class comment. See
 > `KeelBase4J-Spike-报告_2026-09-14.md` §5.

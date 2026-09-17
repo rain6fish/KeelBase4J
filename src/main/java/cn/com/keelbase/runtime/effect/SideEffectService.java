@@ -7,6 +7,8 @@ import cn.com.keelbase.runtime.identity.Principal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.Optional;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,7 +18,13 @@ import org.springframework.web.server.ResponseStatusException;
  * Records and revokes AI write side effects.
  *
  * <p>Idempotency is content-derived (user + tool + args), so re-running the same call reuses the
- * existing effect instead of writing twice. Revocation is class-aware: this spike only has local
+ * existing effect instead of writing twice. A <em>concurrent</em> duplicate — two calls that both
+ * miss the lookup — is resolved the same way: the unique key rejects the loser, which then re-reads
+ * and returns the row the winner wrote. That is the frozen {@code unique_conflict_idempotent}
+ * disposition: skip, never fork, and never surface a spurious failure. Only a conflict on this key
+ * is treated that way; any other integrity failure is still a real failure.
+ *
+ * <p>Revocation is class-aware: this spike only has local
  * entities, so revoke means a local soft delete ({@code local_compensate}) — never a claim of
  * "reverted" for something that cannot be.
  */
@@ -31,13 +39,30 @@ public class SideEffectService {
         this.followUps = followUps;
     }
 
-    @Transactional
+    /**
+     * Record the effect for this call, or reuse the one this content already produced.
+     *
+     * <p>Deliberately not {@code @Transactional}: the insert must be able to fail and roll back
+     * <em>on its own</em>, so the retry below reads from a fresh persistence context. Wrapping both
+     * in one transaction would poison it on the first conflict (the persistence context is unusable
+     * after a constraint violation), and would keep working on H2 only by accident.
+     */
     public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
                              String argsJson, String revokeClass) {
         String key = idempotencyKey(principal.userId(), toolName, argsJson);
-        return repository.findByIdempotencyKey(key)
-                .orElseGet(() -> repository.save(
-                        new SideEffect(key, principal.userId(), toolName, resultType, resultId, revokeClass)));
+        Optional<SideEffect> existing = repository.findByIdempotencyKey(key);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        try {
+            return repository.saveAndFlush(
+                    new SideEffect(key, principal.userId(), toolName, resultType, resultId, revokeClass));
+        } catch (DataIntegrityViolationException race) {
+            // A concurrent call with the same key won. The effect exists, so this call is a skip, not
+            // a failure — return the winner's row. If the re-read finds nothing the violation was
+            // something other than this key, and the original failure stands.
+            return repository.findByIdempotencyKey(key).orElseThrow(() -> race);
+        }
     }
 
     @Transactional
