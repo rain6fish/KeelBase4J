@@ -5,6 +5,8 @@ import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
 import cn.com.keelbase.runtime.identity.Principal;
+import cn.com.keelbase.runtime.pipeline.IntentPlan;
+import cn.com.keelbase.runtime.pipeline.ToolCallPlanner;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -14,9 +16,13 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * The AI entry point. A deterministic intent router maps a message to a tool, then hands off to
- * the governed engine — so an AI request and a direct tool call run through exactly the same
- * boundary. (A real deployment swaps the router for a model; the boundary does not change.)
+ * The AI entry point. A planner decides what to call, then hands off to the governed engine — so an
+ * AI request and a direct tool call run through exactly the same boundary.
+ *
+ * <p>This controller has no opinion about how the decision was reached, and that is the point: the
+ * planner is a seam ({@link ToolCallPlanner}), and a model-driven pipeline plugs into it without this
+ * boundary moving. What it decided is gated downstream exactly as before — a planner proposes, the
+ * runtime disposes.
  *
  * <p>The acting identity comes from the authenticated request rather than the body, and an
  * unauthenticated caller never reaches this method at all.
@@ -25,29 +31,25 @@ import org.springframework.web.server.ResponseStatusException;
 public class ChatController {
 
     private final CurrentPrincipal principals;
+    private final ToolCallPlanner planner;
     private final GovernedExecutionEngine engine;
 
-    public ChatController(CurrentPrincipal principals, GovernedExecutionEngine engine) {
+    public ChatController(CurrentPrincipal principals, ToolCallPlanner planner,
+                          GovernedExecutionEngine engine) {
         this.principals = principals;
+        this.planner = planner;
         this.engine = engine;
     }
 
     @PostMapping("/ai/chat")
     public ExecutionOutcome chat(@RequestBody ChatRequest request) {
         Principal principal = principals.current();
-        String message = request.message() == null ? "" : request.message();
-        Map<String, Object> args = new LinkedHashMap<>();
-        args.put("customerId", request.customerId());
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("customerId", request.customerId());
 
-        String tool;
-        if (message.contains("风险") || message.contains("分析")) {
-            tool = "analyze_customer_risk";
-        } else if (message.contains("跟进") || message.contains("创建")) {
-            tool = "create_followup";
-            args.put("note", message);
-        } else {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cannot route message to a tool");
-        }
-        return engine.execute(tool, args, principal);
+        IntentPlan plan = planner.plan(request.message(), context)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "cannot route message to a tool"));
+        return engine.execute(plan.tool(), plan.args(), principal);
     }
 }

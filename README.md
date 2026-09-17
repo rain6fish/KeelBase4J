@@ -78,7 +78,7 @@ Endpoints (a caller authenticates with a delegation token — see below):
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/ai/chat` | deterministic intent router → governed tool call |
+| POST | `/ai/chat` | planner → governed tool call (the shipped planner routes by rules) |
 | POST | `/ai/confirmations/{token}` | `approve` (executes) or `decline` (writes nothing) |
 | GET | `/ai/tool-effects` | list recorded side effects |
 | DELETE | `/ai/tool-effects/{id}` | revoke → local compensation (soft delete) |
@@ -127,6 +127,22 @@ Three properties are load-bearing, and each has a test:
 
 `org-membership-scope` used to be carried but always empty; the department facts behind it are real
 now, which is what lets a range name a department at all.
+
+### The AI seam
+
+Deciding *what to call* is a seam (`ToolCallPlanner`), not something the entry point does inline. The
+runtime ships one planner that routes by rules, so the trust loop is reproducible without a model; a
+Spring AI or LangChain4j adapter implements the same interface and replaces it as a bean.
+
+The seam is a seam and not a way around the boundary because of what a plan may contain: a tool name
+and its arguments, and nothing else. Risk level, confirmation, audit and revoke come from the tool's
+own declaration and are applied by the engine, downstream and unconditionally. **A planner proposes;
+the runtime disposes** — and `ToolCallPlannerTest` pins that by replacing the planner with one that
+proposes a write and asserting the write is still held for a human.
+
+What is deliberately *not* here: model or provider configuration. Choosing a provider is a deployment
+concern, and a runtime that grew its own abstraction for it would be owning an AI pipeline rather than
+accepting one (ADR-0004 Parked).
 
 `TrustLoopTest` walks the whole loop over HTTP: read auto-executes → write is gated (nothing
 written) → approve executes and records a side effect → the audit chain verifies → revoke soft-
