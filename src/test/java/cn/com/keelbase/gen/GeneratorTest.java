@@ -65,7 +65,7 @@ class GeneratorTest {
         Path out = Path.of("target", "gen-test");
         deleteRecursively(out);
 
-        List<Path> written = new JavaGenerator().generate(spec, out);
+        List<Path> written = new JavaGenerator().generate(spec, out).files();
 
         // The generator produced ordinary source files.
         List<String> paths = written.stream().map(p -> p.toString().replace('\\', '/')).toList();

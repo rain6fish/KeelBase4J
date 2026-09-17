@@ -31,8 +31,14 @@ public final class GeneratorMain {
         if (changed) {
             spec = parser.applyChange(spec, CHANGE);
         }
-        var files = new JavaGenerator().generate(spec, out);
-        System.out.println("generated " + files.size() + " files into " + out
+        JavaGenerator.Generation generation = new JavaGenerator().generate(spec, out);
+        System.out.println("generated " + generation.files().size() + " files into " + out
                 + (changed ? " (change applied)" : ""));
+        if (!generation.clean()) {
+            // Loud on purpose: a merge that could not be resolved must not read like a clean run.
+            System.err.println("could not merge " + generation.conflicts().size() + " file(s):");
+            generation.conflicts().forEach(conflict -> System.err.println("  " + conflict));
+            System.exit(1);
+        }
     }
 }

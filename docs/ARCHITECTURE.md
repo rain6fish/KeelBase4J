@@ -87,6 +87,7 @@ the protocol *library*, never on a KeelBase4J runtime service (S3 axes A and B).
 ```
 <module>/
 ├── pom.xml · README.md
+├── .keelbase/baseline/   what the generator produced last time — the base a regeneration merges against
 └── src/main/
     ├── java/com/example/<module>/
     │   ├── Application.java

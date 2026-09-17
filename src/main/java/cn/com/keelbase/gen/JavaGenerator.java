@@ -31,17 +31,20 @@ import org.springframework.stereotype.Component;
 @Component
 public class JavaGenerator {
 
-    /** Generate the project under {@code outDir}; return the files written. */
-    public List<Path> generate(BusinessSpec spec, Path outDir) {
+    /**
+     * Generate the project under {@code outDir}, merging every source file against what was generated
+     * there last time — see {@link Project}. Returns what was written and what could not be merged.
+     */
+    public Generation generate(BusinessSpec spec, Path outDir) {
         String pkg = "com.example." + spec.module();
         Path javaDir = outDir.resolve("src/main/java").resolve(pkg.replace('.', '/'));
         Path resources = outDir.resolve("src/main/resources");
-        List<Path> written = new ArrayList<>();
+        Project project = new Project(outDir);
 
-        written.add(writePreserving(outDir.resolve("pom.xml"), pom(spec)));
-        written.add(writePreserving(outDir.resolve("README.md"), readme(spec)));
-        written.add(writePreserving(resources.resolve("application.properties"), properties(spec.module())));
-        written.add(writePreserving(javaDir.resolve("Application.java"), application(pkg)));
+        project.write(outDir.resolve("pom.xml"), pom(spec));
+        project.write(outDir.resolve("README.md"), readme(spec));
+        project.write(resources.resolve("application.properties"), properties(spec.module()));
+        project.write(javaDir.resolve("Application.java"), application(pkg));
 
         // Schema migrations. The migration history *is* the schema state: the generator reads the
         // migrations already in the project to learn which columns exist, and emits only what is
@@ -51,59 +54,159 @@ public class JavaGenerator {
         Path migrationDir = resources.resolve("db/migration");
         Map<String, Set<String>> applied = appliedColumns(migrationDir);
         if (applied.isEmpty()) {
-            written.add(writeIfAbsent(migrationDir.resolve("V1__" + spec.module() + "_baseline.sql"),
-                    migrationBaseline(spec)));
+            project.keep(migrationDir.resolve("V1__" + spec.module() + "_baseline.sql"),
+                    migrationBaseline(spec));
         } else {
             Map<String, List<String>> missing = missingColumns(spec, applied);
             if (!missing.isEmpty()) {
-                written.add(writeIfAbsent(
+                project.keep(
                         migrationDir.resolve("V" + (highestVersion(migrationDir) + 1) + "__"
                                 + describe(missing) + ".sql"),
-                        migrationAlter(missing)));
+                        migrationAlter(missing));
             }
         }
 
         for (EntitySpec entity : spec.entities()) {
-            written.add(writePreserving(javaDir.resolve("domain/" + entity.name() + ".java"), entityClass(pkg, entity)));
-            written.add(writePreserving(javaDir.resolve("domain/" + entity.name() + "Repository.java"), repository(pkg, entity)));
+            project.write(javaDir.resolve("domain/" + entity.name() + ".java"), entityClass(pkg, entity));
+            project.write(javaDir.resolve("domain/" + entity.name() + "Repository.java"), repository(pkg, entity));
         }
 
         // Governance wiring (self-contained; the runtime is generated into the app).
-        written.add(writePreserving(javaDir.resolve("ai/AiTool.java"), aiToolInterface(pkg)));
-        written.add(writePreserving(javaDir.resolve("ai/GovernanceGate.java"), governanceGate(pkg)));
-        written.add(writePreserving(javaDir.resolve("ai/ToolRegistry.java"), toolRegistry(pkg)));
-        written.add(writePreserving(javaDir.resolve("ai/ConfirmationStore.java"), confirmationStore(pkg)));
-        written.add(writePreserving(javaDir.resolve("ai/SideEffectStore.java"), sideEffectStore(pkg)));
-        written.add(writePreserving(javaDir.resolve("ai/AuditChainStore.java"), auditChainStore(pkg)));
-        written.add(writePreserving(javaDir.resolve("ai/GovernanceEngine.java"), governanceEngine(pkg)));
+        project.write(javaDir.resolve("ai/AiTool.java"), aiToolInterface(pkg));
+        project.write(javaDir.resolve("ai/GovernanceGate.java"), governanceGate(pkg));
+        project.write(javaDir.resolve("ai/ToolRegistry.java"), toolRegistry(pkg));
+        project.write(javaDir.resolve("ai/ConfirmationStore.java"), confirmationStore(pkg));
+        project.write(javaDir.resolve("ai/SideEffectStore.java"), sideEffectStore(pkg));
+        project.write(javaDir.resolve("ai/AuditChainStore.java"), auditChainStore(pkg));
+        project.write(javaDir.resolve("ai/GovernanceEngine.java"), governanceEngine(pkg));
 
         for (ToolSpec tool : spec.tools()) {
-            written.add(writePreserving(javaDir.resolve("ai/" + pascal(tool.name()) + "Tool.java"), toolClass(pkg, tool, spec)));
+            project.write(javaDir.resolve("ai/" + pascal(tool.name()) + "Tool.java"), toolClass(pkg, tool, spec));
         }
 
         // Identity seam + contract-derived authorization. The same shape the KeelBase4J runtime wires,
         // emitted as this app's own source: the identity is resolved once per request, and every
         // access decision comes out in the frozen permission-* vocabulary rather than from a role
         // string compared inline. The app still depends only on the protocol *library*.
-        written.add(writePreserving(javaDir.resolve("identity/Principal.java"), principal(pkg)));
-        written.add(writePreserving(javaDir.resolve("identity/IdentityEvidence.java"), identityEvidence(pkg)));
-        written.add(writePreserving(javaDir.resolve("identity/IdentityResolver.java"), identityResolver(pkg)));
-        written.add(writePreserving(
-                javaDir.resolve("identity/HeaderIdentityResolver.java"), headerIdentityResolver(pkg)));
-        written.add(writePreserving(
-                javaDir.resolve("authz/AuthorizationRules.java"), authorizationRules(pkg, spec)));
-        written.add(writePreserving(
-                javaDir.resolve("authz/PermissionAuthorizer.java"), permissionAuthorizer(pkg)));
-        written.add(writePreserving(javaDir.resolve("authz/OwnershipGuard.java"), ownershipGuard(pkg)));
+        project.write(javaDir.resolve("identity/Principal.java"), principal(pkg));
+        project.write(javaDir.resolve("identity/IdentityEvidence.java"), identityEvidence(pkg));
+        project.write(javaDir.resolve("identity/IdentityResolver.java"), identityResolver(pkg));
+        project.write(javaDir.resolve("identity/HeaderIdentityResolver.java"), headerIdentityResolver(pkg));
+        project.write(javaDir.resolve("authz/AuthorizationRules.java"), authorizationRules(pkg, spec));
+        project.write(javaDir.resolve("authz/PermissionAuthorizer.java"), permissionAuthorizer(pkg));
+        project.write(javaDir.resolve("authz/OwnershipGuard.java"), ownershipGuard(pkg));
 
-        written.add(writePreserving(javaDir.resolve("web/AiController.java"), aiController(pkg)));
-        written.add(writePreserving(javaDir.resolve("web/AuthController.java"), authController(pkg)));
-        written.add(writePreserving(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg)));
+        project.write(javaDir.resolve("web/AiController.java"), aiController(pkg));
+        project.write(javaDir.resolve("web/AuthController.java"), authController(pkg));
+        project.write(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg));
         // One CRUD controller for the primary entity, enforcing the spec's policy rules.
         EntitySpec primary = spec.entities().get(0);
-        written.add(writePreserving(javaDir.resolve("web/" + primary.name() + "Controller.java"),
-                entityController(pkg, primary, spec)));
-        return written;
+        project.write(javaDir.resolve("web/" + primary.name() + "Controller.java"),
+                entityController(pkg, primary, spec));
+        return project.done();
+    }
+
+    /**
+     * The outcome of one generation.
+     *
+     * @param files     every path the run wrote or considered
+     * @param conflicts paths the merge could not resolve — either written with {@code diff3} conflict
+     *                  markers for the developer to settle, or left untouched because there was no
+     *                  recorded baseline to merge against at all
+     */
+    public record Generation(List<Path> files, List<String> conflicts) {
+
+        /** True when every file merged cleanly. */
+        public boolean clean() {
+            return conflicts.isEmpty();
+        }
+    }
+
+    /**
+     * Per-run file writer. Every source file is a three-way merge: what the generator produced last
+     * time (the baseline it records), what the file is now (the developer's, hand-edited anywhere),
+     * and what it would produce now. Nothing written by hand is dropped silently — a region both
+     * sides changed becomes a marked conflict and is reported rather than guessed at.
+     *
+     * <p>The marker block the generated sources carry is a <em>suggestion</em> of where to put your
+     * code, not the mechanism: an edit anywhere in the file is merged the same way.
+     */
+    private final class Project {
+
+        private final Path outDir;
+        private final Path baselineDir;
+        private final List<Path> written = new ArrayList<>();
+        private final List<String> conflicts = new ArrayList<>();
+
+        Project(Path outDir) {
+            this.outDir = outDir;
+            this.baselineDir = outDir.resolve(".keelbase/baseline");
+        }
+
+        /** Merge one source file against its recorded baseline and write the result. */
+        void write(Path path, String fresh) {
+            written.add(path);
+            String relative = outDir.relativize(path).toString().replace('\\', '/');
+            Path baseline = baselineDir.resolve(relative);
+            String mine = readOrNull(path);
+            String base = readOrNull(baseline);
+
+            String merged;
+            if (mine == null) {
+                merged = fresh;
+            } else if (base == null) {
+                // Nothing here records us producing this file, so the developer's work cannot be told
+                // apart from our own output. Overwriting would be a guess about their code.
+                conflicts.add(relative + " (no recorded baseline; left untouched)");
+                return;
+            } else if (mine.equals(base)) {
+                merged = fresh;
+            } else {
+                ThreeWayMerge.Result result;
+                try {
+                    result = ThreeWayMerge.merge(lines(base), lines(mine), lines(fresh));
+                } catch (ThreeWayMerge.TooLargeToMergeException tooLarge) {
+                    conflicts.add(relative + " (" + tooLarge.getMessage() + ")");
+                    writeFile(baseline, fresh);
+                    return;
+                }
+                if (result.conflicted()) {
+                    conflicts.add(relative);
+                }
+                merged = String.join("\n", result.lines());
+            }
+            writeFile(path, merged);
+            // The baseline tracks what *we* produce, not the merge result: next time, the developer's
+            // edits are still a difference against it, so they survive again.
+            writeFile(baseline, fresh);
+        }
+
+        /** Migrations are immutable: write one the first time and never merge into it. */
+        void keep(Path path, String content) {
+            written.add(path);
+            writeIfAbsent(path, content);
+        }
+
+        Generation done() {
+            return new Generation(List.copyOf(written), List.copyOf(conflicts));
+        }
+    }
+
+    private static String readOrNull(Path path) {
+        try {
+            return Files.exists(path) ? Files.readString(path, StandardCharsets.UTF_8) : null;
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot read " + path, e);
+        }
+    }
+
+    /** Split on newlines keeping a trailing empty line, so join round-trips the file exactly. */
+    private static List<String> lines(String content) {
+        return List.of(content.split("\n", -1));
+    }
+
+    private static void writeFile(Path path, String content) {
+        write(path, content);
     }
 
     // ── project files ───────────────────────────────────────────────────────────
@@ -187,6 +290,12 @@ public class JavaGenerator {
                     .append(" | ").append(t.requiresConfirmation() ? "yes" : "no").append(" |\n");
         }
         sb.append("\n## Run\n\n```\nmvn spring-boot:run\n```\n");
+        sb.append("\n## Regenerating\n\n");
+        sb.append("Edit this code freely, anywhere — the marker block is only a suggestion of where it\n");
+        sb.append("is least likely to collide with a generated change. `.keelbase/baseline/` records what\n");
+        sb.append("the generator produced last time and is what lets a regeneration merge your edits\n");
+        sb.append("instead of overwriting them, so **keep it in version control**. A region both sides\n");
+        sb.append("changed is left with `diff3` conflict markers rather than resolved by a guess.\n");
         return sb.toString();
     }
 
@@ -1499,7 +1608,13 @@ public class JavaGenerator {
                 + "            @RequestHeader(value = \"X-Oidc-Sub\", required = false) String oidcSubject) {\n";
     }
 
+    /**
+     * A suggested spot for hand-written code. Regeneration no longer keys off these markers — an edit
+     * anywhere in the file is merged the same way (see {@link Project}) — so they are advice about
+     * where code is least likely to collide with a generated change, not a contract.
+     */
     static final String USER_BEGIN = "// <keelbase:user-code>";
+
     static final String USER_END = "// </keelbase:user-code>";
 
     /** The empty user-code region as emitted by the generator (content between the markers). */
@@ -1507,16 +1622,6 @@ public class JavaGenerator {
 
     private static String userCodeBlock() {
         return "    " + USER_BEGIN + USER_EMPTY + USER_END + "\n";
-    }
-
-    /** Extract the content between the user-code markers, or {@code null} if absent. */
-    static String userCode(String content) {
-        int b = content.indexOf(USER_BEGIN);
-        int e = content.indexOf(USER_END);
-        if (b < 0 || e < 0 || e < b) {
-            return null;
-        }
-        return content.substring(b + USER_BEGIN.length(), e);
     }
 
     private static Path write(Path path, String content) {
@@ -1527,28 +1632,6 @@ public class JavaGenerator {
         } catch (IOException e) {
             throw new UncheckedIOException("cannot write " + path, e);
         }
-    }
-
-    /**
-     * Write a file, preserving any developer code that lives inside the {@code keelbase:user-code}
-     * region of an existing file. This is what makes regeneration safe: generated parts are
-     * refreshed, hand-written parts survive.
-     */
-    static Path writePreserving(Path path, String content) {
-        String merged = content;
-        if (Files.exists(path)) {
-            try {
-                String existing = Files.readString(path, StandardCharsets.UTF_8);
-                String existingBlock = userCode(existing);
-                String freshBlock = userCode(content);
-                if (existingBlock != null && freshBlock != null) {
-                    merged = content.replace(USER_BEGIN + freshBlock + USER_END, USER_BEGIN + existingBlock + USER_END);
-                }
-            } catch (IOException e) {
-                throw new UncheckedIOException("cannot read " + path, e);
-            }
-        }
-        return write(path, merged);
     }
 
     static String javaType(String type) {

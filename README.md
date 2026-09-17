@@ -152,6 +152,26 @@ It generates v1, runs the app, writes a row, applies a change, rebuilds on the *
 checks the row is still there with the added column — while the baseline migration stayed
 byte-identical and the second run rolled forward exactly one version.
 
+### G3 — regeneration merges the developer's edits
+
+Regeneration is a **three-way merge**, not an overwrite: what the generator produced last time
+(recorded under `.keelbase/baseline/`), what the file is now, and what it would produce this time. An
+edit **anywhere** in a file survives — the `user-code` marker block the generated sources carry is now
+only a suggestion of where code is least likely to collide, not the mechanism. A region both sides
+changed is left with `diff3` conflict markers and **reported** by the generator rather than resolved by
+a guess; a file the generator never produced is left untouched and reported rather than replaced.
+
+```bash
+bash scripts/demo-changeability.sh
+```
+
+It hand-edits the generated entity *outside* the marker block — the edit the old mechanism silently
+discarded — and checks it is still there after the change, next to the new field.
+
+This is a **line-based** merge: it merges text, not meaning. It keeps two changes that touch different
+regions; it cannot tell that renaming a method and updating its call sites is a single change. That
+would need the program's structure rather than its lines, and is not attempted here.
+
 ## Protocol sources
 
 The authoritative protocol lives in the main repository:

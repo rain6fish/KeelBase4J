@@ -5,10 +5,14 @@
 # hand-written code, and the new rule is enforced at runtime.
 #
 #   1. install the protocol library
-#   2. generate v1, then simulate a developer hand-edit inside the user-code region
+#   2. generate v1, then simulate a developer hand-edit OUTSIDE the user-code region
 #   3. apply the change request and regenerate into the SAME directory
 #   4. assert the new field is present AND the hand edit survived
 #   5. build + run; assert the new rule: a regular user is denied, a manager is allowed
+#
+# The edit is placed outside the marker block deliberately: that is the edit the old
+# marker-splicing mechanism silently discarded, so the assertion only passes if regeneration
+# really merges.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,7 +37,7 @@ echo "== 2/5 generate v1 + developer hand-edit =="
 rm -rf "$GEN_DIR"
 mvn -q -B -DskipTests compile exec:java \
   -Dexec.mainClass=cn.com.keelbase.gen.GeneratorMain -Dexec.args="$GEN_DIR"
-sed -i 's#// <keelbase:user-code>#// <keelbase:user-code>\n    public String displayName() { return getName(); }#' "$ENTITY"
+sed -i 's#^public class Customer {#public class Customer {\n\n    /** Hand-written, deliberately outside the user-code block. */\n    public String displayName() { return getName(); }#' "$ENTITY"
 
 echo "== 3/5 apply the change request and regenerate =="
 mvn -q -B -DskipTests compile exec:java \
@@ -45,7 +49,8 @@ check() { # name expected actual — literal match: the expected strings contain
 
 echo "== 4/5 regeneration outcome =="
 check "new field 'tier' present" "tier" "$(cat "$ENTITY")"
-check "hand-written code survives" "displayName" "$(cat "$ENTITY")"
+check "hand-written code outside the marker block survives" "displayName" "$(cat "$ENTITY")"
+check "and it is still outside the marker block" "Hand-written, deliberately outside" "$(cat "$ENTITY")"
 
 echo "== 5/5 build, run, enforce the new rule =="
 mvn -q -B -f "$GEN_DIR/pom.xml" clean package -DskipTests
