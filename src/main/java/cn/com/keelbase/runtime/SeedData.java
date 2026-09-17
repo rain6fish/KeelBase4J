@@ -23,7 +23,14 @@ public class SeedData implements CommandLineRunner {
         if (customers.count() > 0) {
             return;
         }
-        customers.save(new Customer("Acme Industrial", "high", "alice"));
-        customers.save(new Customer("Globex Trading", "medium", "bob"));
+        // Stamped with the organization and department they belong to, the way a create path would:
+        // a row without them is reachable by its owner only, which is the tightening direction.
+        Customer industrial = new Customer("Acme Industrial", "high", "alice");
+        industrial.assign(1L, 11L);
+        customers.save(industrial);
+
+        Customer trading = new Customer("Globex Trading", "medium", "bob");
+        trading.assign(1L, 12L);
+        customers.save(trading);
     }
 }

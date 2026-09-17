@@ -21,8 +21,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class LocalIdentities {
 
-    /** A local identity: the user id a subject maps to, and the role that user holds here. */
-    public record Entry(String userId, String role) {
+    /**
+     * A local identity: the user a subject maps to, the role they hold here, and where they sit in
+     * the organization. The organization facts are what let a row range name a department — an
+     * identity without them simply ranges over its own rows (see {@code runtime.scope}).
+     *
+     * @param orgId  the organization this user belongs to, or {@code null} when this deployment has none
+     * @param deptId the department inside that organization, or {@code null}
+     */
+    public record Entry(String userId, String role, Long orgId, String orgName, Long deptId) {
     }
 
     private final Map<String, Entry> bySubject;
@@ -32,12 +39,12 @@ public class LocalIdentities {
         this.bySubject = Map.copyOf(bySubject);
     }
 
-    /** The tier-A identities this spike declares. */
+    /** The tier-A identities this spike declares: one organization, a manager above two salespeople. */
     public LocalIdentities() {
         this(Map.of(
-                "local:alice", new Entry("alice", Principal.ROLE_USER),
-                "local:bob", new Entry("bob", Principal.ROLE_USER),
-                "local:carol", new Entry("carol", Principal.ROLE_ADMIN)));
+                "local:alice", new Entry("alice", Principal.ROLE_USER, 1L, "Acme", 11L),
+                "local:bob", new Entry("bob", Principal.ROLE_USER, 1L, "Acme", 12L),
+                "local:carol", new Entry("carol", Principal.ROLE_ADMIN, 1L, "Acme", 10L)));
     }
 
     /**

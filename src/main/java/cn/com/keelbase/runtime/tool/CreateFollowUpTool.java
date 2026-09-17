@@ -60,7 +60,7 @@ public class CreateFollowUpTool implements AiTool {
         if (customer == null) {
             return ToolResult.fail("customer not found: " + customerId);
         }
-        guard.requireAccess(principal, "Customer", PermissionAuthorizer.ACTION_READ, customer.getOwnerUserId());
+        guard.requireAccess(principal, customer, "Customer", PermissionAuthorizer.ACTION_READ);
 
         FollowUp saved = followUps.save(new FollowUp(customerId, note, dueDate, principal.userId()));
         Map<String, Object> out = new LinkedHashMap<>();

@@ -63,7 +63,8 @@ boundary.
 | `domain` | `Customer` / `FollowUp` entities + repositories (own-scope, soft-deletable) |
 | `identity` | `Principal` (wire-shaped identity) + `IdentityResolver` SPI + `IdentityEvidence` + `AuthenticatedSubject` + `SecurityIdentityResolver` (the default adapter) + `LocalIdentities` (subject → local user/role, tier A) + `CurrentPrincipal` (what the web layer asks) |
 | `security` | What answers *who is this request*: `DelegationTokenAuthenticationFilter` (verifies the frozen token) + `SecurityConfig`. **No authorization lives here** — no `hasRole`, no `@PreAuthorize`, no URL rules |
-| `authz` | `AuthorizationRules` (declared role → capability) · `PermissionAuthorizer` (self-built decision function → frozen `permission-decision` / `permission-capability-list`) · `OwnershipGuard` (row-level enforcement, driven by the decision) |
+| `authz` | `AuthorizationRules` (declared role → capability) · `PermissionAuthorizer` (self-built decision function → frozen `permission-decision` / `permission-capability-list`) · `OwnershipGuard` (the single enforcement point: coarse gate, then row gate) |
+| `scope` | The row range: `ScopeLevel` / `ScopeDescriptor` (internal, never on the wire) · `ScopeFilter` (descriptor → typed predicate, and the object-level check) · `DataScopeRules` (declared level per role) · `Departments` (declared tree) |
 | `tool` | `AiTool` contract, `ToolRegistry`, the two AI tools (R1 read / R3 write) |
 | `governance` | `GovernanceService` (risk → gate), confirmation store + entity |
 | `effect` | `SideEffect` + record/revoke (content-derived idempotency, class-aware revoke) |
@@ -211,16 +212,28 @@ verifiable.
   (boolean evaluation) while costing a parallel contract (ADR-0004 Option E). Rules come from
   `AuthorizationRules`, which is *declared* (delivery tier A: no `roles`/`permissions` table); tier B
   swaps the rule source and leaves the decision function untouched.
-- **Row-level permission is derived, not hardcoded.** `OwnershipGuard` asks the authorizer for the
-  decision and the capability's scope; `scope=all` reaches any row, `scope=own` requires ownership.
-  The cross-user 403 is therefore a consequence of the same contract either runtime serves.
+- **Access to a row is two questions, answered separately.** `OwnershipGuard` is the single enforcement
+  point: the coarse gate (`PermissionAuthorizer` — "may this action on this subject happen") and then the
+  row gate (`ScopeFilter` — "which rows"). Neither is a role check, so the cross-user 403 is a
+  consequence of the contracts rather than something hardcoded.
+- **The row range is reproduced from the reference** (`docs/data-scope.spec.md`): the levels are
+  `own` / `org` / `own_dept` / `own_dept_and_below` / `custom_dept` / `all`, expressed as an internal
+  descriptor and translated into a **typed predicate** — never a SQL string. Two rules are load-bearing:
+  missing organization or department facts **tighten** a range to `own` rather than widening it, and an
+  entity that is not in the scope registry gets **no** predicate instead of matching everything. The
+  range names never reach the wire: `permission-capability-list.scope` stays exactly `all` / `own`, and
+  a test pins that on the served shape.
+- **Identity carries the facts the range needs.** `org-membership-scope` is no longer empty — the local
+  directory maps a subject to an organization and department, which is what lets a range name one.
 - **Served surface:** `GET /auth/me/permissions` returns the frozen `permission-capability-list` at
   the same path and in the same shape as the reference (PC-1) — the single capability source a
   frontend keys page/menu/button visibility off.
 - **Spike scope:** no Keycloak, no unified permission console. Authentication is in place at the
   request entry with a locally configured token (`docs/authorization-architecture.md` §7.1); a real
-  IdP is an adapter behind the same seam, not a redesign. Organization data ranges are carried on the
-  identity but not enforced at row level (that is tier B; the spike's row scope is `own`).
+  IdP is an adapter behind the same seam, not a redesign. The row range is **in place** — tier B's
+  mechanism, reproduced from `docs/data-scope.spec.md` — with the levels **declared** rather than
+  configured in a table; making them per-role configurable is the part of tier B that remains, along
+  with the management console.
   **Generated apps are a separate story:** they carry their own `IdentityResolver` + header adapter and
   do **not** ship Spring Security, so the runtime's token-authenticated entry and a generated app's
   header seam are **not** unified — a generated app is a self-contained artifact, not this deployment.

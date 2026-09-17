@@ -13,6 +13,8 @@ import cn.com.keelbase.protocol.GovernanceBinding;
 import cn.com.keelbase.protocol.PermissionCapabilityList;
 import cn.com.keelbase.protocol.PermissionDecision;
 import cn.com.keelbase.runtime.authz.AuthorizationRules;
+import cn.com.keelbase.runtime.domain.Customer;
+import cn.com.keelbase.runtime.domain.CustomerRepository;
 import cn.com.keelbase.runtime.authz.OwnershipGuard;
 import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
@@ -73,6 +75,9 @@ class AuthorizationMappingTest {
 
     @Autowired
     GovernedExecutionEngine engine;
+
+    @Autowired
+    CustomerRepository customers;
 
     @TestConfiguration
     static class Probe {
@@ -173,18 +178,59 @@ class AuthorizationMappingTest {
     }
 
     @Test
-    void rowLevelAccessIsDerivedFromTheDecisionNotFromRoleChecks() {
-        assertDoesNotThrow(() -> guard.requireAccess(ALICE, "Customer", "read", "alice"));
+    void rowLevelAccessIsDerivedFromTheDecisionAndTheDataRangeNotFromRoleChecks() {
+        Customer own = customerOwnedBy("alice", 1L, 11L);
+        Customer foreign = customerOwnedBy("bob", 1L, 12L);
+
+        assertDoesNotThrow(() -> guard.requireAccess(ALICE, own, "Customer", "read"));
 
         ResponseStatusException denied = assertThrows(ResponseStatusException.class,
-                () -> guard.requireAccess(ALICE, "Customer", "read", "bob"));
+                () -> guard.requireAccess(ALICE, foreign, "Customer", "read"));
         assertEquals(HttpStatus.FORBIDDEN, denied.getStatusCode(),
-                "own scope + a foreign row ⇒ refused");
+                "a range of own + a foreign row ⇒ refused");
         assertEquals(PermissionDecision.REASON_DENIED_USER,
                 authorizer.decide(ALICE, "read", "Invoice").reason());
 
-        assertDoesNotThrow(() -> guard.requireAccess(MANAGER, "Customer", "read", "bob"),
-                "scope=all from the wildcard grant reaches any row");
+        assertDoesNotThrow(() -> guard.requireAccess(MANAGER, foreign, "Customer", "read"),
+                "the wildcard grant ranges over every row, so any of them is reachable");
+    }
+
+    private static Customer customerOwnedBy(String userId, Long orgId, Long deptId) {
+        Customer customer = new Customer("row of " + userId, "low", userId);
+        customer.assign(orgId, deptId);
+        return customer;
+    }
+
+    /**
+     * The list half, over the wire: a caller's range decides which rows come back, and it is applied
+     * as a query predicate rather than by filtering afterwards.
+     */
+    @Test
+    void theCustomerListServesOnlyTheCallersDataRange() {
+        customers.save(customerNamed("Range — Alice's own", "alice", 1L, 11L));
+        customers.save(customerNamed("Range — Bob's own", "bob", 1L, 12L));
+
+        List<Map<String, Object>> asAlice = listCustomers("alice");
+        assertTrue(asAlice.stream().anyMatch(r -> "Range — Alice's own".equals(r.get("name"))));
+        assertFalse(asAlice.stream().anyMatch(r -> "Range — Bob's own".equals(r.get("name"))),
+                "a range of own must not reach a colleague's row");
+
+        List<Map<String, Object>> asCarol = listCustomers("carol");
+        assertTrue(asCarol.stream().anyMatch(r -> "Range — Bob's own".equals(r.get("name"))),
+                "a range of all reaches every row");
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> listCustomers(String userId) {
+        ResponseEntity<List> res = rest.exchange("/customers", HttpMethod.GET, entity(userId, null), List.class);
+        assertEquals(200, res.getStatusCode().value(), "GET /customers");
+        return (List<Map<String, Object>>) res.getBody();
+    }
+
+    private static Customer customerNamed(String name, String owner, Long orgId, Long deptId) {
+        Customer customer = new Customer(name, "low", owner);
+        customer.assign(orgId, deptId);
+        return customer;
     }
 
     @Test

@@ -103,10 +103,30 @@ Identity remains a thin SPI (`IdentityResolver`): the default adapter turns the 
 into the frozen identity contracts (`sub` / `oidcSub` / `org-membership-scope`), and an adapter for a
 real directory implements the same seam. Authorization is **self-built** — `PermissionAuthorizer` reproduces the
 reference's ability/condition semantics and emits the frozen `permission-decision` /
-`permission-capability-list`, and `OwnershipGuard` derives row-level access from that decision rather
-than from a role check. No OPA / Casbin / Cedar, no Keycloak, no `roles`/`permissions` table (the
-rules are declared — delivery tier A). See ADR-0004 D4 and the main repo's
-`docs/authorization-architecture.md`.
+`permission-capability-list`, and `OwnershipGuard` enforces access in two steps rather than by a role
+check. No OPA / Casbin / Cedar, no Keycloak, no `roles`/`permissions` table (the rules are declared —
+delivery tier A). See ADR-0004 D4 and the main repo's `docs/authorization-architecture.md`.
+
+### The two gates, and the data range (tier B)
+
+Enforcement is deliberately two questions, kept apart as the reference's `docs/data-scope.spec.md`
+requires. `PermissionAuthorizer` answers *may this action on this subject happen at all*;
+`ScopeFilter` answers *which rows* — `own`, `org`, `own_dept`, `own_dept_and_below`, `custom_dept`,
+`all`. Inlining a row set into the decision would make a capability depend on the data, and would push
+those names into the frozen `permission-capability-list.scope` enum, which is exactly `all` / `own`.
+
+Three properties are load-bearing, and each has a test:
+
+- **Rows are ranged by a typed predicate, never a SQL string** — `GET /customers` composes one through
+  the criteria API, so there is nothing to inject into and the shape stays inspectable. Filtering a
+  fetched list instead would read rows the caller may not see.
+- **Missing facts tighten, never widen.** A range that needs an organization or department the caller
+  does not have falls back to `own`. An absence of facts must not be what makes someone see more.
+- **An entity that is not scope-filterable gets no predicate** — its caller keeps its own condition.
+  "Match everything" is the one answer this must never give.
+
+`org-membership-scope` used to be carried but always empty; the department facts behind it are real
+now, which is what lets a range name a department at all.
 
 `TrustLoopTest` walks the whole loop over HTTP: read auto-executes → write is gated (nothing
 written) → approve executes and records a side effect → the audit chain verifies → revoke soft-

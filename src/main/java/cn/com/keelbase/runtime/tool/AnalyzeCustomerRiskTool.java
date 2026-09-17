@@ -48,7 +48,7 @@ public class AnalyzeCustomerRiskTool implements AiTool {
         if (customer == null) {
             return ToolResult.fail("customer not found: " + customerId);
         }
-        guard.requireAccess(principal, "Customer", PermissionAuthorizer.ACTION_READ, customer.getOwnerUserId());
+        guard.requireAccess(principal, customer, "Customer", PermissionAuthorizer.ACTION_READ);
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("customerId", customer.getId());
