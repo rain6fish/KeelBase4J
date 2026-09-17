@@ -61,7 +61,8 @@ boundary.
 | Package | Responsibility |
 |---|---|
 | `domain` | `Customer` / `FollowUp` entities + repositories (own-scope, soft-deletable) |
-| `identity` | `Principal` (wire-shaped identity) + `IdentityResolver` SPI + `IdentityEvidence` + `HeaderIdentityResolver` (the spike's adapter) |
+| `identity` | `Principal` (wire-shaped identity) + `IdentityResolver` SPI + `IdentityEvidence` + `AuthenticatedSubject` + `SecurityIdentityResolver` (the default adapter) + `LocalIdentities` (subject → local user/role, tier A) + `CurrentPrincipal` (what the web layer asks) |
+| `security` | What answers *who is this request*: `DelegationTokenAuthenticationFilter` (verifies the frozen token) + `SecurityConfig`. **No authorization lives here** — no `hasRole`, no `@PreAuthorize`, no URL rules |
 | `authz` | `AuthorizationRules` (declared role → capability) · `PermissionAuthorizer` (self-built decision function → frozen `permission-decision` / `permission-capability-list`) · `OwnershipGuard` (row-level enforcement, driven by the decision) |
 | `tool` | `AiTool` contract, `ToolRegistry`, the two AI tools (R1 read / R3 write) |
 | `governance` | `GovernanceService` (risk → gate), confirmation store + entity |
@@ -176,12 +177,28 @@ verifiable.
 - **Security ≠ Trust.** Spring Security answers *"who is this request"* (authentication); KeelBase
   answers *"may this AI action happen under enterprise rules"* (authorization / policy / confirmation
   / audit / revoke). They are separate concerns.
+- **Authentication happens at the entry, and only there.** A caller presents a delegation token as
+  `Authorization: Bearer <jwt>`; `DelegationTokenAuthenticationFilter` verifies it with the frozen
+  protocol's own `DelegationToken.verify` — deliberately not a second JWT implementation, since two
+  verifiers are two things to keep in step. A request that fails that check never reaches a
+  controller. `SecurityConfig` then contains **no authorization at all** (ADR-0004 D3): putting role
+  rules there would not merely duplicate KeelBase's decision, it would be a second, silently
+  diverging answer to the same question. One consequence worth knowing: error dispatches are
+  permitted, because the container re-renders a handled failure (a 403 from a controller) on a fresh
+  dispatch — demanding authentication again there turns every refusal into a 401.
+- **The token proves a subject; the deployment decides what it means.** The frozen token contract has
+  no role claim — "delegation never escalates privilege: the mapped local user's own permissions
+  apply after mapping" (protocol §3). So `LocalIdentities` maps the verified subject to a local user
+  and role (tier A: declared, no user table), and an unknown subject is refused rather than defaulted.
+  The adapter this replaced read `X-User-Id` / `X-User-Role` off the request — which let a caller
+  grant itself any role. Those headers are now ignored, and `AuthenticationTest` pins that: the same
+  request that used to be an administrator is a 401.
 - **Don't own identity infrastructure; own enterprise authorization semantics.** Identity is a
   **pluggable adapter** (OIDC/OAuth2 as the protocol entry; Keycloak is one reference adapter, not a
   hard dependency). In this repo the seam is the single-method `IdentityResolver` SPI: the adapter
-  maps whatever evidence its deployment offers (`IdentityEvidence` — request headers in the spike,
-  validated OIDC/JWT claims or an LDAP bind result later) to a wire-shaped `Principal`. Swapping the
-  adapter touches nothing else; exactly one implementation must be a bean.
+  maps whatever evidence its deployment offers (`IdentityEvidence` — an authenticated subject today,
+  validated OIDC/LDAP claims later) to a wire-shaped `Principal`. Swapping the adapter touches nothing
+  else; exactly one implementation must be a bean.
 - **No new "identity contract".** Authorization semantics map onto the wire contracts already frozen
   in the KeelBase main repo — `authorization`, `permission-decision`, `permission-capability-list`,
   `org-member-item`, `org-membership-scope`, `delegation-token-claims`. Each is carried in
@@ -200,11 +217,13 @@ verifiable.
 - **Served surface:** `GET /auth/me/permissions` returns the frozen `permission-capability-list` at
   the same path and in the same shape as the reference (PC-1) — the single capability source a
   frontend keys page/menu/button visibility off.
-- **Spike scope:** no Keycloak, no unified permission console, no Spring Security wiring (parked —
-  authentication is the request-entry layer, `docs/authorization-architecture.md` §7.1). Organization
-  data ranges are carried on the identity but not enforced at row level (that is tier B; the spike's
-  row scope is `own`). Generated apps still carry their own header seam — the runtime SPI and the
-  generated seam are **not** yet unified.
+- **Spike scope:** no Keycloak, no unified permission console. Authentication is in place at the
+  request entry with a locally configured token (`docs/authorization-architecture.md` §7.1); a real
+  IdP is an adapter behind the same seam, not a redesign. Organization data ranges are carried on the
+  identity but not enforced at row level (that is tier B; the spike's row scope is `own`).
+  **Generated apps are a separate story:** they carry their own `IdentityResolver` + header adapter and
+  do **not** ship Spring Security, so the runtime's token-authenticated entry and a generated app's
+  header seam are **not** unified — a generated app is a self-contained artifact, not this deployment.
 
 ## 6. Build & verification
 

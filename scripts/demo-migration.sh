@@ -37,6 +37,7 @@ check_absent() { # name unexpected actual
 # Run the app from *inside* the generated project, so its file-backed database lands under that
 # project's own data/ directory rather than in this repository.
 start_app() { # log-file
+  stop_app
   ( cd "$ROOT/$GEN_DIR" && exec java -jar "$(ls "$ROOT/$GEN_DIR"/target/*.jar | head -1)" \
       --server.port="$PORT" ) > "$1" 2>&1 &
   APP_PID=$!
@@ -48,10 +49,29 @@ start_app() { # log-file
   fail=1
   return 1
 }
+
+# Stop the app *and make sure it is gone*. Git Bash's `kill` cannot signal a native Windows process —
+# it reports "no such process" and does nothing — so the app would keep running, holding the database
+# and the port, and the next run's readiness probe would be answered by the stale process instead of
+# the new one. Ask Windows which pid owns the port and terminate that.
 stop_app() {
-  kill "$APP_PID" 2>/dev/null || true
-  wait "$APP_PID" 2>/dev/null || true
-  sleep 2
+  kill "${APP_PID:-}" 2>/dev/null || true
+  # No `| head -1` here on purpose: under `set -o pipefail` the SIGPIPE it causes can make the whole
+  # pipeline report failure, which would exit the script in the middle of cleanup.
+  local owner=""
+  owner="$(netstat -ano 2>/dev/null | awk -v p=":$PORT " 'index($0,p) && /LISTENING/ {print $NF; exit}')" || owner=""
+  if [ -n "$owner" ] && command -v taskkill >/dev/null 2>&1; then
+    taskkill //PID "$owner" //F >/dev/null 2>&1 || true
+  fi
+  wait "${APP_PID:-}" 2>/dev/null || true
+  local attempt
+  for attempt in $(seq 1 20); do
+    if netstat -ano 2>/dev/null | grep -q ":$PORT .*LISTENING"; then
+      sleep 1
+    else
+      break
+    fi
+  done
 }
 
 echo "== 1/4 install protocol library =="

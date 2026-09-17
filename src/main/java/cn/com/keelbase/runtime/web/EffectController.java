@@ -4,8 +4,7 @@ package cn.com.keelbase.runtime.web;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.effect.SideEffectService;
-import cn.com.keelbase.runtime.identity.IdentityEvidence;
-import cn.com.keelbase.runtime.identity.IdentityResolver;
+import cn.com.keelbase.runtime.identity.CurrentPrincipal;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,30 +12,31 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Inspect and revoke AI write side effects (the recovery half of the trust boundary). */
+/**
+ * Inspect and revoke AI write side effects (the recovery half of the trust boundary).
+ *
+ * <p>Both endpoints act as the authenticated caller: the list is narrowed to what that caller may
+ * see, and a revoke is checked against them, never against a name the request carries.
+ */
 @RestController
 public class EffectController {
 
-    private final IdentityResolver identities;
+    private final CurrentPrincipal principals;
     private final SideEffectService sideEffects;
     private final SideEffectRepository repository;
 
-    public EffectController(IdentityResolver identities, SideEffectService sideEffects,
+    public EffectController(CurrentPrincipal principals, SideEffectService sideEffects,
                             SideEffectRepository repository) {
-        this.identities = identities;
+        this.principals = principals;
         this.sideEffects = sideEffects;
         this.repository = repository;
     }
 
     @GetMapping("/ai/tool-effects")
-    public List<Map<String, Object>> list(
-            @RequestHeader(value = "X-User-Id", required = false) String userId,
-            @RequestHeader(value = "X-User-Role", required = false) String role,
-            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
-        Principal principal = identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+    public List<Map<String, Object>> list() {
+        Principal principal = principals.current();
         List<SideEffect> effects = principal.isManager()
                 ? repository.findAll()
                 : repository.findByUserIdOrderByIdDesc(principal.userId());
@@ -44,12 +44,8 @@ public class EffectController {
     }
 
     @DeleteMapping("/ai/tool-effects/{id}")
-    public Map<String, Object> revoke(
-            @PathVariable Long id,
-            @RequestHeader(value = "X-User-Id", required = false) String userId,
-            @RequestHeader(value = "X-User-Role", required = false) String role,
-            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
-        Principal principal = identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+    public Map<String, Object> revoke(@PathVariable Long id) {
+        Principal principal = principals.current();
         SideEffect effect = sideEffects.revoke(id, principal);
         return Map.of(
                 "effectId", effect.getId(),

@@ -74,7 +74,7 @@ boundary. Tools declare a risk level; the runtime — not a prompt — enforces 
 | `analyze_customer_risk` | R1 | executes immediately (read) |
 | `create_followup` | R3 | **not executed** until a human approves |
 
-Endpoints (`X-User-Id` / `X-User-Role` headers carry the principal in the spike):
+Endpoints (a caller authenticates with a delegation token — see below):
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -85,9 +85,23 @@ Endpoints (`X-User-Id` / `X-User-Role` headers carry the principal in the spike)
 | GET | `/audit/verify` | recompute and verify the audit hash chain |
 | GET | `/auth/me/permissions` | the caller's capability list, in the frozen `permission-capability-list` contract |
 
-Identity is a thin SPI (`IdentityResolver`): the spike's adapter reads `X-User-Id` / `X-User-Role`
-and an optional `X-Oidc-Sub`, and maps it onto the frozen identity contracts (`sub` / `oidcSub` /
-`org-membership-scope`). Authorization is **self-built** — `PermissionAuthorizer` reproduces the
+**Authentication is at the request entry** (Spring Security), and it is the only thing there:
+`Authorization: Bearer <delegation token>` is verified with the **frozen protocol's own**
+`DelegationToken.verify` — not a second JWT implementation — and a request that fails that check
+never reaches a controller. There is deliberately no `hasRole`, no `@PreAuthorize` and no URL-to-role
+rule in that configuration: Spring Security answers *who is this request*; KeelBase answers *may this
+AI behaviour happen* (ADR-0004 D3).
+
+The token proves a **subject and nothing else** — it carries no role, because "delegation never
+escalates privilege: the mapped local user's own permissions apply after mapping" (protocol §3). The
+runtime then maps that subject to a local user and role (`LocalIdentities`, delivery tier A), so a
+caller can present a token but cannot state who it is or what it may do. The adapter that used to read
+`X-User-Id` / `X-User-Role` off the request is **gone**; those headers are ignored, and a request
+carrying only them is 401.
+
+Identity remains a thin SPI (`IdentityResolver`): the default adapter turns the authenticated subject
+into the frozen identity contracts (`sub` / `oidcSub` / `org-membership-scope`), and an adapter for a
+real directory implements the same seam. Authorization is **self-built** — `PermissionAuthorizer` reproduces the
 reference's ability/condition semantics and emits the frozen `permission-decision` /
 `permission-capability-list`, and `OwnershipGuard` derives row-level access from that decision rather
 than from a role check. No OPA / Casbin / Cedar, no Keycloak, no `roles`/`permissions` table (the

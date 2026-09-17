@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -60,6 +61,9 @@ class AuthorizationMappingTest {
 
     @Autowired
     TestRestTemplate rest;
+
+    @Value("${keelbase.delegation.secret}")
+    String delegationSecret;
 
     @Autowired
     PermissionAuthorizer authorizer;
@@ -210,42 +214,44 @@ class AuthorizationMappingTest {
     @Test
     void capabilityEndpointServesTheFrozenContract() {
         ResponseEntity<Map> user = rest.exchange("/auth/me/permissions", HttpMethod.GET,
-                entity("alice", "user", null), Map.class);
+                entity("alice", null), Map.class);
         assertEquals(200, user.getStatusCode().value());
         assertEquals(Set.of("role", "basis", "resources"), user.getBody().keySet());
         assertEquals(PermissionCapabilityList.ROLE_USER, user.getBody().get("role"));
         assertEquals(PermissionCapabilityList.BASIS_USER, user.getBody().get("basis"));
 
+        // carol's role is not asserted by the caller; it is what this deployment maps her to.
         ResponseEntity<Map> admin = rest.exchange("/auth/me/permissions", HttpMethod.GET,
-                entity("carol", "manager", null), Map.class);
+                entity("carol", null), Map.class);
         assertEquals(200, admin.getStatusCode().value());
         assertEquals(PermissionCapabilityList.ROLE_ADMIN, admin.getBody().get("role"));
 
         ResponseEntity<Map> anonymous = rest.exchange("/auth/me/permissions", HttpMethod.GET,
-                entity(null, null, null), Map.class);
+                entity(null, null), Map.class);
         assertEquals(401, anonymous.getStatusCode().value(), "nothing runs anonymously");
     }
 
     @Test
-    void theHeaderAdapterCarriesAnOidcSubjectIntoTheIdentity() {
+    void aTokenCarryingAnOidcSubjectStillResolvesToTheLocalIdentity() {
         ResponseEntity<Map> res = rest.exchange("/auth/me/permissions", HttpMethod.GET,
-                entity("alice", "user", "oidc|42"), Map.class);
+                entity("alice", "oidc|42", null), Map.class);
         assertEquals(200, res.getStatusCode().value(),
-                "the adapter accepts an SSO subject without changing the decision shape");
+                "an SSO subject on the token does not change the decision shape");
     }
 
-    private static HttpEntity<Object> entity(String userId, String role, String oidcSubject) {
+    /** A request as that user; {@code userId == null} sends no token at all. */
+    private HttpEntity<Object> entity(String userId, Object body) {
+        return entity(userId, null, body);
+    }
+
+    /** A request whose token also carries an SSO subject. */
+    private HttpEntity<Object> entity(String userId, String oidcSubject, Object body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         if (userId != null) {
-            headers.set("X-User-Id", userId);
+            headers.setBearerAuth(TestTokens.forSubject(
+                    "local:" + userId, oidcSubject, delegationSecret));
         }
-        if (role != null) {
-            headers.set("X-User-Role", role);
-        }
-        if (oidcSubject != null) {
-            headers.set("X-Oidc-Sub", oidcSubject);
-        }
-        return new HttpEntity<>(headers);
+        return new HttpEntity<>(body, headers);
     }
 }

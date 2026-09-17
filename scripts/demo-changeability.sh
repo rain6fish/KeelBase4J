@@ -55,10 +55,33 @@ check "and it is still outside the marker block" "Hand-written, deliberately out
 echo "== 5/5 build, run, enforce the new rule =="
 mvn -q -B -f "$GEN_DIR/pom.xml" clean package -DskipTests
 JAR="$(ls "$ROOT/$GEN_DIR"/target/*.jar | head -1)"
+# Stop the app *and make sure it is gone*: Git Bash's `kill` cannot signal a native Windows process,
+# so it would outlive the script holding the port and the database. Ask Windows which pid owns the
+# port and terminate that.
+stop_app() {
+  kill "${APP_PID:-}" 2>/dev/null || true
+  # No `| head -1` here on purpose: under `set -o pipefail` the SIGPIPE it causes can make the whole
+  # pipeline report failure, which would exit the script in the middle of cleanup.
+  local owner=""
+  owner="$(netstat -ano 2>/dev/null | awk -v p=":$PORT " 'index($0,p) && /LISTENING/ {print $NF; exit}')" || owner=""
+  if [ -n "$owner" ] && command -v taskkill >/dev/null 2>&1; then
+    taskkill //PID "$owner" //F >/dev/null 2>&1 || true
+  fi
+  wait "${APP_PID:-}" 2>/dev/null || true
+  local attempt
+  for attempt in $(seq 1 20); do
+    if netstat -ano 2>/dev/null | grep -q ":$PORT .*LISTENING"; then
+      sleep 1
+    else
+      break
+    fi
+  done
+}
+stop_app
 # Run from inside the generated project: its database is file-backed and belongs to the project.
 ( cd "$ROOT/$GEN_DIR" && exec java -jar "$JAR" --server.port="$PORT" ) > "$ROOT/$GEN_DIR/app.log" 2>&1 &
 APP_PID=$!
-trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
+trap stop_app EXIT
 for _ in $(seq 1 60); do sleep 1; curl -s -o /dev/null "$BASE/ai/tools" && break; done
 
 ID=$(curl -s -X POST "$BASE/customers" -H 'Content-Type: application/json' -H 'X-User-Id: alice' \

@@ -304,7 +304,10 @@ public class JavaGenerator {
                 spring.application.name=%s
                 # File-backed on purpose: a change has to carry the rows already in the database, and
                 # an in-memory one makes that promise untestable (the data dies with the process).
-                spring.datasource.url=jdbc:h2:file:./data/%s
+                # WRITE_DELAY=0 flushes every commit immediately. H2's default write delay means a
+                # process killed soon after a write can lose it, which would leave "the data
+                # survives" true only most of the time.
+                spring.datasource.url=jdbc:h2:file:./data/%s;WRITE_DELAY=0
                 # Flyway owns the schema. Hibernate only checks the entities against what Flyway
                 # built; "update" would mutate the schema behind Flyway's back and hide drift.
                 spring.jpa.hibernate.ddl-auto=validate
