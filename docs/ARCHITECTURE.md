@@ -91,9 +91,11 @@ the protocol *library*, never on a KeelBase4J runtime service (S3 axes A and B).
     ├── java/com/example/<module>/
     │   ├── Application.java
     │   ├── domain/   <Entity>.java · <Entity>Repository.java
+    │   ├── identity/ Principal · IdentityEvidence · IdentityResolver · HeaderIdentityResolver
+    │   ├── authz/    AuthorizationRules · PermissionAuthorizer · OwnershipGuard
     │   ├── ai/       AiTool · GovernanceGate · ToolRegistry · GovernanceEngine
     │   │             ConfirmationStore · SideEffectStore · AuditChainStore · <Tool>Tool
-    │   └── web/      AiController · GovernanceController
+    │   └── web/      AiController · AuthController · GovernanceController · <Entity>Controller
     └── resources/application.properties
 ```
 

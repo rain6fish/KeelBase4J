@@ -112,7 +112,12 @@ Business description
 
 The output is real, editable source — a Maven project that builds on its own. The generated
 `GovernanceGate` reads the risk level through the **frozen protocol** (`cn.com.keelbase.protocol.RiskLevel`),
-so a generated app makes the same decisions the protocol defines.
+so a generated app makes the same decisions the protocol defines. The same goes for access: the
+generated app carries the runtime's identity seam (`IdentityResolver` + a header adapter) and its
+`AuthorizationRules` / `PermissionAuthorizer` / `OwnershipGuard` pair, so a spec's policy reaches the
+caller as the frozen `permission-decision` / `permission-capability-list` data — served at
+`GET /auth/me/permissions` — rather than as a role string compared inside a controller. A spec that
+reserves an action for one role is generated as the *absence* of that action from the other roles.
 
 `GeneratorTest` asserts the spec is complete (S1) and that the generated project **compiles** (S2),
 checked with the JDK compiler against the current classpath.

@@ -79,6 +79,13 @@ class GeneratorTest {
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/AuditChainStore.java")), "audit");
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/AiController.java")), "ai controller");
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/GovernanceController.java")), "governance controller");
+        // The identity seam and the contract-derived authorization, not a bespoke role check.
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("identity/IdentityResolver.java")), "identity SPI");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("identity/HeaderIdentityResolver.java")), "adapter");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("authz/AuthorizationRules.java")), "rule source");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("authz/PermissionAuthorizer.java")), "decision");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("authz/OwnershipGuard.java")), "row guard");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/AuthController.java")), "identity surface");
 
         String customer = Files.readString(out.resolve("src/main/java/com/example/crm/domain/Customer.java"));
         assertTrue(customer.contains("@Entity"), "a real JPA entity");

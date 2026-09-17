@@ -69,11 +69,23 @@ class ChangeabilityTest {
         assertTrue(regenerated.contains("displayName"),
                 "the developer's hand-written code must survive regeneration");
 
-        // 5. The new rule is enforced in generated code.
+        // 5. The new rule is enforced in generated code — as contract data, not as a role string. The
+        //    policy removed `update` from the user's grant on the entity it names, and the controller
+        //    asks the guard rather than deciding for itself.
+        Path rules = out.resolve("src/main/java/com/example/crm/authz/AuthorizationRules.java");
+        assertTrue(Files.exists(rules), "a rule source must be generated");
+        String rulesSource = Files.readString(rules);
+        assertTrue(rulesSource.contains(
+                        "new Rule(\"Customer\", List.of(\"create\", \"read\", \"delete\")"),
+                "the policy must remove update from the user's grant on Customer");
+
         Path controller = out.resolve("src/main/java/com/example/crm/web/CustomerController.java");
         assertTrue(Files.exists(controller), "a policy controller must be generated");
         String controllerSource = Files.readString(controller);
-        assertTrue(controllerSource.contains("manager"), "the rule must require a manager");
+        assertTrue(controllerSource.contains("ownership.requireAccess"),
+                "the update path must ask the authorization guard");
+        assertFalse(controllerSource.contains("isManager"),
+                "the controller must not carry its own role check");
 
         // 6. The regenerated project still compiles as real source.
         compileGenerated(out.resolve("src/main/java"));

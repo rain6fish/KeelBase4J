@@ -4,6 +4,7 @@ package cn.com.keelbase.gen;
 import cn.com.keelbase.gen.BusinessSpec.EntitySpec;
 import cn.com.keelbase.gen.BusinessSpec.FieldSpec;
 import cn.com.keelbase.gen.BusinessSpec.ToolSpec;
+import cn.com.keelbase.protocol.PermissionCapabilityList;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -56,7 +57,23 @@ public class JavaGenerator {
             written.add(writePreserving(javaDir.resolve("ai/" + pascal(tool.name()) + "Tool.java"), toolClass(pkg, tool, spec)));
         }
 
+        // Identity seam + contract-derived authorization. The same shape the KeelBase4J runtime wires,
+        // emitted as this app's own source: the identity is resolved once per request, and every
+        // access decision comes out in the frozen permission-* vocabulary rather than from a role
+        // string compared inline. The app still depends only on the protocol *library*.
+        written.add(writePreserving(javaDir.resolve("identity/Principal.java"), principal(pkg)));
+        written.add(writePreserving(javaDir.resolve("identity/IdentityEvidence.java"), identityEvidence(pkg)));
+        written.add(writePreserving(javaDir.resolve("identity/IdentityResolver.java"), identityResolver(pkg)));
+        written.add(writePreserving(
+                javaDir.resolve("identity/HeaderIdentityResolver.java"), headerIdentityResolver(pkg)));
+        written.add(writePreserving(
+                javaDir.resolve("authz/AuthorizationRules.java"), authorizationRules(pkg, spec)));
+        written.add(writePreserving(
+                javaDir.resolve("authz/PermissionAuthorizer.java"), permissionAuthorizer(pkg)));
+        written.add(writePreserving(javaDir.resolve("authz/OwnershipGuard.java"), ownershipGuard(pkg)));
+
         written.add(writePreserving(javaDir.resolve("web/AiController.java"), aiController(pkg)));
+        written.add(writePreserving(javaDir.resolve("web/AuthController.java"), authController(pkg)));
         written.add(writePreserving(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg)));
         // One CRUD controller for the primary entity, enforcing the spec's policy rules.
         EntitySpec primary = spec.entities().get(0);
@@ -604,7 +621,403 @@ public class JavaGenerator {
                         decap(detail.name()), decap(detail.name()), tool.name(), tool.riskLevel(), body);
     }
 
+    // ── identity seam + authorization (self-contained) ──────────────────────────
+
+    private String principal(String pkg) {
+        return """
+                package %s.identity;
+
+                /**
+                 * The acting identity — this app's projection of the frozen KeelBase identity vocabulary.
+                 *
+                 * <p>{@link #role()} is normalised into the contract's role set ({@code user} /
+                 * {@code admin}); a business role (here {@code manager}) is an alias for {@code admin}
+                 * rather than a separate concept, so no caller has to compare raw role strings again.
+                 *
+                 * <p>Unlike the runtime's principal this one carries no organization scope: a generated
+                 * application has no organization store, and claiming a scope it cannot know would be
+                 * inventing a fact. An adapter wired to a real directory fills one in.
+                 */
+                public record Principal(String userId, String role, String oidcSubject) {
+
+                    public static final String ROLE_USER = "user";
+                    public static final String ROLE_ADMIN = "admin";
+
+                    /** A business alias for the contract's {@code admin} role. */
+                    public static final String ROLE_ALIAS_MANAGER = "manager";
+
+                    public Principal {
+                        role = ROLE_ADMIN.equals(role) || ROLE_ALIAS_MANAGER.equals(role)
+                                ? ROLE_ADMIN
+                                : ROLE_USER;
+                    }
+
+                    /** The unified identity mapping key ({@code delegation-token-claims} {@code sub}). */
+                    public String subject() {
+                        return oidcSubject != null ? oidcSubject : "local:" + userId;
+                    }
+
+                    public boolean isManager() {
+                        return ROLE_ADMIN.equals(role);
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    private String identityEvidence(String pkg) {
+        return """
+                package %s.identity;
+
+                import java.util.LinkedHashMap;
+                import java.util.Map;
+
+                /**
+                 * What the deployment can tell the app about the caller, before it means anything.
+                 *
+                 * <p>Evidence is not identity: nothing here is trusted until a resolver has validated it
+                 * and mapped it onto the frozen contracts. A flat attribute map keeps the seam from
+                 * privileging one carrier — headers today, verified OIDC claims or a directory bind
+                 * result later — without changing anything downstream.
+                 */
+                public record IdentityEvidence(Map<String, String> attributes) {
+
+                    public static final String USER_ID = "userId";
+                    public static final String ROLE = "role";
+                    public static final String OIDC_SUBJECT = "oidcSubject";
+
+                    public IdentityEvidence {
+                        attributes = Map.copyOf(attributes);
+                    }
+
+                    public static IdentityEvidence ofHeaders(String userId, String role, String oidcSubject) {
+                        Map<String, String> attributes = new LinkedHashMap<>();
+                        putIfPresent(attributes, USER_ID, userId);
+                        putIfPresent(attributes, ROLE, role);
+                        putIfPresent(attributes, OIDC_SUBJECT, oidcSubject);
+                        return new IdentityEvidence(attributes);
+                    }
+
+                    public String attribute(String key) {
+                        return attributes.get(key);
+                    }
+
+                    private static void putIfPresent(Map<String, String> target, String key, String value) {
+                        if (value != null && !value.isBlank()) {
+                            target.put(key, value);
+                        }
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    private String identityResolver(String pkg) {
+        return """
+                package %s.identity;
+
+                /**
+                 * The identity SPI — the pluggable seam between "who the deployment authenticated" and
+                 * this app's wire-shaped {@link Principal}.
+                 *
+                 * <p>Authentication belongs to whatever already guards the deployment (Spring Security, a
+                 * gateway, an SSO proxy); an adapter implements this one method and hands over the
+                 * authenticated identity. Exactly one implementation must be a Spring bean.
+                 */
+                public interface IdentityResolver {
+
+                    /** Map validated evidence to the acting principal. Adapters reject evidence they
+                     * cannot trust. */
+                    Principal resolve(IdentityEvidence evidence);
+                }
+                """.formatted(pkg);
+    }
+
+    private String headerIdentityResolver(String pkg) {
+        return """
+                package %s.identity;
+
+                import org.springframework.http.HttpStatus;
+                import org.springframework.stereotype.Component;
+                import org.springframework.web.server.ResponseStatusException;
+
+                /**
+                 * The default adapter: reads the caller from request headers.
+                 *
+                 * <p>{@code X-User-Id} (required), {@code X-User-Role} (default {@code user}) and an
+                 * optional {@code X-Oidc-Sub} standing in for an SSO subject. The rule it upholds is the
+                 * one the runtime upholds: every governed operation carries an identity, and nothing runs
+                 * anonymously — a request with no identity is rejected rather than defaulted.
+                 */
+                @Component
+                public class HeaderIdentityResolver implements IdentityResolver {
+
+                    public static final String USER_ID_HEADER = "X-User-Id";
+                    public static final String ROLE_HEADER = "X-User-Role";
+                    public static final String OIDC_SUBJECT_HEADER = "X-Oidc-Sub";
+
+                    @Override
+                    public Principal resolve(IdentityEvidence evidence) {
+                        String userId = evidence.attribute(IdentityEvidence.USER_ID);
+                        if (userId == null) {
+                            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                                    "missing " + USER_ID_HEADER);
+                        }
+                        String role = evidence.attribute(IdentityEvidence.ROLE);
+                        return new Principal(userId, role == null ? Principal.ROLE_USER : role,
+                                evidence.attribute(IdentityEvidence.OIDC_SUBJECT));
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * The declared rules, derived from the spec: every entity grants its owner the manage set on their
+     * own rows, and a policy rule reserving an action for another role removes that action from the
+     * roles it was not reserved for.
+     */
+    private String authorizationRules(String pkg, BusinessSpec spec) {
+        String ownerField = spec.roleRule().ownerField();
+        StringBuilder userRules = new StringBuilder();
+        for (EntitySpec entity : spec.entities()) {
+            List<String> actions = new ArrayList<>(PermissionCapabilityList.EXPANDED_ACTIONS);
+            for (BusinessSpec.PolicyRule policy : spec.policies()) {
+                if (policy.entity().equals(entity.name())
+                        && !PermissionCapabilityList.ROLE_USER.equals(contractRole(policy.requiredRole()))) {
+                    actions.remove(policy.action());
+                }
+            }
+            if (userRules.length() > 0) {
+                userRules.append(",\n").append(" ".repeat(24));
+            }
+            userRules.append("new Rule(\"").append(entity.name()).append("\", List.of(");
+            for (int i = 0; i < actions.size(); i++) {
+                userRules.append(i == 0 ? "" : ", ").append('"').append(actions.get(i)).append('"');
+            }
+            userRules.append("), \"").append(ownerField).append("\")");
+        }
+
+        return """
+                package %s.authz;
+
+                import cn.com.keelbase.protocol.PermissionCapabilityList;
+                import java.util.List;
+                import java.util.Map;
+                import org.springframework.stereotype.Component;
+
+                /**
+                 * The authorization rule source — who may do what, before any decision is taken.
+                 *
+                 * <p>Generated from the business specification. The decisions themselves live in
+                 * {@link PermissionAuthorizer}, which reads rules only through {@link #rulesFor(String)},
+                 * so replacing this source (declarations today, a table later) does not touch the
+                 * semantics. There is deliberately no roles/permissions table.
+                 */
+                @Component
+                public class AuthorizationRules {
+
+                    /**
+                     * A declared grant: {@code actions} on {@code subject}, ownership-conditioned when
+                     * {@code ownerField} is set.
+                     */
+                    public record Rule(String subject, List<String> actions, String ownerField) {
+                    }
+
+                    private final Map<String, List<Rule>> byRole;
+
+                    public AuthorizationRules() {
+                        this.byRole = Map.of(
+                                PermissionCapabilityList.ROLE_ADMIN, List.of(new Rule(
+                                        PermissionCapabilityList.SUBJECT_ALL,
+                                        PermissionCapabilityList.EXPANDED_ACTIONS,
+                                        null)),
+                                PermissionCapabilityList.ROLE_USER, List.of(
+                                        %s));
+                    }
+
+                    public List<Rule> rulesFor(String role) {
+                        return byRole.getOrDefault(role, List.of());
+                    }
+                }
+                """.formatted(pkg, userRules);
+    }
+
+    private String permissionAuthorizer(String pkg) {
+        return """
+                package %s.authz;
+
+                import cn.com.keelbase.protocol.PermissionCapabilityList;
+                import cn.com.keelbase.protocol.PermissionDecision;
+                import %s.identity.Principal;
+                import java.util.ArrayList;
+                import java.util.Comparator;
+                import java.util.List;
+                import org.springframework.stereotype.Service;
+
+                /**
+                 * The authorization decision function — self-built, and the reason this app owns its
+                 * authorization semantics rather than embedding a policy engine.
+                 *
+                 * <p>It answers in the vocabulary of the frozen contracts: {@link #decide} produces a
+                 * {@code permission-decision}, {@link #describe} produces a
+                 * {@code permission-capability-list}. Both take their rules from {@link AuthorizationRules}.
+                 */
+                @Service
+                public class PermissionAuthorizer {
+
+                    private final AuthorizationRules rules;
+
+                    public PermissionAuthorizer(AuthorizationRules rules) {
+                        this.rules = rules;
+                    }
+
+                    /** The frozen {@code permission-decision} for {@code action × subject}. */
+                    public PermissionDecision decide(Principal principal, String action, String subject) {
+                        AuthorizationRules.Rule rule = ruleFor(principal, subject);
+                        boolean allowed = rule != null && rule.actions().contains(action);
+                        String reason;
+                        if (allowed) {
+                            reason = PermissionCapabilityList.SUBJECT_ALL.equals(subject)
+                                    ? PermissionDecision.REASON_ALLOWED_ALL
+                                    : PermissionDecision.REASON_ALLOWED_OWN;
+                        } else {
+                            reason = principal.isManager()
+                                    ? PermissionDecision.REASON_DENIED_ADMIN
+                                    : PermissionDecision.REASON_DENIED_USER;
+                        }
+                        return new PermissionDecision(action, subject, allowed, reason,
+                                allowed ? null : PermissionDecision.DENIED_BY_CASL);
+                    }
+
+                    /**
+                     * The capability this principal holds on {@code subject}, or {@code null} when
+                     * nothing is granted. The row-level scope lives here rather than on the decision,
+                     * which is how the frozen contracts split it.
+                     */
+                    public PermissionCapabilityList.Resource capabilityFor(Principal principal, String subject) {
+                        AuthorizationRules.Rule rule = ruleFor(principal, subject);
+                        if (rule == null) {
+                            return null;
+                        }
+                        return new PermissionCapabilityList.Resource(subject, scopeOf(rule),
+                                rule.actions(), reasonOf(rule));
+                    }
+
+                    /** The frozen {@code permission-capability-list}: what this identity may do, and on
+                     * what basis. */
+                    public PermissionCapabilityList describe(Principal principal) {
+                        List<PermissionCapabilityList.Resource> resources = new ArrayList<>();
+                        for (AuthorizationRules.Rule rule : rules.rulesFor(principal.role())) {
+                            resources.add(new PermissionCapabilityList.Resource(
+                                    rule.subject(), scopeOf(rule), rule.actions(), reasonOf(rule)));
+                        }
+                        resources.sort(Comparator.comparing(PermissionCapabilityList.Resource::subject));
+                        return new PermissionCapabilityList(principal.role(),
+                                principal.isManager()
+                                        ? PermissionCapabilityList.BASIS_ADMIN
+                                        : PermissionCapabilityList.BASIS_USER,
+                                resources);
+                    }
+
+                    private AuthorizationRules.Rule ruleFor(Principal principal, String subject) {
+                        for (AuthorizationRules.Rule rule : rules.rulesFor(principal.role())) {
+                            if (PermissionCapabilityList.SUBJECT_ALL.equals(rule.subject())
+                                    || rule.subject().equals(subject)) {
+                                return rule;
+                            }
+                        }
+                        return null;
+                    }
+
+                    private static String scopeOf(AuthorizationRules.Rule rule) {
+                        return rule.ownerField() == null
+                                ? PermissionCapabilityList.SCOPE_ALL
+                                : PermissionCapabilityList.SCOPE_OWN;
+                    }
+
+                    private static String reasonOf(AuthorizationRules.Rule rule) {
+                        if (rule.ownerField() != null) {
+                            return PermissionCapabilityList.REASON_RESOURCE_OWN;
+                        }
+                        return PermissionCapabilityList.SUBJECT_ALL.equals(rule.subject())
+                                ? PermissionCapabilityList.REASON_RESOURCE_ALL
+                                : PermissionCapabilityList.REASON_RESOURCE_UNRESTRICTED;
+                    }
+                }
+                """.formatted(pkg, pkg);
+    }
+
+    private String ownershipGuard(String pkg) {
+        return """
+                package %s.authz;
+
+                import cn.com.keelbase.protocol.PermissionCapabilityList;
+                import cn.com.keelbase.protocol.PermissionDecision;
+                import %s.identity.Principal;
+                import org.springframework.http.HttpStatus;
+                import org.springframework.stereotype.Component;
+                import org.springframework.web.server.ResponseStatusException;
+
+                /**
+                 * Row-level enforcement — the {@code own} half of the authorization model, enforced in
+                 * the app rather than described in a prompt.
+                 *
+                 * <p>The decision does not come from a role check here: it comes from
+                 * {@link PermissionAuthorizer}, i.e. from the same frozen {@code permission-decision} /
+                 * {@code permission-capability-list} semantics any other KeelBase runtime produces. So
+                 * "an administrator may read any row, a user only their own" is derived from the
+                 * contract, not hardcoded.
+                 */
+                @Component
+                public class OwnershipGuard {
+
+                    private final PermissionAuthorizer authorizer;
+
+                    public OwnershipGuard(PermissionAuthorizer authorizer) {
+                        this.authorizer = authorizer;
+                    }
+
+                    /**
+                     * Throw 403 unless {@code principal} may take {@code action} on a {@code subject} row
+                     * owned by {@code ownerUserId}.
+                     */
+                    public void requireAccess(Principal principal, String subject, String action,
+                                              String ownerUserId) {
+                        requireAction(principal, subject, action);
+                        if (seesOwnRowsOnly(principal, subject)
+                                && !principal.userId().equals(ownerUserId)) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "not your resource");
+                        }
+                    }
+
+                    /** Throw 403 unless the principal holds {@code action} on {@code subject} at all. */
+                    public void requireAction(Principal principal, String subject, String action) {
+                        PermissionDecision decision = authorizer.decide(principal, action, subject);
+                        if (!decision.allowed()) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN, decision.reason());
+                        }
+                    }
+
+                    /** True when this principal's rows on {@code subject} must be filtered to their own. */
+                    public boolean seesOwnRowsOnly(Principal principal, String subject) {
+                        PermissionCapabilityList.Resource capability =
+                                authorizer.capabilityFor(principal, subject);
+                        return capability != null
+                                && PermissionCapabilityList.SCOPE_OWN.equals(capability.scope());
+                    }
+                }
+                """.formatted(pkg, pkg);
+    }
+
     // ── web ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * A business role normalised into the contract's role set. The spec's only business alias is
+     * {@code manager}, which the contract expresses as {@code admin}.
+     */
+    private static String contractRole(String businessRole) {
+        return PermissionCapabilityList.ROLE_ADMIN.equals(businessRole) || "manager".equals(businessRole)
+                ? PermissionCapabilityList.ROLE_ADMIN
+                : PermissionCapabilityList.ROLE_USER;
+    }
 
     private String aiController(String pkg) {
         return """
@@ -612,6 +1025,9 @@ public class JavaGenerator {
 
                 import %s.ai.GovernanceEngine;
                 import %s.ai.ToolRegistry;
+                import %s.identity.IdentityEvidence;
+                import %s.identity.IdentityResolver;
+                import %s.identity.Principal;
                 import java.util.LinkedHashMap;
                 import java.util.List;
                 import java.util.Map;
@@ -627,10 +1043,13 @@ public class JavaGenerator {
 
                     private final ToolRegistry registry;
                     private final GovernanceEngine engine;
+                    private final IdentityResolver identities;
 
-                    public AiController(ToolRegistry registry, GovernanceEngine engine) {
+                    public AiController(ToolRegistry registry, GovernanceEngine engine,
+                                        IdentityResolver identities) {
                         this.registry = registry;
                         this.engine = engine;
+                        this.identities = identities;
                     }
 
                     @GetMapping("/ai/tools")
@@ -646,26 +1065,79 @@ public class JavaGenerator {
                     @PostMapping("/ai/chat")
                     public Map<String, Object> chat(
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject,
                             @RequestBody Map<String, Object> body) {
+                        Principal principal =
+                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
                         String tool = String.valueOf(body.getOrDefault("tool", ""));
                         Map<String, Object> args = new LinkedHashMap<>(body);
                         args.remove("tool");
-                        return engine.execute(tool, args, userId == null ? "anonymous" : userId);
+                        return engine.execute(tool, args, principal.userId());
                     }
 
                     @PostMapping("/ai/confirmations/{token}")
                     public Map<String, Object> confirm(
                             @PathVariable String token,
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject,
                             @RequestBody Map<String, Object> body) {
+                        Principal principal =
+                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
                         String decision = String.valueOf(body.getOrDefault("decision", ""));
                         if ("approve".equals(decision)) {
-                            return engine.approve(token, userId == null ? "anonymous" : userId);
+                            return engine.approve(token, principal.userId());
                         }
                         return Map.of("status", "declined");
                     }
                 }
-                """.formatted(pkg, pkg, pkg);
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
+    }
+
+    private String authController(String pkg) {
+        return """
+                package %s.web;
+
+                import %s.authz.PermissionAuthorizer;
+                import %s.identity.IdentityEvidence;
+                import %s.identity.IdentityResolver;
+                import %s.identity.Principal;
+                import java.util.Map;
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RequestHeader;
+                import org.springframework.web.bind.annotation.RestController;
+
+                /**
+                 * The identity surface: what the caller may do.
+                 *
+                 * <p>{@code GET /auth/me/permissions} answers in the frozen
+                 * {@code permission-capability-list} contract — the same path and the same shape the
+                 * runtime and the reference implementation serve, which is what lets one frontend key
+                 * page/menu/button visibility off either backend.
+                 */
+                @RestController
+                public class AuthController {
+
+                    private final IdentityResolver identities;
+                    private final PermissionAuthorizer authorizer;
+
+                    public AuthController(IdentityResolver identities, PermissionAuthorizer authorizer) {
+                        this.identities = identities;
+                        this.authorizer = authorizer;
+                    }
+
+                    @GetMapping("/auth/me/permissions")
+                    public Map<String, Object> myPermissions(
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal principal =
+                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+                        return authorizer.describe(principal).toWire();
+                    }
+                }
+                """.formatted(pkg, pkg, pkg, pkg, pkg);
     }
 
     private String governanceController(String pkg) {
@@ -674,6 +1146,9 @@ public class JavaGenerator {
 
                 import %s.ai.AuditChainStore;
                 import %s.ai.SideEffectStore;
+                import %s.identity.IdentityEvidence;
+                import %s.identity.IdentityResolver;
+                import %s.identity.Principal;
                 import java.util.List;
                 import java.util.Map;
                 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -687,25 +1162,43 @@ public class JavaGenerator {
 
                     private final SideEffectStore sideEffects;
                     private final AuditChainStore audit;
+                    private final IdentityResolver identities;
 
-                    public GovernanceController(SideEffectStore sideEffects, AuditChainStore audit) {
+                    public GovernanceController(SideEffectStore sideEffects, AuditChainStore audit,
+                                                IdentityResolver identities) {
                         this.sideEffects = sideEffects;
                         this.audit = audit;
+                        this.identities = identities;
                     }
 
                     @GetMapping("/ai/tool-effects")
-                    public List<SideEffectStore.Effect> effects() {
-                        return sideEffects.all();
+                    public List<SideEffectStore.Effect> effects(
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal principal =
+                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+                        if (principal.isManager()) {
+                            return sideEffects.all();
+                        }
+                        return sideEffects.all().stream()
+                                .filter(effect -> effect.userId().equals(principal.userId()))
+                                .toList();
                     }
 
                     @DeleteMapping("/ai/tool-effects/{id}")
                     public Map<String, Object> revoke(
                             @PathVariable Long id,
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
-                            @RequestHeader(value = "X-User-Role", required = false) String role) {
-                        boolean manager = "manager".equals(role) || "admin".equals(role);
-                        SideEffectStore.Effect effect =
-                                sideEffects.requireOwned(id, userId == null ? "anonymous" : userId, manager);
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal principal =
+                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+                        // The row-level "is this yours?" check stays in the store, as it does in the
+                        // runtime; what changed is that the role it consults is the contract's, not a
+                        // string compared here.
+                        SideEffectStore.Effect effect = sideEffects.requireOwned(
+                                id, principal.userId(), principal.isManager());
                         // Local compensation: mark the effect revoked (the target stays for demo;
                         // a real app soft-deletes the referenced row here).
                         return Map.of("effectId", effect.id(), "revokeStatus", "revoked");
@@ -716,29 +1209,28 @@ public class JavaGenerator {
                         return Map.of("valid", audit.verify(), "checked", audit.size());
                     }
                 }
-                """.formatted(pkg, pkg, pkg);
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     /**
-     * A CRUD controller for the primary entity: list (own-scope; a manager sees all) and update.
-     * When the spec carries an {@code update} policy for this entity, the update is gated on the
-     * required role — the rule is enforced in code, not in a prompt.
+     * A CRUD controller for the primary entity. Which actions a caller may take, and whether the rows
+     * are narrowed to the ones they own, comes from the authorization contracts — the list and update
+     * paths ask {@link OwnershipGuard} and act on the answer, rather than comparing a role string here.
      */
     private String entityController(String pkg, EntitySpec entity, BusinessSpec spec) {
         String name = entity.name();
         String plural = table(name);
-        String policyRole = spec.policies().stream()
-                .filter(p -> p.entity().equals(name) && p.action().equals("update"))
-                .map(BusinessSpec.PolicyRule::requiredRole)
-                .findFirst()
-                .orElse(null);
 
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(".web;\n\n");
+        sb.append("import ").append(pkg).append(".authz.OwnershipGuard;\n");
         sb.append("import ").append(pkg).append(".domain.").append(name).append(";\n");
         sb.append("import ").append(pkg).append(".domain.").append(name).append("Repository;\n");
+        sb.append("import ").append(pkg).append(".identity.IdentityEvidence;\n");
+        sb.append("import ").append(pkg).append(".identity.IdentityResolver;\n");
+        sb.append("import ").append(pkg).append(".identity.Principal;\n");
         sb.append("import java.util.List;\nimport java.util.Objects;\n");
         sb.append("import org.springframework.http.HttpStatus;\n");
         sb.append("import org.springframework.web.bind.annotation.GetMapping;\n");
@@ -750,50 +1242,64 @@ public class JavaGenerator {
         sb.append("import org.springframework.web.bind.annotation.RestController;\n");
         sb.append("import org.springframework.web.server.ResponseStatusException;\n\n");
         sb.append("@RestController\npublic class ").append(name).append("Controller {\n\n");
-        sb.append("    private final ").append(name).append("Repository repository;\n\n");
-        sb.append("    public ").append(name).append("Controller(").append(name).append("Repository repository) {\n");
-        sb.append("        this.repository = repository;\n    }\n\n");
+        sb.append("    private final ").append(name).append("Repository repository;\n");
+        sb.append("    private final IdentityResolver identities;\n");
+        sb.append("    private final OwnershipGuard ownership;\n\n");
+        sb.append("    public ").append(name).append("Controller(").append(name).append("Repository repository,\n");
+        sb.append("            IdentityResolver identities, OwnershipGuard ownership) {\n");
+        sb.append("        this.repository = repository;\n");
+        sb.append("        this.identities = identities;\n");
+        sb.append("        this.ownership = ownership;\n    }\n\n");
 
         sb.append("    @PostMapping(\"/").append(plural).append("\")\n");
         sb.append("    public ").append(name).append(" create(@RequestBody ").append(name).append(" body,\n");
-        sb.append("            @RequestHeader(value = \"X-User-Id\", required = false) String userId) {\n");
-        sb.append("        body.setOwnerUserId(userId);\n");
+        sb.append(identityHeaders());
+        sb.append("        Principal principal =\n");
+        sb.append("                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));\n");
+        sb.append("        ownership.requireAction(principal, \"").append(name).append("\", \"create\");\n");
+        sb.append("        body.setOwnerUserId(principal.userId());\n");
         sb.append("        return repository.save(body);\n    }\n\n");
 
         sb.append("    @GetMapping(\"/").append(plural).append("\")\n");
         sb.append("    public List<").append(name).append("> list(\n");
-        sb.append("            @RequestHeader(value = \"X-User-Id\", required = false) String userId,\n");
-        sb.append("            @RequestHeader(value = \"X-User-Role\", required = false) String role) {\n");
-        sb.append("        if (isManager(role)) {\n            return repository.findAll();\n        }\n");
-        sb.append("        return repository.findAll().stream()\n");
-        sb.append("                .filter(row -> Objects.equals(row.getOwnerUserId(), userId))\n");
+        sb.append(identityHeaders());
+        sb.append("        Principal principal =\n");
+        sb.append("                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));\n");
+        sb.append("        ownership.requireAction(principal, \"").append(name).append("\", \"read\");\n");
+        sb.append("        List<").append(name).append("> rows = repository.findAll();\n");
+        sb.append("        if (!ownership.seesOwnRowsOnly(principal, \"").append(name).append("\")) {\n");
+        sb.append("            return rows;\n        }\n");
+        sb.append("        return rows.stream()\n");
+        sb.append("                .filter(row -> Objects.equals(row.getOwnerUserId(), principal.userId()))\n");
         sb.append("                .toList();\n    }\n\n");
 
         sb.append("    @PatchMapping(\"/").append(plural).append("/{id}\")\n");
         sb.append("    public ").append(name).append(" update(\n");
         sb.append("            @PathVariable Long id,\n");
         sb.append("            @RequestBody ").append(name).append(" patch,\n");
-        sb.append("            @RequestHeader(value = \"X-User-Id\", required = false) String userId,\n");
-        sb.append("            @RequestHeader(value = \"X-User-Role\", required = false) String role) {\n");
-        if (policyRole != null) {
-            sb.append("        if (!\"").append(policyRole).append("\".equals(role)) {\n");
-            sb.append("            throw new ResponseStatusException(HttpStatus.FORBIDDEN, \"only a ")
-                    .append(policyRole).append(" may update a ").append(name).append("\");\n");
-            sb.append("        }\n");
-        }
+        sb.append(identityHeaders());
+        sb.append("        Principal principal =\n");
+        sb.append("                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));\n");
         sb.append("        ").append(name).append(" entity = repository.findById(id)\n");
         sb.append("                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));\n");
+        sb.append("        ownership.requireAccess(principal, \"").append(name)
+                .append("\", \"update\", entity.getOwnerUserId());\n");
         for (FieldSpec f : entity.fields()) {
             String g = capitalize(f.name());
             sb.append("        if (patch.get").append(g).append("() != null) { entity.set").append(g)
                     .append("(patch.get").append(g).append("()); }\n");
         }
         sb.append("        return repository.save(entity);\n    }\n\n");
-        sb.append("    private static boolean isManager(String role) {\n");
-        sb.append("        return \"manager\".equals(role) || \"admin\".equals(role);\n    }\n\n");
         sb.append(userCodeBlock());
         sb.append("}\n");
         return sb.toString();
+    }
+
+    /** The three identity headers every governed endpoint reads before resolving a principal. */
+    private static String identityHeaders() {
+        return "            @RequestHeader(value = \"X-User-Id\", required = false) String userId,\n"
+                + "            @RequestHeader(value = \"X-User-Role\", required = false) String role,\n"
+                + "            @RequestHeader(value = \"X-Oidc-Sub\", required = false) String oidcSubject) {\n";
     }
 
     static final String USER_BEGIN = "// <keelbase:user-code>";

@@ -45,8 +45,8 @@ for _ in $(seq 1 60); do
 done
 
 fail=0
-check() { # name expected actual
-  if printf '%s' "$3" | grep -q "$2"; then echo "  ok   $1"; else echo "  FAIL $1 -- expected '$2' in: $3"; fail=1; fi
+check() { # name expected actual — literal match: the expected strings contain JSON punctuation
+  if printf '%s' "$3" | grep -qF "$2"; then echo "  ok   $1"; else echo "  FAIL $1 -- expected '$2' in: $3"; fail=1; fi
 }
 
 TOOLS=$(curl -s "$BASE/ai/tools")
@@ -68,7 +68,14 @@ check "approve executes and records an effect" '"effectId"' "$APPROVED"
 VERIFY=$(curl -s "$BASE/audit/verify")
 check "audit chain verifies" '"valid":true' "$VERIFY"
 
-EFF=$(curl -s "$BASE/ai/tool-effects" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)
+# The identity seam and the contract-derived decision, on the generated artifact.
+PERMS=$(curl -s "$BASE/auth/me/permissions" -H 'X-User-Id: alice')
+check "capability list served in the frozen shape" '"subject":"Customer","scope":"own"' "$PERMS"
+check "role is the contract's vocabulary" '"role":"user"' "$PERMS"
+ANON=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/auth/me/permissions")
+check "no identity => 401 (nothing runs anonymously)" "401" "$ANON"
+
+EFF=$(curl -s "$BASE/ai/tool-effects" -H 'X-User-Id: alice' | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)
 REVOKED=$(curl -s -X DELETE "$BASE/ai/tool-effects/$EFF" -H 'X-User-Id: alice')
 check "revoke marks the effect revoked" '"revokeStatus":"revoked"' "$REVOKED"
 

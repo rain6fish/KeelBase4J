@@ -40,7 +40,8 @@ mvn -q -B -DskipTests compile exec:java \
   -Dexec.mainClass=cn.com.keelbase.gen.GeneratorMain -Dexec.args="$GEN_DIR changed"
 
 fail=0
-check() { if printf '%s' "$3" | grep -q "$2"; then echo "  ok   $1"; else echo "  FAIL $1 -- expected '$2' in: $3"; fail=1; fi; }
+check() { # name expected actual — literal match: the expected strings contain JSON punctuation
+  if printf '%s' "$3" | grep -qF "$2"; then echo "  ok   $1"; else echo "  FAIL $1 -- expected '$2' in: $3"; fail=1; fi; }
 
 echo "== 4/5 regeneration outcome =="
 check "new field 'tier' present" "tier" "$(cat "$ENTITY")"
@@ -66,6 +67,14 @@ check "regular user is denied (403)" "403" "$USER_PATCH"
 MGR_PATCH=$(curl -s -X PATCH "$BASE/customers/$ID" -H 'Content-Type: application/json' \
   -H 'X-User-Id: carol' -H 'X-User-Role: manager' -d '{"tier":"gold"}')
 check "manager is allowed and the field changes" '"tier":"gold"' "$MGR_PATCH"
+
+# Why the 403 above happened is now observable rather than inferred: the spec's policy reaches the
+# caller as contract data. A hardcoded role check could not produce either of these answers.
+BOB_PERMS=$(curl -s "$BASE/auth/me/permissions" -H 'X-User-Id: bob' -H 'X-User-Role: user')
+check "the user's Customer capability excludes update" \
+  '"subject":"Customer","scope":"own","actions":["create","read","delete"]' "$BOB_PERMS"
+CAROL_PERMS=$(curl -s "$BASE/auth/me/permissions" -H 'X-User-Id: carol' -H 'X-User-Role: manager')
+check "the manager's capability is unrestricted" '"subject":"all","scope":"all"' "$CAROL_PERMS"
 
 if grep -qE "Exception" "$GEN_DIR/app.log"; then echo "  FAIL runtime exception in app.log"; fail=1; fi
 
