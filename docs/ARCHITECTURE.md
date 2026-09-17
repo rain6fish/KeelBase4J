@@ -66,7 +66,7 @@ boundary.
 | `tool` | `AiTool` contract, `ToolRegistry`, the two AI tools (R1 read / R3 write) |
 | `governance` | `GovernanceService` (risk → gate), confirmation store + entity |
 | `effect` | `SideEffect` + record/revoke (content-derived idempotency, class-aware revoke) |
-| `audit` | `AuditService` — hash-chained AI audit + verify |
+| `audit` | `AuditService` — hash-chained AI audit + verify, appends serialized on a database row lock (`AuditChainHead`) |
 | `engine` | `GovernedExecutionEngine` — the loop: gate → confirm → execute → audit → effect |
 | `web` | REST: `/ai/chat`, confirmations, tool-effects, `/audit/verify`, `/auth/me/permissions` |
 

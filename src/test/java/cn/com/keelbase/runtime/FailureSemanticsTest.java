@@ -15,6 +15,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import cn.com.keelbase.protocol.Vectors;
+import cn.com.keelbase.runtime.audit.AuditChainHead;
+import cn.com.keelbase.runtime.audit.AuditChainHeadRepository;
 import cn.com.keelbase.runtime.audit.AuditLog;
 import cn.com.keelbase.runtime.audit.AuditLogRepository;
 import cn.com.keelbase.runtime.audit.AuditService;
@@ -255,7 +257,13 @@ class FailureSemanticsTest {
         when(broken.findTopByOrderByIdDesc()).thenReturn(Optional.empty());
         when(broken.save(any(AuditLog.class)))
                 .thenThrow(new DataAccessResourceFailureException("audit store down"));
-        AuditService service = new AuditService(broken, "abababababababababababababababababababababababababababababababab");
+        // The chain head is there; it is the audit write that fails. That is the point of the case:
+        // appends are serialized first, and the failure still reaches the caller.
+        AuditChainHeadRepository heads = mock(AuditChainHeadRepository.class);
+        when(heads.lockById(AuditChainHead.SINGLETON))
+                .thenReturn(Optional.of(new AuditChainHead(AuditChainHead.SINGLETON)));
+        AuditService service = new AuditService(broken, heads,
+                "abababababababababababababababababababababababababababababababab");
 
         assertThrows(DataAccessResourceFailureException.class,
                 () -> service.append("tool_call", "alice", "probe"));

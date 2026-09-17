@@ -99,6 +99,13 @@ written) → approve executes and records a side effect → the audit chain veri
 deletes → cross-user access is 403 with no side effect. Because it runs over HTTP against a
 standalone app, it is the S3 evidence too: no generator involved.
 
+The audit chain is **appended under a database row lock**, not a JVM monitor. A monitor is released
+when the appending method returns while the transaction commits after that, so two appenders can read
+the same chain head in the gap and fork the chain — `AuditChainConcurrencyTest` shows the fork
+happens when that lock is removed. The row lock is held to the commit, which is also what a second
+instance would contend for on a shared database. (The spike's datasource is still in-memory and
+therefore per-process, so actually running two instances additionally needs a shared database.)
+
 ### G2 — the generator
 
 `BusinessSpecParser` (S1) turns a natural-language business request into a `BusinessSpec`; `JavaGenerator`
