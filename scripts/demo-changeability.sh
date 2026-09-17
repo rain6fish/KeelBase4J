@@ -49,8 +49,9 @@ check "hand-written code survives" "displayName" "$(cat "$ENTITY")"
 
 echo "== 5/5 build, run, enforce the new rule =="
 mvn -q -B -f "$GEN_DIR/pom.xml" clean package -DskipTests
-JAR="$(ls "$GEN_DIR"/target/*.jar | head -1)"
-java -jar "$JAR" --server.port="$PORT" > "$GEN_DIR/app.log" 2>&1 &
+JAR="$(ls "$ROOT/$GEN_DIR"/target/*.jar | head -1)"
+# Run from inside the generated project: its database is file-backed and belongs to the project.
+( cd "$ROOT/$GEN_DIR" && exec java -jar "$JAR" --server.port="$PORT" ) > "$ROOT/$GEN_DIR/app.log" 2>&1 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
 for _ in $(seq 1 60); do sleep 1; curl -s -o /dev/null "$BASE/ai/tools" && break; done

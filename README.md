@@ -135,6 +135,23 @@ It generates the project, builds it into a runnable jar, starts it, and checks t
 auto-executes, a write tool is gated, approving executes and records a side effect, the audit chain
 verifies, and revoke marks the effect revoked.
 
+### G3 — a change carries the data
+
+A change is not a re-create. The generated project owns its schema through **Flyway**: the generator
+emits a versioned baseline migration, and a change emits a **new, additive** one — an applied
+migration is never rewritten, because Flyway records its checksum. `spring.jpa.hibernate.ddl-auto` is
+`validate`, so Hibernate checks the entities against what Flyway built instead of mutating the schema
+behind its back. The database is **file-backed** rather than in-memory precisely so the promise is
+testable at all: an in-memory one loses the rows before a change could be made to carry them.
+
+```bash
+bash scripts/demo-migration.sh
+```
+
+It generates v1, runs the app, writes a row, applies a change, rebuilds on the **same** database, and
+checks the row is still there with the added column — while the baseline migration stayed
+byte-identical and the second run rolled forward exactly one version.
+
 ## Protocol sources
 
 The authoritative protocol lives in the main repository:

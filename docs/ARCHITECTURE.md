@@ -96,7 +96,8 @@ the protocol *library*, never on a KeelBase4J runtime service (S3 axes A and B).
     │   ├── ai/       AiTool · GovernanceGate · ToolRegistry · GovernanceEngine
     │   │             ConfirmationStore · SideEffectStore · AuditChainStore · <Tool>Tool
     │   └── web/      AiController · AuthController · GovernanceController · <Entity>Controller
-    └── resources/application.properties
+    └── resources/ application.properties
+                    db/migration/  V1__<module>_baseline.sql · V<n>__add_*.sql  (Flyway owns the schema)
 ```
 
 ---
@@ -225,7 +226,7 @@ CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-
 | G1 | runtime core + trust loop (S3/S4 on a hand-written app) | ✅ |
 | G2 | generator: NL → spec → real Spring Boot source (S1/S2) | ✅ |
 | G2+ | generated app runs standalone; trust loop holds on the artifact (S3 axes A+B, S4) | ✅ |
-| G3 | changeability (S5 — the spike's kill gate): change applied, hand edits preserved, rule enforced | ✅ |
+| G3 | changeability (S5 — the spike's kill gate): change applied as an additive migration, hand edits preserved, rule enforced, **the data already in the database carried over** | ✅ |
 
 **Not yet in scope (by design):** authentication stack (identity is a pluggable seam), multi-tenancy,
 HA, UI, and the KeelBase AI pipeline (agent / RAG / memory) — the latter belongs to a Java AI

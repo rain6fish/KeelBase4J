@@ -87,6 +87,16 @@ class ChangeabilityTest {
         assertFalse(controllerSource.contains("isManager"),
                 "the controller must not carry its own role check");
 
+        // 5b. The schema evolved as a migration rather than a re-create: the applied baseline is left
+        //     untouched and the change lands as a new, additive one.
+        Path migrations = out.resolve("src/main/resources/db/migration");
+        String baseline = Files.readString(migrations.resolve("V1__crm_baseline.sql"));
+        assertFalse(baseline.contains("tier"), "an applied migration must not be rewritten");
+        String added = Files.readString(migrations.resolve("V2__add_customers_tier.sql"));
+        assertTrue(added.contains("ADD COLUMN tier"), "the change adds the column");
+        assertFalse(added.contains("DROP"), "and drops nothing");
+        assertFalse(added.contains("CREATE TABLE"), "and re-creates nothing");
+
         // 6. The regenerated project still compiles as real source.
         compileGenerated(out.resolve("src/main/java"));
 
@@ -94,6 +104,15 @@ class ChangeabilityTest {
         Map<String, String> before = readAll(out.resolve("src/main/java"));
         generator.generate(v2, out);
         assertEquals(before, readAll(out.resolve("src/main/java")), "regeneration must be idempotent");
+
+        // 8. The migration history did not grow either: regenerating an unchanged spec must not append
+        //    a version, or every run would accrete migrations.
+        List<String> migrationNames;
+        try (var stream = Files.list(migrations)) {
+            migrationNames = stream.map(p -> p.getFileName().toString()).sorted().toList();
+        }
+        assertEquals(List.of("V1__crm_baseline.sql", "V2__add_customers_tier.sql"), migrationNames,
+                "regeneration must not append a migration");
     }
 
     private static void compileGenerated(Path root) throws IOException {

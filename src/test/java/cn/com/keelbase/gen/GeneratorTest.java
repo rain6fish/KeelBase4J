@@ -86,6 +86,15 @@ class GeneratorTest {
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("authz/PermissionAuthorizer.java")), "decision");
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("authz/OwnershipGuard.java")), "row guard");
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/AuthController.java")), "identity surface");
+        // The schema is migrated, not re-created.
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("db/migration/V1__crm_baseline.sql")),
+                "baseline migration");
+        String baseline = Files.readString(out.resolve("src/main/resources/db/migration/V1__crm_baseline.sql"));
+        assertTrue(baseline.contains("CREATE TABLE customers"), "the baseline creates the table");
+        assertTrue(baseline.contains("owner_user_id VARCHAR(255)"), "with the ownership column");
+        String properties = Files.readString(out.resolve("src/main/resources/application.properties"));
+        assertTrue(properties.contains("jdbc:h2:file:"), "a database that outlives the process");
+        assertTrue(properties.contains("ddl-auto=validate"), "Flyway owns the schema; Hibernate checks it");
 
         String customer = Files.readString(out.resolve("src/main/java/com/example/crm/domain/Customer.java"));
         assertTrue(customer.contains("@Entity"), "a real JPA entity");

@@ -33,11 +33,12 @@ mvn -q -B -DskipTests compile exec:java \
 
 echo "== 3/4 build the generated project =="
 mvn -q -B -f "$GEN_DIR/pom.xml" clean package -DskipTests
-JAR="$(ls "$GEN_DIR"/target/*.jar | head -1)"
+JAR="$(ls "$ROOT/$GEN_DIR"/target/*.jar | head -1)"
 echo "   jar: $JAR"
 
 echo "== 4/4 run and exercise the trust loop =="
-java -jar "$JAR" --server.port="$PORT" > "$GEN_DIR/app.log" 2>&1 &
+# Run from inside the generated project: its database is file-backed and belongs to the project.
+( cd "$ROOT/$GEN_DIR" && exec java -jar "$JAR" --server.port="$PORT" ) > "$ROOT/$GEN_DIR/app.log" 2>&1 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
 
