@@ -4,6 +4,7 @@ package cn.com.keelbase.runtime;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
  * KeelBase4J runtime (Phase-0 spike).
@@ -18,6 +19,7 @@ import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServic
  * user and role (see {@code runtime.security}).
  */
 @SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
+@ConfigurationPropertiesScan
 public class KeelBase4JApplication {
 
     public static void main(String[] args) {

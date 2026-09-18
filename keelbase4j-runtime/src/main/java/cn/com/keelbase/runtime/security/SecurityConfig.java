@@ -37,6 +37,12 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(requests -> requests
+                        // The F5 self-description endpoints are deliberately unauthenticated. A
+                        // frontend has to learn which capabilities this system exposes before anyone
+                        // holds a token — it is how it decides what to render at all (ADR-0002 Rev-8).
+                        // They disclose no caller and no data: only what this deployment declares
+                        // itself to be. The reference marks the same two paths public.
+                        .requestMatchers("/api/v1/app/capabilities", "/api/v1/app/provenance").permitAll()
                         // An error dispatch is the container re-rendering a failure this chain has
                         // already handled — a 403 from a controller, say. Demanding authentication a
                         // second time there would turn every refusal into a 401 and hide the status
