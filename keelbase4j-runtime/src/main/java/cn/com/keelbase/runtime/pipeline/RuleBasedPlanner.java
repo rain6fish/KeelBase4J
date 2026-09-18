@@ -4,7 +4,6 @@ package cn.com.keelbase.runtime.pipeline;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.stereotype.Component;
 
 /**
  * The default planner: a deterministic router over the message.
@@ -14,10 +13,11 @@ import org.springframework.stereotype.Component;
  * part most likely to make a test flaky; keeping it out of the tests' way means a failure here is
  * about governance rather than about what a model decided today.
  *
- * <p>A deployment that wants a model replaces this bean. Nothing else changes, because the runtime
- * never asks who planned a call — only what it was.
+ * <p>It is registered by {@link RuleBasedPlannerAutoConfiguration}, and that registration is
+ * conditional — the moment a deployment declares a {@link ToolCallPlanner} of its own, this one steps
+ * aside. Deliberately not a {@code @Component}: as one it was unconditional, which forced every
+ * adopter to out-rank it with {@code @Primary}. A fallback should yield, not have to be shouted over.
  */
-@Component
 public class RuleBasedPlanner implements ToolCallPlanner {
 
     @Override

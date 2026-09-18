@@ -94,7 +94,7 @@ Endpoints (a caller authenticates with a delegation token — see below):
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/ai/chat` | planner → governed tool call (the shipped planner routes by rules) |
+| POST | `/ai/chat` | planner → governed tool call (the shipped planner routes by rules; declare your own `ToolCallPlanner` bean to replace it) |
 | POST | `/ai/confirmations/{token}` | `approve` (executes) or `decline` (writes nothing) |
 | GET | `/ai/tool-effects` | list recorded side effects |
 | DELETE | `/ai/tool-effects/{id}` | revoke → local compensation (soft delete) |

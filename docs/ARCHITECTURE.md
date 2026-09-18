@@ -69,7 +69,7 @@ boundary.
 | `governance` | `GovernanceService` (risk → gate), confirmation store + entity |
 | `effect` | `SideEffect` + record/revoke (content-derived idempotency, class-aware revoke) |
 | `audit` | `AuditService` — hash-chained AI audit + verify, appends serialized on a database row lock (`AuditChainHead`) |
-| `pipeline` | The AI seam: `ToolCallPlanner` (an SPI a model-driven pipeline implements) · `IntentPlan` (tool + args, and nothing else) · `RuleBasedPlanner` (the default, so the loop is reproducible without a model) |
+| `pipeline` | The AI seam: `ToolCallPlanner` (an SPI a model-driven pipeline implements) · `IntentPlan` (tool + args, and nothing else) · `RuleBasedPlanner` + `RuleBasedPlannerAutoConfiguration` (the default, so the loop is reproducible without a model). The default is registered `@ConditionalOnMissingBean`, so a deployment that declares its own planner simply replaces it — no `@Primary`, no exclusion list, no edit here. |
 | `engine` | `GovernedExecutionEngine` — the loop: gate → confirm → execute → audit → effect |
 | `web` | REST: `/ai/chat`, confirmations, tool-effects, `/audit/verify`, `/auth/me/permissions` |
 
