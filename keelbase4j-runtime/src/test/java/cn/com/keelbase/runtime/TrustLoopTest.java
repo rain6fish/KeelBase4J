@@ -9,6 +9,7 @@ import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
 import cn.com.keelbase.runtime.domain.FollowUpRepository;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,10 @@ class TrustLoopTest {
 
     @Autowired
     TestRestTemplate rest;
+
+    /** Responses arrive in the api-response envelope, so the payload is read through {@code data}. */
+    @Autowired
+    ObjectMapper json;
 
     @Autowired
     CustomerRepository customers;
@@ -77,7 +82,8 @@ class TrustLoopTest {
         ResponseEntity<Map> verify = rest.exchange("/audit/verify", HttpMethod.GET,
                 entity("alice", null), Map.class);
         assertEquals(200, verify.getStatusCode().value());
-        assertEquals(Boolean.TRUE, verify.getBody().get("valid"), "audit hash chain must verify");
+        Map<String, Object> verifyData = Envelopes.data(verify.getBody());
+        assertEquals(Boolean.TRUE, verifyData.get("valid"), "audit hash chain must verify");
 
         // 5. Revoke → local compensation (soft delete), status revoked.
         Map<?, ?> revoked = delete("/ai/tool-effects/" + approved.effectId(), "alice");
@@ -99,27 +105,27 @@ class TrustLoopTest {
     }
 
     private ExecutionOutcome chat(String userId, String message, Long customerId, int expectedStatus) {
-        ResponseEntity<ExecutionOutcome> res = rest.postForEntity(
+        ResponseEntity<Map> res = rest.postForEntity(
                 "/ai/chat",
                 entity(userId, Map.of("message", message, "customerId", customerId)),
-                ExecutionOutcome.class);
+                Map.class);
         assertEquals(expectedStatus, res.getStatusCode().value(), "POST /ai/chat");
-        return res.getBody();
+        return json.convertValue(Envelopes.data(res.getBody()), ExecutionOutcome.class);
     }
 
     private ExecutionOutcome confirm(String userId, String token, String decision, int expectedStatus) {
-        ResponseEntity<ExecutionOutcome> res = rest.postForEntity(
+        ResponseEntity<Map> res = rest.postForEntity(
                 "/ai/confirmations/" + token,
                 entity(userId, Map.of("decision", decision)),
-                ExecutionOutcome.class);
+                Map.class);
         assertEquals(expectedStatus, res.getStatusCode().value(), "POST /ai/confirmations");
-        return res.getBody();
+        return json.convertValue(Envelopes.data(res.getBody()), ExecutionOutcome.class);
     }
 
     private Map<?, ?> delete(String path, String userId) {
         ResponseEntity<Map> res = rest.exchange(path, HttpMethod.DELETE, entity(userId, null), Map.class);
         assertEquals(200, res.getStatusCode().value(), "DELETE " + path);
-        return res.getBody();
+        return Envelopes.data(res.getBody());
     }
 
     /** A request as that user; {@code userId == null} sends no token at all. */

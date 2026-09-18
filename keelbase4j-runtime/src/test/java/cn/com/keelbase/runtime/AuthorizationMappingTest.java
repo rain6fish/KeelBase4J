@@ -220,11 +220,10 @@ class AuthorizationMappingTest {
                 "a range of all reaches every row");
     }
 
-    @SuppressWarnings("unchecked")
     private List<Map<String, Object>> listCustomers(String userId) {
-        ResponseEntity<List> res = rest.exchange("/customers", HttpMethod.GET, entity(userId, null), List.class);
+        ResponseEntity<Map> res = rest.exchange("/customers", HttpMethod.GET, entity(userId, null), Map.class);
         assertEquals(200, res.getStatusCode().value(), "GET /customers");
-        return (List<Map<String, Object>>) res.getBody();
+        return Envelopes.data(res.getBody());
     }
 
     private static Customer customerNamed(String name, String owner, Long orgId, Long deptId) {
@@ -262,15 +261,17 @@ class AuthorizationMappingTest {
         ResponseEntity<Map> user = rest.exchange("/auth/me/permissions", HttpMethod.GET,
                 entity("alice", null), Map.class);
         assertEquals(200, user.getStatusCode().value());
-        assertEquals(Set.of("role", "basis", "resources"), user.getBody().keySet());
-        assertEquals(PermissionCapabilityList.ROLE_USER, user.getBody().get("role"));
-        assertEquals(PermissionCapabilityList.BASIS_USER, user.getBody().get("basis"));
+        Map<String, Object> userData = Envelopes.data(user.getBody());
+        assertEquals(Set.of("role", "basis", "resources"), userData.keySet());
+        assertEquals(PermissionCapabilityList.ROLE_USER, userData.get("role"));
+        assertEquals(PermissionCapabilityList.BASIS_USER, userData.get("basis"));
 
         // carol's role is not asserted by the caller; it is what this deployment maps her to.
         ResponseEntity<Map> admin = rest.exchange("/auth/me/permissions", HttpMethod.GET,
                 entity("carol", null), Map.class);
         assertEquals(200, admin.getStatusCode().value());
-        assertEquals(PermissionCapabilityList.ROLE_ADMIN, admin.getBody().get("role"));
+        Map<String, Object> adminData = Envelopes.data(admin.getBody());
+        assertEquals(PermissionCapabilityList.ROLE_ADMIN, adminData.get("role"));
 
         ResponseEntity<Map> anonymous = rest.exchange("/auth/me/permissions", HttpMethod.GET,
                 entity(null, null), Map.class);

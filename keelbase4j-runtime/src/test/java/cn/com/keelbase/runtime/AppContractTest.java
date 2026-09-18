@@ -41,9 +41,8 @@ import org.springframework.test.context.ActiveProfiles;
  * contract shape and the public reachability; what is proven there is conformance to the frozen
  * files.
  *
- * <p>The response is asserted <em>bare</em>, which is this runtime's current wire state. All its
- * REST responses are still unwrapped; adding the {@code api-response} envelope is F4 (JV-13 L2) and
- * will move these assertions onto {@code data}.
+ * <p>Responses now arrive in the {@code api-response} envelope (F4 / JV-13 L2), so the assertions
+ * read through {@code data}. That the envelope is present at all is asserted once, in {@link #get}.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -138,6 +137,12 @@ class AppContractTest {
                 new HttpEntity<>(new HttpHeaders()), Map.class);
         assertEquals(200, response.getStatusCode().value(),
                 path + " must be reachable without a delegation token");
-        return (Map<String, Object>) response.getBody();
+
+        // Responses go out in the frozen api-response envelope, so the payload is `data`. Unwrapping
+        // here rather than in each test keeps the assertions about the contract object itself.
+        Map<String, Object> envelope = (Map<String, Object>) response.getBody();
+        assertEquals(Set.of("code", "message", "data", "timestamp"), envelope.keySet(),
+                "every REST response carries the four frozen envelope keys");
+        return (Map<String, Object>) envelope.get("data");
     }
 }

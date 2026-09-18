@@ -77,6 +77,6 @@ class ToolCallPlannerTest {
         ResponseEntity<Map> res = rest.postForEntity("/ai/chat",
                 new HttpEntity<>(Map.of("message", message, "customerId", 1), headers), Map.class);
         assertEquals(200, res.getStatusCode().value(), "POST /ai/chat");
-        return res.getBody();
+        return Envelopes.data(res.getBody());
     }
 }

@@ -103,11 +103,13 @@ class AuthenticationTest {
                 new HttpEntity<>(headersFor("bob", null)), Map.class);
 
         assertEquals(200, asClaimedAdmin.getStatusCode().value(), "bob is a valid user either way");
-        assertEquals(PermissionCapabilityList.ROLE_USER, asClaimedAdmin.getBody().get("role"),
+        Map<String, Object> claimedAdminData = Envelopes.data(asClaimedAdmin.getBody());
+        Map<String, Object> plainlyData = Envelopes.data(plainly.getBody());
+        assertEquals(PermissionCapabilityList.ROLE_USER, claimedAdminData.get("role"),
                 "claiming admin in a header must not make the caller an admin");
-        assertEquals(plainly.getBody().get("role"), asClaimedAdmin.getBody().get("role"),
+        assertEquals(plainlyData.get("role"), claimedAdminData.get("role"),
                 "and it must make no difference at all to the answer");
-        assertNotEquals(PermissionCapabilityList.ROLE_ADMIN, asClaimedAdmin.getBody().get("role"));
+        assertNotEquals(PermissionCapabilityList.ROLE_ADMIN, claimedAdminData.get("role"));
     }
 
     /** bob's own token, plus — if asked for — a role the caller would like to have. */
