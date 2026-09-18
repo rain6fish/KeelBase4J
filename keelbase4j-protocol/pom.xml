@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>cn.com.keelbase</groupId>
+    <artifactId>keelbase4j</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>keelbase4j-protocol</artifactId>
+  <packaging>jar</packaging>
+
+  <name>KeelBase4J Protocol</name>
+  <description>
+    The KeelBase AI Governance Protocol in pure Java: canonical JSON, the audit hash chain, the
+    delegation token, risk levels, governance binding, the confirmation lifecycle, and the frozen
+    permission/authorization wire contracts. This is the artifact generated applications depend on,
+    so it deliberately has no third-party runtime dependency — JDK crypto only.
+  </description>
+
+  <!--
+    No dependencies on purpose. Anything added here is inherited by every generated application,
+    and an inherited dependency brings its auto-configuration with it.
+  -->
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>test-jar</id>
+            <!-- Bound to test-compile, not the default package: the runtime's tests read the
+                 frozen vectors through the same loader this module's tests use, and `mvn test`
+                 must keep working on a clean checkout. -->
+            <phase>test-compile</phase>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- The conformance suite reads the vendored vectors from the repository root. -->
+          <systemPropertyVariables>
+            <keelbase.vectors.dir>${project.basedir}/../conformance/vectors</keelbase.vectors.dir>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -32,10 +32,26 @@ G0 is a **feasibility probe**, not a product positioning decision. The Spike's s
 (S1–S5) and its guardrails are recorded in the private planning repo; this codebase only claims
 what its tests prove.
 
+## Layout
+
+Three Maven modules with a **one-way** dependency edge: `runtime` and `generator` depend on
+`protocol`, never the reverse.
+
+| Module | What | Depends on |
+|---|---|---|
+| `keelbase4j-protocol` | The frozen protocol — canonical JSON, audit hash chain, delegation token, risk levels, governance binding, confirmation lifecycle, and the permission/authorization wire contracts | **nothing** (JDK only) |
+| `keelbase4j-runtime` | The governed runtime — a Spring Boot app whose AI operations run inside the trust loop | `protocol`, Spring Boot |
+| `keelbase4j-generator` | Studio side — business request → Business Spec → real, standalone Spring Boot source | `protocol` |
+
+`keelbase4j-protocol` is the artifact a **generated application depends on**, which is why it is
+kept free of third-party dependencies: while it shared one artifact with the runtime, that library
+silently carried Spring Security, and a generated app inheriting its auto-configuration locked down
+every endpoint. The runtime is the deployment; an adapter — a model provider, an identity provider
+— belongs **outside** it and depends on it, never the other way round.
+
 ## Build & run
 
-Requires JDK 17+ and Maven. Runtime code has **no third-party dependencies** (JDK only); JUnit is
-test-scope.
+Requires JDK 17+ and Maven. JUnit is test-scope.
 
 ```bash
 mvn test
@@ -58,7 +74,7 @@ The conformance suite reads the frozen vectors from `conformance/vectors`
 | `PermissionWireTest` | the frozen `permission-decision` / `permission-capability-list` / `org-membership-scope` / `authorization` schemas | the Java carriers emit exactly the contract's properties and value domains, and reproduce the reference's wording verbatim |
 | `AuthorizationMappingTest` | the same contracts, through the runtime | the decision reproduces the reference's semantics; the capability list is served at `GET /auth/me/permissions` in the frozen shape; row-level access is derived from the decision, not from a role check; the identity projects onto `sub`/`oidcSub` |
 
-Current result: **78/78 green** (`mvn test`).
+Current result: **115/115 green** (`mvn test` — protocol 57 · runtime 42 · generator 16).
 
 CI (`.github/workflows/ci.yml`) runs the same suite on every push/PR, plus a *vector-drift* check
 that the vendored vectors still match the authoritative copy in the main repo — the snapshot here

@@ -4,7 +4,7 @@
 # S5 demo — changeability: a change request flows semantic -> code -> app, regeneration preserves
 # hand-written code, and the new rule is enforced at runtime.
 #
-#   1. install the protocol library
+#   1. install the modules (protocol + runtime + generator)
 #   2. generate v1, then simulate a developer hand-edit OUTSIDE the user-code region
 #   3. apply the change request and regenerate into the SAME directory
 #   4. assert the new field is present AND the hand edit survived
@@ -30,17 +30,17 @@ PORT="${PORT:-18081}"
 BASE="http://localhost:$PORT"
 ENTITY="$GEN_DIR/src/main/java/com/example/crm/domain/Customer.java"
 
-echo "== 1/5 install protocol library =="
+echo "== 1/5 install the modules =="
 mvn -q -B -DskipTests install
 
 echo "== 2/5 generate v1 + developer hand-edit =="
 rm -rf "$GEN_DIR"
-mvn -q -B -DskipTests compile exec:java \
+mvn -q -B -DskipTests -pl keelbase4j-generator compile exec:java \
   -Dexec.mainClass=cn.com.keelbase.gen.GeneratorMain -Dexec.args="$GEN_DIR"
 sed -i 's#^public class Customer {#public class Customer {\n\n    /** Hand-written, deliberately outside the user-code block. */\n    public String displayName() { return getName(); }#' "$ENTITY"
 
 echo "== 3/5 apply the change request and regenerate =="
-mvn -q -B -DskipTests compile exec:java \
+mvn -q -B -DskipTests -pl keelbase4j-generator compile exec:java \
   -Dexec.mainClass=cn.com.keelbase.gen.GeneratorMain -Dexec.args="$GEN_DIR changed"
 
 fail=0

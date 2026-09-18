@@ -13,7 +13,10 @@ only **consumes** them.
 3. **生成物 = 真实、可独立运行的 Java/Spring 源码。** 不是运行期读 JSON 解释的低代码：
    文件是能打开、读懂、手改的 `.java`；生成器退场后应用自持。
 4. **产物基线 Java 17**（`--release 17`）。
-5. **运行时零第三方依赖**（JDK only）；JUnit 仅 test scope。
+5. **`keelbase4j-protocol` 零第三方依赖**（JDK only）；JUnit 仅 test scope。它正是生成物依赖的
+   那个 artifact——往它上面加依赖，等于加到每一套生成应用上。runtime / generator 用 Spring 不受此限。
+6. **依赖方向单向**：`runtime → protocol`、`generator → protocol`；**runtime 不被任何模块依赖**。
+   适配器（模型 provider、身份 provider）放 runtime **之外**并依赖它，反向依赖即破接缝。
 
 ## 构建与验证
 

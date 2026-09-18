@@ -5,7 +5,7 @@
 # KeelBase trust loop against the *generated* artifact (S3 axis A + S4 on generated output), and
 # check the row-level scope its generated authorization enforces.
 #
-#   1. install the protocol library
+#   1. install the modules (protocol + runtime + generator)
 #   2. generate the project (dev entry point)
 #   3. build the generated project into a runnable jar
 #   4. start it and exercise: read auto / write gated / approve / audit verify / revoke /
@@ -23,12 +23,12 @@ GEN_DIR="target/gen-demo"
 PORT="${PORT:-18080}"
 BASE="http://localhost:$PORT"
 
-echo "== 1/4 install protocol library =="
+echo "== 1/4 install the modules =="
 mvn -q -B -DskipTests install
 
 echo "== 2/4 generate the project =="
 rm -rf "$GEN_DIR"
-mvn -q -B -DskipTests compile exec:java \
+mvn -q -B -DskipTests -pl keelbase4j-generator compile exec:java \
   -Dexec.mainClass=cn.com.keelbase.gen.GeneratorMain -Dexec.args="$GEN_DIR"
 
 echo "== 3/4 build the generated project =="

@@ -12,16 +12,17 @@
   </parent>
 
   <groupId>cn.com.keelbase</groupId>
-  <artifactId>keelbase4j-protocol</artifactId>
+  <artifactId>keelbase4j</artifactId>
   <version>0.1.0-SNAPSHOT</version>
-  <packaging>jar</packaging>
+  <packaging>pom</packaging>
 
   <name>KeelBase4J</name>
   <description>
     KeelBase4J — Java runtime for KeelBase. Phase-0 spike (feasibility probe):
-    G0 reproduces the frozen AI Governance Protocol vectors; G1 is a minimal Spring Boot
-    app whose AI operations run through the governance trust loop
-    (Identity → Permission → Governance → Confirmation → Audit → Revoke).
+    the protocol module reproduces the frozen AI Governance Protocol vectors; the runtime module
+    is a minimal Spring Boot app whose AI operations run through the governance trust loop
+    (Identity → Permission → Governance → Confirmation → Audit → Revoke); the generator module
+    turns a business request into real, standalone Spring Boot source.
   </description>
   <licenses>
     <license>
@@ -36,62 +37,17 @@
     <maven.compiler.release>17</maven.compiler.release>
   </properties>
 
-  <dependencies>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
-    </dependency>
-    <!--
-      optional: this artifact doubles as the frozen protocol *library* that generated apps depend on,
-      so a dependency only the runtime needs must not propagate to them. Without this, a generated
-      app silently inherits Spring Security and its auto-configuration locks down every endpoint —
-      which is exactly what happened the first time this was added, and why the demos went red.
-      The underlying smell is that library and runtime share one artifact; splitting them is the real
-      fix if this keeps biting.
-    -->
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-security</artifactId>
-      <optional>true</optional>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-data-jpa</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.h2database</groupId>
-      <artifactId>h2</artifactId>
-      <scope>runtime</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
-
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-maven-plugin</artifactId>
-        <configuration>
-          <!-- Keep the plain jar as the main artifact so it can be used as a library
-               (the protocol/runtime classes sit at the jar root). The runnable boot jar
-               is published separately with the `exec` classifier. -->
-          <classifier>exec</classifier>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <configuration>
-          <!-- G0 conformance suite reads the vendored vectors from here. -->
-          <systemPropertyVariables>
-            <keelbase.vectors.dir>${project.basedir}/conformance/vectors</keelbase.vectors.dir>
-          </systemPropertyVariables>
-        </configuration>
-      </plugin>
-    </plugins>
-  </build>
+  <!--
+    The split is load-bearing, not cosmetic. Generated applications depend on `keelbase4j-protocol`
+    as a library; while protocol, runtime and generator shared one artifact, that library silently
+    carried Spring Security, and a generated app inheriting its auto-configuration locked down every
+    endpoint (that is how the demos first went red). The dependency direction is one-way —
+    runtime → protocol and generator → protocol, never back — so the runtime stays the thing under
+    test and an adapter (a model provider, an IdP) can sit outside it without changing it.
+  -->
+  <modules>
+    <module>keelbase4j-protocol</module>
+    <module>keelbase4j-runtime</module>
+    <module>keelbase4j-generator</module>
+  </modules>
 </project>

@@ -26,7 +26,7 @@ vectors (`Server-NestJS/specs/protocol/`) are the source of truth.
 |---|---|---|
 | Protocol semantics | main repo `docs/protocols/ai-governance-protocol.md` | the specification to implement |
 | Frozen vectors + wire schemas | main repo `Server-NestJS/specs/protocol/` | vendored read-only snapshot in `conformance/vectors/` |
-| Conformance evidence | this repo `mvn test` (78 assertions) | proves cross-runtime parity (CE-1 role ③) |
+| Conformance evidence | this repo `mvn test` (115 assertions) | proves cross-runtime parity (CE-1 role ③) |
 
 The vendored vectors are a snapshot; the main repo stays authoritative. CI job `vector-drift` diffs
 them so the snapshot cannot silently diverge.
@@ -35,7 +35,7 @@ them so the snapshot cannot silently diverge.
 
 ## 3. Subsystems
 
-### 3.1 `cn.com.keelbase.protocol` — the protocol library (G0 ✅)
+### 3.1 `keelbase4j-protocol` — the protocol library (G0 ✅)
 
 Pure Java, **zero third-party runtime dependencies** (JDK crypto only). Language-neutral semantics.
 
@@ -53,7 +53,7 @@ Pure Java, **zero third-party runtime dependencies** (JDK crypto only). Language
 | `OrgMembershipScope` | carrier of the frozen `org-membership-scope` wire contract |
 | `AuthorizationReasons` | carrier of the frozen `authorization` wire contract (why a tool call was allowed / refused) |
 
-### 3.2 `cn.com.keelbase.runtime` — the runtime core (G1 ✅)
+### 3.2 `keelbase4j-runtime` — the runtime core (G1 ✅)
 
 The hand-written reference runtime: a Spring Boot app whose AI operations run only inside the trust
 boundary.
@@ -73,7 +73,7 @@ boundary.
 | `engine` | `GovernedExecutionEngine` — the loop: gate → confirm → execute → audit → effect |
 | `web` | REST: `/ai/chat`, confirmations, tool-effects, `/audit/verify`, `/auth/me/permissions` |
 
-### 3.3 `cn.com.keelbase.gen` — the generator (G2 ✅)
+### 3.3 `keelbase4j-generator` — the generator (G2 ✅)
 
 | Class | Responsibility |
 |---|---|
@@ -170,7 +170,14 @@ verifiable.
 
 | Artifact | Version | Contents |
 |---|---|---|
-| `cn.com.keelbase:keelbase4j-protocol` | 0.1.0-SNAPSHOT | `protocol` + `runtime` + `gen` packages. Published as a **library jar** (classes at the root) alongside a runnable boot jar with the `exec` classifier. |
+| `cn.com.keelbase:keelbase4j-protocol` | 0.1.0-SNAPSHOT | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on. |
+| `cn.com.keelbase:keelbase4j-runtime` | 0.1.0-SNAPSHOT | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
+| `cn.com.keelbase:keelbase4j-generator` | 0.1.0-SNAPSHOT | The generator (studio side). |
+| `cn.com.keelbase:keelbase4j` | 0.1.0-SNAPSHOT | The parent/aggregator (`pom`). |
+
+The dependency edge is one-way — `runtime` → `protocol`, `generator` → `protocol` — and nothing
+depends on the runtime. That is what keeps the runtime the thing under test while adapters (a model
+provider, an identity provider) sit outside it.
 
 ---
 
@@ -242,8 +249,8 @@ verifiable.
 ## 6. Build & verification
 
 ```bash
-mvn test                              # conformance (57) + runtime (18, incl. the trust loop) + generator (3)
-mvn -DskipTests install               # install the protocol library into the local repo
+mvn test                              # protocol (57) + runtime (42, incl. the trust loop) + generator (16)
+mvn -DskipTests install               # install every module into the local repo
 bash scripts/demo-generated-app.sh    # generate → build → run → exercise the generated app
 ```
 

@@ -3,7 +3,7 @@
 #
 # End-to-end demo: a change must carry the data already in the database, as one recorded migration.
 #
-#   1. install the protocol library
+#   1. install the modules (protocol + runtime + generator)
 #   2. generate v1, build it, run it, insert a row, stop
 #   3. apply the change → a NEW migration appears; the applied one is left untouched
 #   4. rebuild, run again on the SAME database, and look for the row
@@ -74,12 +74,12 @@ stop_app() {
   done
 }
 
-echo "== 1/4 install protocol library =="
+echo "== 1/4 install the modules =="
 mvn -q -B -DskipTests install
 
 echo "== 2/4 generate v1, run it, put a row in =="
 rm -rf "$GEN_DIR"
-mvn -q -B -DskipTests compile exec:java \
+mvn -q -B -DskipTests -pl keelbase4j-generator compile exec:java \
   -Dexec.mainClass=cn.com.keelbase.gen.GeneratorMain -Dexec.args="$GEN_DIR"
 mvn -q -B -f "$GEN_DIR/pom.xml" clean package -DskipTests
 start_app "$ROOT/$GEN_DIR/run1.log" || exit 1
@@ -92,7 +92,7 @@ stop_app
 cp "$MIGRATIONS/V1__crm_baseline.sql" "$GEN_DIR/v1.before"
 
 echo "== 3/4 apply the change =="
-mvn -q -B -DskipTests compile exec:java \
+mvn -q -B -DskipTests -pl keelbase4j-generator compile exec:java \
   -Dexec.mainClass=cn.com.keelbase.gen.GeneratorMain -Dexec.args="$GEN_DIR changed"
 
 if cmp -s "$GEN_DIR/v1.before" "$MIGRATIONS/V1__crm_baseline.sql"; then

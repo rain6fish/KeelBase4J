@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>cn.com.keelbase</groupId>
+    <artifactId>keelbase4j</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>keelbase4j-generator</artifactId>
+  <packaging>jar</packaging>
+
+  <name>KeelBase4J Generator</name>
+  <description>
+    Studio side, not runtime side (ADR-0004 D2): turns a natural-language business request into a
+    Business Spec and then into real, standalone Spring Boot source. Depends on the protocol — for
+    the frozen permission contract the generated code is built against — and on nothing else from
+    this repository. In particular it does not depend on the runtime.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>cn.com.keelbase</groupId>
+      <artifactId>keelbase4j-protocol</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!-- The generator's two entry classes carry @Component. Nothing scans them (GeneratorMain
+         instantiates directly), so this is the annotation's own requirement and nothing more. -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-context</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- The tests compile the source this module emits, against the test JVM's own classpath
+         (ChangeabilityTest). These are the APIs that emitted source is written against, so their
+         absence is a false failure in the compiler, not in the generator. Test scope only: the
+         generator is a studio-side tool and ships neither starter. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>
