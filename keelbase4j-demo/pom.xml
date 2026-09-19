@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>cn.com.keelbase</groupId>
+    <artifactId>keelbase4j</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>keelbase4j-demo</artifactId>
+  <packaging>jar</packaging>
+
+  <name>KeelBase4J Demo (runtime with a real model)</name>
+  <description>
+    A runnable deployment: the runtime, the Spring AI adapter, and one model provider — chosen by
+    Maven profile. It exists so that "the runtime, with a model on the seam" is something you can
+    start and talk to, rather than something described in a document.
+  </description>
+
+  <properties>
+    <demo.main.class>cn.com.keelbase.demo.DemoApplication</demo.main.class>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>cn.com.keelbase</groupId>
+      <artifactId>keelbase4j-runtime</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>cn.com.keelbase</groupId>
+      <artifactId>keelbase4j-springai</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+
+  <!--
+    The provider is the one thing this module chooses, and it chooses it here rather than in
+    keelbase4j-springai — the adapter binds no provider on purpose (ADR-0005 D3). Swapping is
+    `-Popenai` or `-Pollama`; nothing else changes, because the adapter only ever asked for a
+    ChatClient.
+  -->
+  <profiles>
+    <profile>
+      <id>deepseek</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>org.springframework.ai</groupId>
+          <artifactId>spring-ai-starter-model-deepseek</artifactId>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
+      <id>openai</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.springframework.ai</groupId>
+          <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
+      <id>ollama</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.springframework.ai</groupId>
+          <artifactId>spring-ai-starter-model-ollama</artifactId>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <mainClass>${demo.main.class}</mainClass>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

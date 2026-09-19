@@ -35,7 +35,22 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.release>17</maven.compiler.release>
+    <spring-ai.version>2.0.1</spring-ai.version>
   </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- One place decides the Spring AI version, so the adapter and whichever provider the demo
+           binds cannot drift apart. -->
+      <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-bom</artifactId>
+        <version>${spring-ai.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <!--
     The split is load-bearing, not cosmetic. Generated applications depend on `keelbase4j-protocol`
@@ -50,5 +65,6 @@
     <module>keelbase4j-runtime</module>
     <module>keelbase4j-generator</module>
     <module>keelbase4j-springai</module>
+    <module>keelbase4j-demo</module>
   </modules>
 </project>

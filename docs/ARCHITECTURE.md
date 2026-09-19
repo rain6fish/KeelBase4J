@@ -198,6 +198,7 @@ verifiable.
 | `cn.com.keelbase:keelbase4j-runtime` | 0.1.0-SNAPSHOT | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
 | `cn.com.keelbase:keelbase4j-generator` | 0.1.0-SNAPSHOT | The generator (studio side). |
 | `cn.com.keelbase:keelbase4j-springai` | 0.1.0-SNAPSHOT | The Spring AI adapter — **depends on the runtime**, and nothing depends on it. |
+| `cn.com.keelbase:keelbase4j-demo` | 0.1.0-SNAPSHOT | The runnable demo deployment — runtime + adapter + one provider, chosen by Maven profile. |
 | `cn.com.keelbase:keelbase4j` | 0.1.0-SNAPSHOT | The parent/aggregator (`pom`). |
 
 The dependency edge is one-way — `runtime` → `protocol`, `generator` → `protocol` — and nothing

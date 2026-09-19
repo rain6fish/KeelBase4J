@@ -43,6 +43,7 @@ Three Maven modules with a **one-way** dependency edge: `runtime` and `generator
 | `keelbase4j-runtime` | The governed runtime — a Spring Boot app whose AI operations run inside the trust loop | `protocol`, Spring Boot |
 | `keelbase4j-generator` | Studio side — business request → Business Spec → real, standalone Spring Boot source | `protocol` |
 | `keelbase4j-springai` | Adapter — implements the runtime's `ToolCallPlanner` seam with Spring AI. Active only when a model is configured | `runtime` |
+| `keelbase4j-demo` | Runnable — the runtime with the adapter and **one** model provider, chosen by Maven profile (`deepseek` by default, `openai`, `ollama`) | `runtime`, `springai` |
 
 `keelbase4j-protocol` is the artifact a **generated application depends on**, which is why it is
 kept free of third-party dependencies: while it shared one artifact with the runtime, that library
@@ -60,6 +61,14 @@ mvn test
 
 The conformance suite reads the frozen vectors from `conformance/vectors`
 (overridable via `-Dkeelbase.vectors.dir=<dir>`).
+
+To run the runtime with a **real model** on the planner seam — and see a request the rule-based
+planner cannot route get routed by the model, then held at the gate anyway:
+
+```bash
+export DEEPSEEK_API_KEY=...          # or -Popenai / -Pollama on the demo module
+bash scripts/demo-springai.sh
+```
 
 ### What the suite proves
 

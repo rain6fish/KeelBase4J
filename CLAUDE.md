@@ -27,6 +27,7 @@ only **consumes** them.
 mvn test                            # 协议一致性 + 生成器 + 运行时
 bash scripts/demo-generated-app.sh  # 生成 → 构建 → 独立运行 → 信任闭环
 bash scripts/demo-changeability.sh  # 变更 → 再生成 → 手改存活 → 新规则生效
+bash scripts/demo-springai.sh       # 真模型上接缝（需 DEEPSEEK_API_KEY；无 key 时会明确报错退出）
 ```
 
 CI（`.github/workflows/ci.yml`）门禁两件事：`conformance`（`mvn verify`）+ `vector-drift`
