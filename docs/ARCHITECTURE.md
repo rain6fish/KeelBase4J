@@ -85,7 +85,31 @@ boundary.
 The generated project is **self-contained**: it carries its own governance wiring and depends only on
 the protocol *library*, never on a KeelBase4J runtime service (S3 axes A and B).
 
-### 3.4 The generated application
+### 3.4 `keelbase4j-springai` — the model-driven planner (adapter)
+
+| Class | Responsibility |
+|---|---|
+| `SpringAiToolCallPlanner` | Implements the runtime's `ToolCallPlanner` seam with Spring AI's `ChatClient` |
+| `SpringAiPlannerAutoConfiguration` | Puts that planner on the seam — **only** when a model is configured |
+
+This module is an **adapter**, and the arrow points one way: it depends on the runtime; the runtime
+does not know it exists (CLAUDE.md 硬规则 6). It carries no provider dependency either — which model
+to talk to is a deployment's decision, so adding a provider is what switches it on.
+
+Two properties are worth stating because they are the difference between an adapter and a back door:
+
+- **It proposes; it does not execute.** What it returns is an `IntentPlan` — a tool name and
+  arguments. Risk level, confirmation, audit and revoke stay the runtime's, read from the tool's own
+  declaration and applied unconditionally downstream.
+- **It does not tell the model how a call is governed.** The catalogue sent to the model is names and
+  descriptions only; `AiTool`'s governance metadata is marked "never sent to a model", and this is
+  where that is enforced rather than asserted — there is a test on the prompt itself.
+
+Registration is conditional on a `ChatClient.Builder` existing, and ordered *before* the runtime's
+own planner so the latter stands down. Without a provider the module is inert and the rule-based
+planner stays in charge, which is what makes it safe to have a model-shaped dependency at all.
+
+### 3.5 The generated application
 
 ```
 <module>/
@@ -132,33 +156,33 @@ Every step is enforced by the runtime, not described in a prompt.
 |---|---|
 | Java (Temurin JDK) | **17.0.20.1** (`--release 17`) |
 | Apache Maven | **3.9.16** |
-| Spring Boot (parent) | **3.2.5** |
+| Spring Boot (parent) | **4.1.1** |
 
 ### Runtime dependencies (resolved)
 
 | Component | Version | Role |
 |---|---|---|
-| Spring Framework | 6.1.6 | core / context / web / tx |
-| Spring Boot starters | 3.2.5 | `web`, `data-jpa`, `test` |
-| Spring Data JPA | 3.2.5 | repositories |
-| Hibernate ORM | 6.4.4.Final | JPA provider |
-| Jakarta Persistence API | 3.1.0 | entity annotations |
-| HikariCP | 5.0.1 | connection pool |
-| Embedded Tomcat | 10.1.20 | servlet container (`spring-boot-starter-web`) |
-| H2 Database | 2.2.224 | in-memory DB (spike) |
-| Jackson | 2.15.4 | JSON (web layer) |
-| SLF4J + Logback | 2.0.x / 1.4.14 | logging |
-| Micrometer | 1.12.5 | observability (transitive) |
+| Spring Framework | 7.0.9 | core / context / web / tx |
+| Spring Boot starters | 4.1.1 | `webmvc`, `data-jpa`, `security`, `test` |
+| Spring Data JPA | 4.1.1 | repositories |
+| Hibernate ORM | 7.4.5.Final | JPA provider |
+| Jakarta Persistence API | 3.2.0 | entity annotations |
+| HikariCP | 7.0.2 | connection pool |
+| Embedded Tomcat | 11.0.24 | servlet container (`spring-boot-starter-webmvc`) |
+| H2 Database | 2.4.240 | in-memory DB (spike) |
+| Jackson | 3.1.5 (`tools.jackson`; annotations stay 2.21) | JSON (web layer) |
+| SLF4J + Logback | 2.0.x / 1.5.38 | logging |
+| Micrometer | 1.17.1 | observability (transitive) |
 
 ### Test dependencies
 
 | Component | Version |
 |---|---|
-| JUnit Jupiter | 5.10.2 |
-| Mockito | 5.7.0 |
-| AssertJ | 3.24.2 |
-| JSONPath | 2.9.0 |
-| XMLUnit | 2.9.1 |
+| JUnit Jupiter | 6.0.3 |
+| Mockito | 5.23.0 |
+| AssertJ | 3.27.7 |
+| JSONPath | 2.10.0 |
+| XMLUnit | 2.11.0 |
 
 ### Cryptography
 
@@ -173,6 +197,7 @@ verifiable.
 | `cn.com.keelbase:keelbase4j-protocol` | 0.1.0-SNAPSHOT | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on. |
 | `cn.com.keelbase:keelbase4j-runtime` | 0.1.0-SNAPSHOT | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
 | `cn.com.keelbase:keelbase4j-generator` | 0.1.0-SNAPSHOT | The generator (studio side). |
+| `cn.com.keelbase:keelbase4j-springai` | 0.1.0-SNAPSHOT | The Spring AI adapter — **depends on the runtime**, and nothing depends on it. |
 | `cn.com.keelbase:keelbase4j` | 0.1.0-SNAPSHOT | The parent/aggregator (`pom`). |
 
 The dependency edge is one-way — `runtime` → `protocol`, `generator` → `protocol` — and nothing

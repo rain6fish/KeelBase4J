@@ -7,7 +7,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.2.5</version>
+    <version>4.1.1</version>
     <relativePath/>
   </parent>
 
@@ -49,5 +49,6 @@
     <module>keelbase4j-protocol</module>
     <module>keelbase4j-runtime</module>
     <module>keelbase4j-generator</module>
+    <module>keelbase4j-springai</module>
   </modules>
 </project>

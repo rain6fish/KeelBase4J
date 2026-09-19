@@ -42,6 +42,7 @@ Three Maven modules with a **one-way** dependency edge: `runtime` and `generator
 | `keelbase4j-protocol` | The frozen protocol — canonical JSON, audit hash chain, delegation token, risk levels, governance binding, confirmation lifecycle, and the permission/authorization wire contracts | **nothing** (JDK only) |
 | `keelbase4j-runtime` | The governed runtime — a Spring Boot app whose AI operations run inside the trust loop | `protocol`, Spring Boot |
 | `keelbase4j-generator` | Studio side — business request → Business Spec → real, standalone Spring Boot source | `protocol` |
+| `keelbase4j-springai` | Adapter — implements the runtime's `ToolCallPlanner` seam with Spring AI. Active only when a model is configured | `runtime` |
 
 `keelbase4j-protocol` is the artifact a **generated application depends on**, which is why it is
 kept free of third-party dependencies: while it shared one artifact with the runtime, that library
@@ -74,7 +75,7 @@ The conformance suite reads the frozen vectors from `conformance/vectors`
 | `PermissionWireTest` | the frozen `permission-decision` / `permission-capability-list` / `org-membership-scope` / `authorization` schemas | the Java carriers emit exactly the contract's properties and value domains, and reproduce the reference's wording verbatim |
 | `AuthorizationMappingTest` | the same contracts, through the runtime | the decision reproduces the reference's semantics; the capability list is served at `GET /auth/me/permissions` in the frozen shape; row-level access is derived from the decision, not from a role check; the identity projects onto `sub`/`oidcSub` |
 
-Current result: **115/115 green** (`mvn test` — protocol 57 · runtime 42 · generator 16).
+Current result: **132/132 green** (`mvn test` — protocol 57 · runtime 49 · generator 16 · springai 10).
 
 CI (`.github/workflows/ci.yml`) runs the same suite on every push/PR, plus a *vector-drift* check
 that the vendored vectors still match the authoritative copy in the main repo — the snapshot here

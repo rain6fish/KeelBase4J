@@ -9,13 +9,14 @@ import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
 import cn.com.keelbase.runtime.domain.FollowUpRepository;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -36,14 +37,20 @@ import org.springframework.test.context.ActiveProfiles;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+@AutoConfigureTestRestTemplate
 class TrustLoopTest {
 
     @Autowired
     TestRestTemplate rest;
 
-    /** Responses arrive in the api-response envelope, so the payload is read through {@code data}. */
+    /**
+     * Responses arrive in the api-response envelope, so the payload is read through {@code data}.
+     *
+     * <p>Spring Boot 4 moved to Jackson 3 ({@code com.fasterxml.jackson} → {@code tools.jackson})
+     * and auto-configures a {@code JsonMapper} rather than a bare {@code ObjectMapper}.
+     */
     @Autowired
-    ObjectMapper json;
+    JsonMapper json;
 
     @Autowired
     CustomerRepository customers;

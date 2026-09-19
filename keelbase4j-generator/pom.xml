@@ -47,7 +47,7 @@
          generator is a studio-side tool and ships neither starter. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

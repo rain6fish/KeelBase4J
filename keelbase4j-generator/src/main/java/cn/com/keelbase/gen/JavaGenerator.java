@@ -221,7 +221,7 @@ public class JavaGenerator {
                   <parent>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-starter-parent</artifactId>
-                    <version>3.2.5</version>
+                    <version>4.1.1</version>
                     <relativePath/>
                   </parent>
                   <groupId>com.example</groupId>
@@ -234,7 +234,7 @@ public class JavaGenerator {
                   <dependencies>
                     <dependency>
                       <groupId>org.springframework.boot</groupId>
-                      <artifactId>spring-boot-starter-web</artifactId>
+                      <artifactId>spring-boot-starter-webmvc</artifactId>
                     </dependency>
                     <dependency>
                       <groupId>org.springframework.boot</groupId>
@@ -246,10 +246,11 @@ public class JavaGenerator {
                       <scope>runtime</scope>
                     </dependency>
                     <!-- Schema migrations: a change becomes an immutable, versioned migration rather
-                         than a re-create, so rows already in the database survive it. -->
+                         than a re-create, so rows already in the database survive it. Boot 4 has a
+                         starter for this; the bare flyway-core library is no longer enough. -->
                     <dependency>
-                      <groupId>org.flywaydb</groupId>
-                      <artifactId>flyway-core</artifactId>
+                      <groupId>org.springframework.boot</groupId>
+                      <artifactId>spring-boot-starter-flyway</artifactId>
                     </dependency>
                     <!-- The frozen protocol library (risk levels, canonical JSON, audit chain).
                          A library, not a runtime service — the app runs without any KeelBase4J service. -->

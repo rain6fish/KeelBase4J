@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>cn.com.keelbase</groupId>
+    <artifactId>keelbase4j</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>keelbase4j-springai</artifactId>
+  <packaging>jar</packaging>
+
+  <name>KeelBase4J Spring AI Adapter</name>
+  <description>
+    An adapter, not a kernel: it implements the runtime's ToolCallPlanner seam with Spring AI and
+    depends on the runtime — never the other way round. Absent a model provider the module activates
+    nothing and the runtime's own rule-based planner stays in charge.
+  </description>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-bom</artifactId>
+        <version>${spring-ai.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <properties>
+    <spring-ai.version>2.0.1</spring-ai.version>
+  </properties>
+
+  <dependencies>
+    <!-- The runtime must not depend on this module; the edge only ever points this way. -->
+    <dependency>
+      <groupId>cn.com.keelbase</groupId>
+      <artifactId>keelbase4j-runtime</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!-- ChatClient is the whole of what this adapter needs from Spring AI. No provider is
+         declared here on purpose: which model to talk to is a deployment decision, and hard-coding
+         one would make this module opinionated about infrastructure it does not own. -->
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-client-chat</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-autoconfigure-model-chat-client</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-restclient</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -15,8 +15,11 @@ only **consumes** them.
 4. **产物基线 Java 17**（`--release 17`）。
 5. **`keelbase4j-protocol` 零第三方依赖**（JDK only）；JUnit 仅 test scope。它正是生成物依赖的
    那个 artifact——往它上面加依赖，等于加到每一套生成应用上。runtime / generator 用 Spring 不受此限。
-6. **依赖方向单向**：`runtime → protocol`、`generator → protocol`；**runtime 不被任何模块依赖**。
-   适配器（模型 provider、身份 provider）放 runtime **之外**并依赖它，反向依赖即破接缝。
+6. **依赖方向单向**：`runtime → protocol`、`generator → protocol`、`springai → runtime`；**runtime 不被
+   任何模块依赖**。适配器（模型 provider、身份 provider）放 runtime **之外**并依赖它，反向依赖即破接缝。
+   适配器缺席时 runtime 照常起（默认规划器条件注册，见硬规则 7）。
+7. **适配器不许替模型越权**：规划器只**提议**（`IntentPlan` = 工具名 + 参数），风险/确认/审计/撤销
+   一律由运行时下游无条件施加；且**治理元数据（风险级、是否需确认、撤销档）不得发给模型**。
 
 ## 构建与验证
 
