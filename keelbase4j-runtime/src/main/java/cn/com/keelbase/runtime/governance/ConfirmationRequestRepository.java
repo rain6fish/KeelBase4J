@@ -27,4 +27,23 @@ public interface ConfirmationRequestRepository extends JpaRepository<Confirmatio
             + "where r.status = :from and r.createdAt < :cutoff")
     int expireStale(@Param("from") String from, @Param("to") String to,
                     @Param("cutoff") Instant cutoff, @Param("at") Instant at);
+
+    /**
+     * Claim a still-{@code pending} row for this operator, moving it to a terminal status — and
+     * report whether the claim landed ({@code 1}) or somebody else got there first ({@code 0}).
+     *
+     * <p>This is the arbitration point for a decision, on the same principle as {@link #expireStale}:
+     * the transition is conditional on the state it is moving out of, so of any number of concurrent
+     * deciders exactly one can win. Reading the row and then updating it by id would leave a window
+     * between the two in which two callers both see {@code pending} and both run the tool — the tool
+     * running twice is precisely what the frozen invariant forbids.
+     *
+     * <p>{@code operatorId} is part of the condition so the claim stands on its own: the row this
+     * moves is the one belonging to the operator who is deciding it.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("update ConfirmationRequest r set r.status = :to, r.decidedAt = :at "
+            + "where r.token = :token and r.operatorId = :operatorId and r.status = :from")
+    int claim(@Param("token") String token, @Param("operatorId") String operatorId,
+              @Param("from") String from, @Param("to") String to, @Param("at") Instant at);
 }

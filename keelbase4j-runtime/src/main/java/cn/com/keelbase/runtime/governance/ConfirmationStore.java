@@ -28,16 +28,34 @@ public class ConfirmationStore {
         return repository.save(new ConfirmationRequest(token, toolName, argsJson, principal.userId(), riskLevel));
     }
 
-    /** Resolve a token; 404 if unknown, 403 if it belongs to another operator. */
-    public ConfirmationRequest requireOwnedPending(String token, Principal principal) {
+    /**
+     * Take a confirmation out of {@code pending} for this operator, atomically — 404 if the token is
+     * unknown, 403 if it belongs to somebody else, 409 if it is no longer pending (including when a
+     * concurrent decision got there first).
+     *
+     * <p>The 409 is not a formality: it is the answer the <em>loser</em> of a race gets, and it is
+     * what makes "exactly one decider" hold. Whether the row was decided a second earlier or a
+     * second later is a distinction the caller cannot act on, so both report the same thing.
+     *
+     * <p>The returned entity already carries the new status: the conditional update ran in the
+     * database, and the copy in hand was read before it. Returning it unchanged would let a later
+     * save write the old status back over the claim.
+     */
+    @Transactional
+    public ConfirmationRequest claim(String token, Principal principal, String toStatus) {
         ConfirmationRequest req = repository.findByToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown confirmation token"));
         if (!req.getOperatorId().equals(principal.userId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "confirmation belongs to another operator");
         }
-        if (!ConfirmationLifecycle.PENDING.equals(req.getStatus())) {
+        Instant now = Instant.now();
+        int claimed = repository.claim(token, principal.userId(),
+                ConfirmationLifecycle.PENDING, toStatus, now);
+        if (claimed == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "confirmation already " + req.getStatus());
         }
+        req.setStatus(toStatus);
+        req.setDecidedAt(now);
         return req;
     }
 

@@ -14,7 +14,6 @@ import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.tool.AiTool;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import cn.com.keelbase.runtime.tool.ToolResult;
-import java.time.Instant;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
@@ -74,14 +73,20 @@ public class GovernedExecutionEngine {
         }
     }
 
-    /** Approve a pending confirmation and perform the write. */
+    /**
+     * Approve a pending confirmation and perform the write.
+     *
+     * <p><b>The claim comes first, and it is what makes the write single.</b> Claiming takes the row
+     * out of {@code pending} atomically, so a second approval arriving at the same instant loses the
+     * claim and never reaches the tool. The order that reads more naturally — check it is pending,
+     * execute, then record — is the order that lets two winners through, because both check before
+     * either records.
+     */
     public ExecutionOutcome approve(String token, Principal principal) {
-        ConfirmationRequest req = confirmations.requireOwnedPending(token, principal);
+        ConfirmationRequest req = confirmations.claim(token, principal, ConfirmationLifecycle.APPROVED);
         AiTool tool = registry.require(req.getToolName());
         audit.append("tool_confirmation", principal.userId(), tool.name() + " approved");
         ExecutionOutcome outcome = run(tool, parseArgs(req.getArgsJson()), principal);
-        req.setStatus(ConfirmationLifecycle.APPROVED);
-        req.setDecidedAt(Instant.now());
         req.setResultId(outcome.effectId());
         confirmations.save(req);
         return outcome;
@@ -89,10 +94,7 @@ public class GovernedExecutionEngine {
 
     /** Decline a pending confirmation — nothing is written. */
     public ExecutionOutcome decline(String token, Principal principal) {
-        ConfirmationRequest req = confirmations.requireOwnedPending(token, principal);
-        req.setStatus(ConfirmationLifecycle.DECLINED);
-        req.setDecidedAt(Instant.now());
-        confirmations.save(req);
+        ConfirmationRequest req = confirmations.claim(token, principal, ConfirmationLifecycle.DECLINED);
         audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined");
         return new ExecutionOutcome(ConfirmationLifecycle.DECLINED, null, null, null, null);
     }
