@@ -99,6 +99,14 @@ public class JavaGenerator {
         project.write(javaDir.resolve("web/AiController.java"), aiController(pkg));
         project.write(javaDir.resolve("web/AuthController.java"), authController(pkg));
         project.write(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg));
+        // F4 + F5 of the frozen Full profile. Without them the artifact cannot serve the
+        // runtime-neutral frontend at all: the frontend unwraps the envelope on every call, and it
+        // reads the capability surface before it holds a token.
+        project.write(javaDir.resolve("web/WireEnvelope.java"), wireEnvelope(pkg));
+        project.write(javaDir.resolve("web/ApiResponseAdvice.java"), apiResponseAdvice(pkg));
+        project.write(javaDir.resolve("web/WireErrorController.java"), wireErrorController(pkg));
+        project.write(javaDir.resolve("web/WireExceptionHandler.java"), wireExceptionHandler(pkg));
+        project.write(javaDir.resolve("web/AppInfoController.java"), appInfoController(pkg, spec));
         // One CRUD controller for the primary entity, enforcing the spec's policy rules.
         EntitySpec primary = spec.entities().get(0);
         project.write(javaDir.resolve("web/" + primary.name() + "Controller.java"),
@@ -1448,6 +1456,335 @@ public class JavaGenerator {
                     }
                 }
                 """.formatted(pkg, pkg, pkg, pkg, pkg);
+    }
+
+    // ── the frozen wire surface: envelope (F4) and frontend contract (F5) ───────
+
+    /**
+     * Builds the two frozen REST shapes — {@code api-response} for success, {@code error-body} for
+     * failure (main repo {@code specs/protocol/schemas/v1}).
+     *
+     * <p>Both carry the same four keys deliberately: a client reads {@code code} / {@code message} /
+     * {@code data} / {@code timestamp} whichever way the request went, and only {@code data} differs
+     * in kind — the payload on success, {@code null} on failure.
+     */
+    private String wireEnvelope(String pkg) {
+        return """
+                package %s.web;
+
+                import java.time.Instant;
+                import java.time.ZoneOffset;
+                import java.time.format.DateTimeFormatter;
+                import java.util.LinkedHashMap;
+                import java.util.Map;
+
+                /** The two frozen REST shapes. Package-private: nothing outside this layer builds them. */
+                final class WireEnvelope {
+
+                    /** The wire convention: ISO-8601 UTC, millisecond precision, trailing Z. */
+                    private static final DateTimeFormatter TIMESTAMP =
+                            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
+
+                    private WireEnvelope() {
+                    }
+
+                    /** Success: {@code data} carries the payload; {@code code} is the status sent. */
+                    static Map<String, Object> success(int code, Object data) {
+                        return build(code, "操作成功", data);
+                    }
+
+                    /** Failure: {@code data} is always null, so "no payload" stays distinguishable. */
+                    static Map<String, Object> error(int code, String message) {
+                        return build(code, message, null);
+                    }
+
+                    /** Key order follows the reference; the contract does not constrain it. */
+                    private static Map<String, Object> build(int code, String message, Object data) {
+                        Map<String, Object> body = new LinkedHashMap<>();
+                        body.put("code", code);
+                        body.put("message", message);
+                        body.put("data", data);
+                        body.put("timestamp", TIMESTAMP.format(Instant.now()));
+                        return body;
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * Wraps every successful REST response in the frozen {@code api-response} envelope.
+     *
+     * <p>This is not cosmetic. The runtime-neutral frontend unwraps responses through one adapter
+     * that expects {@code data} to be present, so an artifact answering with a bare body breaks it on
+     * the very first hop — which is the state every endpoint of this artifact was in before this
+     * class existed.
+     *
+     * <p>Failures are exempt, and the exemption is decided by <em>who produced the body</em> rather
+     * than by inspecting it: {@code WireErrorController} and {@code WireExceptionHandler} already
+     * write the {@code error-body} shape, and wrapping those would nest one envelope inside another.
+     */
+    private String apiResponseAdvice(String pkg) {
+        return """
+                package %s.web;
+
+                import org.springframework.core.MethodParameter;
+                import org.springframework.http.MediaType;
+                import org.springframework.http.converter.HttpMessageConverter;
+                import org.springframework.http.server.ServerHttpRequest;
+                import org.springframework.http.server.ServerHttpResponse;
+                import org.springframework.http.server.ServletServerHttpResponse;
+                import org.springframework.web.bind.annotation.ControllerAdvice;
+                import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
+
+                @ControllerAdvice
+                public class ApiResponseAdvice implements ResponseBodyAdvice<Object> {
+
+                    @Override
+                    public boolean supports(MethodParameter returnType,
+                                            Class<? extends HttpMessageConverter<?>> converterType) {
+                        Class<?> producer = returnType.getContainingClass();
+                        return !WireErrorController.class.equals(producer)
+                                && !WireExceptionHandler.class.equals(producer);
+                    }
+
+                    @Override
+                    public Object beforeBodyWrite(Object body,
+                                                  MethodParameter returnType,
+                                                  MediaType selectedContentType,
+                                                  Class<? extends HttpMessageConverter<?>> selectedConverterType,
+                                                  ServerHttpRequest request,
+                                                  ServerHttpResponse response) {
+                        // A String return is written by StringHttpMessageConverter, which cannot
+                        // serialize an object — wrapping it would turn a working endpoint into a 500.
+                        if (body instanceof String) {
+                            return body;
+                        }
+                        return WireEnvelope.success(statusOf(response), body);
+                    }
+
+                    /** The status the response already carries, rather than an assumed 200. */
+                    private int statusOf(ServerHttpResponse response) {
+                        if (response instanceof ServletServerHttpResponse servlet) {
+                            int current = servlet.getServletResponse().getStatus();
+                            if (current > 0) {
+                                return current;
+                            }
+                        }
+                        return 200;
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * Renders <em>container-level</em> failures in the frozen {@code error-body} shape: the 404 for a
+     * path no controller claims, and anything else the container itself reports.
+     *
+     * <p>By default Spring Boot answers those with its own {@code {timestamp, status, error, path}}
+     * body, which is not the wire contract. The frontend reads {@code message} / {@code reason} /
+     * {@code impact} / {@code nextStep} off an error body, so a 404 has to arrive in the same four-key
+     * shape as a success.
+     *
+     * <p>Declaring an {@code ErrorController} bean makes Boot's own back off. Errors this artifact
+     * raises itself are shaped by {@code WireExceptionHandler} instead — a thrown exception never
+     * reaches the container.
+     *
+     * <p>Server faults stay deliberately vague: the status is honest, the message is not, because a
+     * 5xx message is the classic place internal detail leaks out.
+     */
+    private String wireErrorController(String pkg) {
+        return """
+                package %s.web;
+
+                import jakarta.servlet.RequestDispatcher;
+                import jakarta.servlet.http.HttpServletRequest;
+                import java.util.Map;
+                import org.springframework.boot.web.servlet.error.ErrorController;
+                import org.springframework.http.HttpStatus;
+                import org.springframework.http.ResponseEntity;
+                import org.springframework.web.bind.annotation.RequestMapping;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                public class WireErrorController implements ErrorController {
+
+                    @RequestMapping("/error")
+                    public ResponseEntity<Map<String, Object>> error(HttpServletRequest request) {
+                        HttpStatus status = statusOf(request);
+                        return ResponseEntity.status(status)
+                                .body(WireEnvelope.error(status.value(), messageFor(status)));
+                    }
+
+                    private HttpStatus statusOf(HttpServletRequest request) {
+                        Object attribute = request.getAttribute(RequestDispatcher.ERROR_STATUS_CODE);
+                        if (attribute instanceof Integer code) {
+                            HttpStatus resolved = HttpStatus.resolve(code);
+                            if (resolved != null) {
+                                return resolved;
+                            }
+                        }
+                        return HttpStatus.INTERNAL_SERVER_ERROR;
+                    }
+
+                    private String messageFor(HttpStatus status) {
+                        return switch (status) {
+                            case UNAUTHORIZED -> "authentication required";
+                            case FORBIDDEN -> "forbidden";
+                            case NOT_FOUND -> "Not found";
+                            default -> status.is5xxServerError() ? "服务器内部错误" : status.getReasonPhrase();
+                        };
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * Renders the errors this artifact <em>raises itself</em> in the frozen {@code error-body} shape.
+     *
+     * <p>Why this is separate from {@code WireErrorController}: the identity and ownership checks
+     * throw ({@code ResponseStatusException}), and a thrown exception is resolved inside the
+     * dispatcher — it never reaches the container, so the container-level error controller never sees
+     * it. Without this handler those responses would carry Spring's own problem-detail body instead of
+     * the wire contract, and the frontend's error path would break on exactly the answers it most
+     * needs to explain: 401 and 403.
+     */
+    private String wireExceptionHandler(String pkg) {
+        return """
+                package %s.web;
+
+                import java.util.Map;
+                import org.springframework.http.HttpStatus;
+                import org.springframework.http.ResponseEntity;
+                import org.springframework.web.bind.annotation.ExceptionHandler;
+                import org.springframework.web.bind.annotation.RestControllerAdvice;
+                import org.springframework.web.server.ResponseStatusException;
+
+                @RestControllerAdvice
+                public class WireExceptionHandler {
+
+                    @ExceptionHandler(ResponseStatusException.class)
+                    public ResponseEntity<Map<String, Object>> handle(ResponseStatusException exception) {
+                        HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
+                        if (status == null) {
+                            status = HttpStatus.INTERNAL_SERVER_ERROR;
+                        }
+                        String reason = exception.getReason() != null
+                                ? exception.getReason()
+                                : status.getReasonPhrase();
+                        return ResponseEntity.status(status).body(WireEnvelope.error(status.value(), reason));
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * The F5 endpoints: what this application is, and which capabilities it exposes.
+     *
+     * <p>Together with the envelope these are what lets <em>one</em> frontend run against either
+     * backend — the frontend branches on capability, never on which runtime answered. Both are
+     * unauthenticated by design, because the frontend has to learn what this system offers before
+     * anyone holds a token.
+     *
+     * <p>Served under {@code /api/v1} to match the prefix the frontend's API base defaults to.
+     *
+     * <p>The module label is baked in at generation time: the business request this artifact came from
+     * carries no human-facing label for the module, so the entity name stands in and the description is
+     * empty. The contract asks for strings, not for particular content.
+     */
+    private String appInfoController(String pkg, BusinessSpec spec) {
+        String moduleId = spec.module();
+        String moduleLabel = spec.entities().get(0).name();
+        return """
+                package %s.web;
+
+                import %s.ai.AiTool;
+                import %s.ai.ToolRegistry;
+                import java.util.LinkedHashMap;
+                import java.util.List;
+                import java.util.Map;
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RequestMapping;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                @RequestMapping("/api/v1/app")
+                public class AppInfoController {
+
+                    private static final String MODULE_ID = "%s";
+                    private static final String MODULE_LABEL = "%s";
+
+                    private final ToolRegistry tools;
+
+                    public AppInfoController(ToolRegistry tools) {
+                        this.tools = tools;
+                    }
+
+                    /** {@code data} of {@code GET /app/capabilities}. */
+                    @GetMapping("/capabilities")
+                    public Map<String, Object> capabilities() {
+                        Map<String, Object> ai = new LinkedHashMap<>();
+                        ai.put("enabled", true);
+                        // Deterministic by construction: this artifact decides tool calls from the
+                        // request, it does not call a model. Saying so is the point of the field — the
+                        // frontend distinguishes "AI is off" from "AI is on but unconfigured".
+                        ai.put("providerConfigured", false);
+                        ai.put("provider", "");
+
+                        Map<String, Object> body = new LinkedHashMap<>();
+                        body.put("preset", "full");
+                        body.put("features", Map.of(MODULE_ID, true));
+                        body.put("ai", ai);
+                        body.put("businessModules", List.of(module()));
+                        return body;
+                    }
+
+                    /** {@code data} of {@code GET /app/provenance}. */
+                    @GetMapping("/provenance")
+                    public Map<String, Object> provenance() {
+                        Map<String, Object> runtime = new LinkedHashMap<>();
+                        runtime.put("preset", "full");
+                        runtime.put("businessModules", List.of(module()));
+                        runtime.put("aiToolFingerprint", toolFingerprint());
+
+                        Map<String, Object> source = new LinkedHashMap<>();
+                        // This artifact is not produced by the TypeScript generator and carries no
+                        // manifest; it says so rather than inventing an origin.
+                        source.put("manifestPresent", false);
+
+                        Map<String, Object> body = new LinkedHashMap<>();
+                        body.put("source", source);
+                        body.put("runtime", runtime);
+                        return body;
+                    }
+
+                    private Map<String, Object> module() {
+                        Map<String, Object> entry = new LinkedHashMap<>();
+                        entry.put("id", MODULE_ID);
+                        entry.put("label", MODULE_LABEL);
+                        entry.put("description", "");
+                        return entry;
+                    }
+
+                    /**
+                     * Counts only — never the tools' arguments or risk levels, which stay server-side.
+                     *
+                     * <p>Read/write is derived from the risk level (R1 = read, anything else = write),
+                     * the convention this artifact's generated tool pair follows. The runtime derives it
+                     * from a declared result type instead; the generated tool interface carries no such
+                     * declaration, so the derivation differs while the shape and the meaning of the
+                     * counts do not.
+                     */
+                    private Map<String, Object> toolFingerprint() {
+                        List<AiTool> all = tools.all();
+                        long writes = all.stream().filter(tool -> !"R1".equals(tool.riskLevel())).count();
+                        Map<String, Object> fingerprint = new LinkedHashMap<>();
+                        fingerprint.put("total", all.size());
+                        fingerprint.put("readTools", all.size() - writes);
+                        fingerprint.put("writeTools", writes);
+                        return fingerprint;
+                    }
+                }
+                """.formatted(pkg, pkg, pkg, moduleId, moduleLabel);
     }
 
     private String governanceController(String pkg) {
