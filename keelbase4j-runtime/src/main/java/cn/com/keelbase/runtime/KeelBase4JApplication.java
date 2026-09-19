@@ -5,6 +5,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * KeelBase4J runtime (Phase-0 spike).
@@ -17,9 +18,14 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
  * in-memory user and a generated password, which is not how this runtime authenticates anyone.
  * Callers prove who they are with a delegation token, and a local directory maps that subject to a
  * user and role (see {@code runtime.security}).
+ *
+ * <p>Scheduling is enabled because the confirmation offline window is only meaningful with a
+ * periodic sweep behind it — see {@code runtime.governance.ConfirmationSweeper} for why a
+ * confirmation would otherwise stay decidable forever.
  */
 @SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 @ConfigurationPropertiesScan
+@EnableScheduling
 public class KeelBase4JApplication {
 
     public static void main(String[] args) {

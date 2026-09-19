@@ -3,9 +3,11 @@ package cn.com.keelbase.runtime.governance;
 
 import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.identity.Principal;
+import java.time.Instant;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -42,5 +44,24 @@ public class ConfirmationStore {
     /** Persist a resolved request (status / decidedAt / resultId). */
     public ConfirmationRequest save(ConfirmationRequest request) {
         return repository.save(request);
+    }
+
+    /**
+     * Close the offline window on every confirmation whose time is up, and report how many were
+     * closed.
+     *
+     * <p>This is the {@code offline_ttl_elapsed} transition of the frozen lifecycle, and it is the
+     * only thing that ends a confirmation nobody decided: the in-conversation wait expiring leaves
+     * the row {@code pending} on purpose, so without a sweep a confirmation would stay actionable
+     * forever. A deployment that wants the window configurable passes its own value; the default is
+     * the contract's.
+     */
+    @Transactional
+    public int expireStale(Instant now, long offlineTtlMillis) {
+        return repository.expireStale(
+                ConfirmationLifecycle.PENDING,
+                ConfirmationLifecycle.TIMEOUT,
+                now.minusMillis(offlineTtlMillis),
+                now);
     }
 }
