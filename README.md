@@ -1,272 +1,257 @@
 # KeelBase4J
 
-Java runtime for **KeelBase** — a conformance implementation of the KeelBase AI Governance Protocol.
+**The Java/Spring carrier for the KeelBase AI Governance Protocol** — so a Java or Spring
+application can run AI operations inside the same governance boundary as every other KeelBase
+implementation, and prove it by reproducing the same frozen, language-neutral vectors.
 
-> **Status: Phase-0 Spike (G0–G3) — feasibility probe.** The repository holds the protocol
-> conformance layer, a minimal governed runtime, and a generator whose output is real, editable
-> Spring Boot source. Positioning is **not** decided here — see "Scope & status" below.
+<p align="center">
+  <a href="https://github.com/rain6fish/KeelBase4J/actions/workflows/ci.yml"><img src="https://github.com/rain6fish/KeelBase4J/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/Java-17-informational" alt="Java 17">
+  <img src="https://img.shields.io/badge/Spring_Boot-4.1.1-informational" alt="Spring Boot 4.1.1">
+</p>
+
+**The design rule — implement the frozen contract, do not translate the reference.**
+The KeelBase protocol is the source of truth, not the TypeScript code that happens to implement it
+first. Compatibility is proven by reproducing the language-neutral vectors that live in the main
+repository — the same files any other implementation would use.
+
+---
 
 ## What this is
 
-KeelBase (reference implementation in TypeScript, `rain6fish/KeelBase`) defines a language-neutral
-AI-governance protocol — the audit hash chain, the delegation token, and tool risk levels. This
-repository is the **Java/Spring side** that implements the same protocol so that Java enterprise
-applications can live inside the same governance boundary.
+KeelBase (the reference implementation is TypeScript, `rain6fish/KeelBase`) defines a
+language-neutral AI governance protocol: an audit hash chain, a delegation token, tool risk levels,
+a confirmation lifecycle, and the permission/authorization wire contracts.
 
-The design rule is **implement the frozen contract, do not translate the reference**:
+This repository is the **Java side** of that protocol. It holds two things:
 
-- the protocol is the source of truth, not the TypeScript code;
-- compatibility is proven by reproducing the language-neutral vectors that live in
-  `specs/protocol/` of the main repo — the same files any other implementation would use.
+- **a runtime** — a Spring Boot application whose AI operations run only inside the trust loop
+  (Identity → Permission → Governance → Confirmation → Audit → Revoke);
+- **a generator** — business request → Business Spec → real, standalone, editable Spring Boot source.
 
-## Scope & status
+KeelBase4J is a **carrier**, not a second product: it exists so the same governance semantics are
+available to Java/Spring teams, and so the claim "the protocol is language-neutral" has a second
+implementation standing behind it.
 
-| Phase | What | Status |
-|---|---|---|
-| **G0** | Reproduce the frozen protocol vectors (canonical JSON / audit hash chain / delegation token / risk levels / governance binding / confirmation lifecycle / failure semantics) | ✅ **7/7 vectors** |
-| **G1** | Runtime core + trust loop (Identity → Permission → Governance → Confirmation → Audit → Revoke) | ✅ **this repo** |
-| **G2** | Generator: NL → Business Spec → real Spring Boot source | ✅ **this repo** |
-| G3 | Changeability (semantic change → code change → migration → tests) | ✅ **this repo** |
+---
 
-G0 is a **feasibility probe**, not a product positioning decision. The Spike's success criteria
-(S1–S5) and its guardrails are recorded in the private planning repo; this codebase only claims
-what its tests prove.
+## 30 seconds
 
-## Layout
-
-Three Maven modules with a **one-way** dependency edge: `runtime` and `generator` depend on
-`protocol`, never the reverse.
-
-| Module | What | Depends on |
-|---|---|---|
-| `keelbase4j-protocol` | The frozen protocol — canonical JSON, audit hash chain, delegation token, risk levels, governance binding, confirmation lifecycle, and the permission/authorization wire contracts | **nothing** (JDK only) |
-| `keelbase4j-runtime` | The governed runtime — a Spring Boot app whose AI operations run inside the trust loop | `protocol`, Spring Boot |
-| `keelbase4j-generator` | Studio side — business request → Business Spec → real, standalone Spring Boot source | `protocol` |
-| `keelbase4j-springai` | Adapter — implements the runtime's `ToolCallPlanner` seam with Spring AI. Active only when a model is configured | `runtime` |
-| `keelbase4j-demo` | Runnable — the runtime with the adapter and **one** model provider, chosen by Maven profile (`deepseek` by default, `openai`, `ollama`) | `runtime`, `springai` |
-
-`keelbase4j-protocol` is the artifact a **generated application depends on**, which is why it is
-kept free of third-party dependencies: while it shared one artifact with the runtime, that library
-silently carried Spring Security, and a generated app inheriting its auto-configuration locked down
-every endpoint. The runtime is the deployment; an adapter — a model provider, an identity provider
-— belongs **outside** it and depends on it, never the other way round.
-
-## Build & run
-
-Requires JDK 17+ and Maven. JUnit is test-scope.
+Requires JDK 17+ and Maven.
 
 ```bash
 mvn test
 ```
 
-The conformance suite reads the frozen vectors from `conformance/vectors`
-(overridable via `-Dkeelbase.vectors.dir=<dir>`).
-
-To run the runtime with a **real model** on the planner seam — and see a request the rule-based
-planner cannot route get routed by the model, then held at the gate anyway:
+**138 tests** green (protocol 58 · runtime 54 · generator 16 · springai 10). Then watch each claim
+in the next section actually happen — four scripts, no model required for the first three:
 
 ```bash
-export DEEPSEEK_API_KEY=...          # or -Popenai / -Pollama on the demo module
-bash scripts/demo-springai.sh
+bash scripts/demo-generated-app.sh    # generate → build → run → walk the trust loop
+bash scripts/demo-changeability.sh    # change → regenerate → hand edit survives → new rule enforced
+bash scripts/demo-migration.sh        # change → additive migration → existing rows carry over
+
+export DEEPSEEK_API_KEY=...           # the demo module also builds with -Popenai or -Pollama
+bash scripts/demo-springai.sh         # a real model on the planner seam
 ```
 
-### What the suite proves
+Every script exits non-zero if an expected outcome is missing. None of them is a smoke test: each
+one is the evidence for a specific claim below.
 
-| Test | Vector | Checks |
+---
+
+## The trust loop
+
+```text
+request (identity) ─► tool selected ─► gate(risk level)
+        │                                   │
+        │            ALLOW ────────────────►├─► execute ─► side effect ─► audit
+        │            CONFIRM ──► token ──► pending (nothing written)
+        │                                   │        └─ approve ─► execute ─► side effect ─► audit
+        │            BLOCK ────────────────►└─► denied (never executed)
+        ▼
+   revoke ─► local compensation (soft delete) ─► effect status revoked
+   verify ─► recompute the audit hash chain
+```
+
+The runtime — not a prompt — enforces each step. Three consequences are worth stating plainly,
+because they are where this differs from wrapping a model with instructions:
+
+- **Authentication happens at the request entry, and only there.** Spring Security answers *who is
+  this request*; KeelBase answers *may this AI behaviour happen*. There is deliberately no
+  `hasRole`, no `@PreAuthorize` and no URL-to-role rule in that configuration — a second answer to
+  the same question is a second answer that silently diverges.
+- **A delegation token proves a subject and nothing else.** It carries no role, because delegation
+  never escalates privilege. The runtime maps the verified subject to a local user and role. The
+  adapter that used to read `X-User-Id` / `X-User-Role` off the request is gone — those headers are
+  ignored, and a request carrying only them is a 401.
+- **A planner proposes; the runtime disposes.** Deciding *what to call* is a replaceable seam
+  (`ToolCallPlanner`). Its output is a tool name and its arguments — and nothing else. Risk level,
+  confirmation, audit and revoke are read from the tool's own declaration and applied downstream,
+  unconditionally. Governance metadata is never sent to the model.
+
+Access to a row is two questions kept apart: the capability gate (*may this action on this subject
+happen at all*) and the row range (*which rows* — `own`, `org`, `own_dept`, `own_dept_and_below`,
+`custom_dept`, `all`). Rows are ranged by a **typed predicate, never a SQL string**, and missing
+facts **tighten** a range rather than widen it.
+
+Design rationale and the full component map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+---
+
+## What is verified
+
+Everything in this table is checked by a test or a script that ships in this repository. The middle
+column is where to look; the last column is the honest boundary of the claim.
+
+| Claim | Evidence | Boundary |
 |---|---|---|
-| `CanonicalJsonTest` | `canonical-json-v1-vector.json` | byte-faithful `JSON.stringify(payload, sortedKeys)` — nested replacer filtering, UTF-16 key order, JS number/string formatting |
-| `AuditChainTest` | `audit-hash-v1-vector.json` | chain hash, legacy key derivation, genesis literal, chain verify, tamper/rotation/domain-separation |
-| `DelegationTokenTest` | `delegation-token-v1-vector.json` | JWT HS256 sign/verify, `aud` scoping, expiry, tamper detection, `sub` semantics |
-| `RiskLevelTest` | `risk-level-v1-vector.json` | risk-strategy table + derivation (write → R3, read → R1) |
-| `GovernanceBindingTest` | `governance-binding-v1-vector.json` | strategy → gate outcome, denial-reason vocabulary |
-| `ConfirmationLifecycleTest` | `confirmation-lifecycle-v1-vector.json` | state set, decision set, initial/terminal states, transition table, resolve guards, default TTL, `reject` → `decline` alias |
-| `FailureSemanticsTest` | `failure-semantics-v1-vector.json` | each failure disposition driven through the runtime: timeout surfaces as failure, unreachable compensation is never "revoked", empty upstream stays null, duplicate call reuses the effect, duplicate key cannot fork, DB error rethrows, replayed token is rejected, audit fails closed |
-| `PermissionWireTest` | the frozen `permission-decision` / `permission-capability-list` / `org-membership-scope` / `authorization` schemas | the Java carriers emit exactly the contract's properties and value domains, and reproduce the reference's wording verbatim |
-| `AuthorizationMappingTest` | the same contracts, through the runtime | the decision reproduces the reference's semantics; the capability list is served at `GET /auth/me/permissions` in the frozen shape; row-level access is derived from the decision, not from a role check; the identity projects onto `sub`/`oidcSub` |
+| The frozen protocol vectors reproduce | 8 vendored vectors → `CanonicalJsonTest` · `AuditChainTest` · `DelegationTokenTest` · `RiskLevelTest` · `GovernanceBindingTest` · `ConfirmationLifecycleTest` | the snapshot must match the main repo; CI `vector-drift` enforces it |
+| Failure dispositions follow the vector | `FailureSemanticsTest` | — |
+| A caller cannot state who it is or what it may do | `AuthenticationTest` | identity is a thin SPI; the default adapter maps a subject to declared local facts |
+| Capability decision and row range stay separate | `PermissionWireTest` · `AuthorizationMappingTest` · `ScopeFilterTest` | rules are declared in code (delivery tier A) |
+| A write is not executed until a human approves | `TrustLoopTest` | — |
+| One confirmation token executes the tool exactly once | `ConfirmationConcurrencyTest` (written red first) · the eight-at-once check in `demo-generated-app.sh` | — |
+| The audit chain is tamper-evident and appended under a row lock | `AuditChainConcurrencyTest` · `GET /audit/verify` | the spike's datastore is in-memory, so it is per-process |
+| The generated application runs standalone | `demo-generated-app.sh` — 15 checks | the generator handles the CRM-shaped request it was built for |
+| A change carries the data already in the database | `demo-migration.sh` — 11 checks | Flyway owns the schema; `ddl-auto=validate` |
+| Regeneration merges the developer's edits | `demo-changeability.sh` — 7 checks | a **line-level** merge: it merges text, not meaning |
+| A real model routes, and the runtime still holds the write | `demo-springai.sh` (DeepSeek, real key) | needs a key; it is a human-run demo, not a CI gate |
 
-Current result: **132/132 green** (`mvn test` — protocol 57 · runtime 49 · generator 16 · springai 10).
+All numbers above were measured on this checkout — `mvn test` plus the three no-key demos.
 
-CI (`.github/workflows/ci.yml`) runs the same suite on every push/PR, plus a *vector-drift* check
-that the vendored vectors still match the authoritative copy in the main repo — the snapshot here
-must never be hand-edited.
+---
 
-### G1 — runtime and the trust loop
+## What this is not
 
-A minimal Spring Boot app (`KeelBase4JApplication`) whose AI operations run only inside the trust
-boundary. Tools declare a risk level; the runtime — not a prompt — enforces what may run:
+Read this section before quoting anything above.
 
-| Tool | Risk | Behaviour |
+1. **Not a product.** There is no Docker image, no hosted demo and no user interface. The frontend
+   that ships with KeelBase does not talk to this runtime yet.
+2. **Not a finished generator.** `BusinessSpecParser` is a deterministic router over two fixed
+   sentences: it produces a fixed spec for the CRM-shaped request it recognises. It does not turn
+   arbitrary natural language into modules, and it does not call a model.
+3. **Not an agent framework.** No RAG, no embeddings, no memory, no sub-agents, no proactive AI.
+   These are explicit non-goals (ADR-0004); unfreezing any of them requires a new ADR.
+4. **Not a bridge for existing systems.** No MCP or OpenAPI ingestion here. The Java-side bridge
+   that adds governance to an existing system is a separate repository
+   (`rain6fish/KeelBase-java-starter`).
+5. **Not a replacement for the main repository.** This repository only *consumes* the protocol.
+   Protocol changes land in the main repo first (vectors → implementation); a divergence is caught
+   by CI, not tolerated.
+6. **Not production-tier data or identity.** The runtime's datastore is in-memory H2, its
+   authorization rules are declared in code, and there is no IdP, no `roles`/`permissions` table and
+   no multi-tenancy. A real directory or IdP is an adapter behind the same seam — not built here.
+7. **Its positioning is not decided here.** Whether and how this line becomes a product is settled
+   in internal decision records, not in this repository. What this repository holds is the Java
+   carrier and the evidence that it reproduces the protocol.
+
+---
+
+## Modules
+
+Five Maven modules with a **one-way** dependency edge: `runtime` and `generator` depend on
+`protocol`, never the reverse; nothing depends on the runtime.
+
+| Module | What | Depends on |
 |---|---|---|
-| `analyze_customer_risk` | R1 | executes immediately (read) |
-| `create_followup` | R3 | **not executed** until a human approves |
+| `keelbase4j-protocol` | The frozen protocol — canonical JSON, audit hash chain, delegation token, risk levels, governance binding, confirmation lifecycle, and the permission/authorization wire contracts | **nothing** (JDK only) |
+| `keelbase4j-runtime` | The governed runtime — AI operations run inside the trust loop | `protocol`, Spring Boot |
+| `keelbase4j-generator` | Business request → Business Spec → standalone Spring Boot source | `protocol` |
+| `keelbase4j-springai` | Adapter — implements the runtime's `ToolCallPlanner` seam with Spring AI; inert unless a model is configured | `runtime` |
+| `keelbase4j-demo` | Runnable deployment — runtime + adapter + **one** provider, chosen by Maven profile (`deepseek` default, `openai`, `ollama`) | `runtime`, `springai` |
 
-Endpoints (a caller authenticates with a delegation token — see below). Paths below are as mapped;
-the whole application is mounted under the reference's `/api/v1` prefix (`server.servlet.context-path`),
-so the URL is `/api/v1/ai/chat` and so on — the frontend keeps one base URL and no per-runtime branch:
+`keelbase4j-protocol` is the artifact a **generated application depends on**, which is why it is
+kept free of third-party dependencies: while it shared one artifact with the runtime, that library
+silently carried Spring Security, and a generated app inheriting its auto-configuration locked down
+every endpoint. An adapter — a model provider, an identity provider — belongs **outside** the
+runtime and depends on it.
+
+The runtime serves nine endpoints, all mounted under the reference's `/api/v1` prefix
+(`server.servlet.context-path`), so a runtime-neutral frontend keeps one base URL and no
+per-runtime branch:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/ai/chat` | planner → governed tool call (the shipped planner routes by rules; declare your own `ToolCallPlanner` bean to replace it) |
+| POST | `/ai/chat` | planner → governed tool call |
 | POST | `/ai/confirmations/{token}` | `approve` (executes) or `decline` (writes nothing) |
-| GET | `/ai/tool-effects` | list recorded side effects |
+| GET | `/ai/tool-effects` | recorded side effects |
 | DELETE | `/ai/tool-effects/{id}` | revoke → local compensation (soft delete) |
 | GET | `/audit/verify` | recompute and verify the audit hash chain |
-| GET | `/auth/me/permissions` | the caller's capability list, in the frozen `permission-capability-list` contract |
+| GET | `/auth/me/permissions` | the caller's capability list, in the frozen contract shape |
+| GET | `/customers` | row-scoped by the caller's range |
+| GET | `/app/capabilities` · `/app/provenance` | what this deployment declares about itself |
 
-**Authentication is at the request entry** (Spring Security), and it is the only thing there:
-`Authorization: Bearer <delegation token>` is verified with the **frozen protocol's own**
-`DelegationToken.verify` — not a second JWT implementation — and a request that fails that check
-never reaches a controller. There is deliberately no `hasRole`, no `@PreAuthorize` and no URL-to-role
-rule in that configuration: Spring Security answers *who is this request*; KeelBase answers *may this
-AI behaviour happen* (ADR-0004 D3).
+Component-by-component detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-The token proves a **subject and nothing else** — it carries no role, because "delegation never
-escalates privilege: the mapped local user's own permissions apply after mapping" (protocol §3). The
-runtime then maps that subject to a local user and role (`LocalIdentities`, delivery tier A), so a
-caller can present a token but cannot state who it is or what it may do. The adapter that used to read
-`X-User-Id` / `X-User-Role` off the request is **gone**; those headers are ignored, and a request
-carrying only them is 401.
+---
 
-Identity remains a thin SPI (`IdentityResolver`): the default adapter turns the authenticated subject
-into the frozen identity contracts (`sub` / `oidcSub` / `org-membership-scope`), and an adapter for a
-real directory implements the same seam. Authorization is **self-built** — `PermissionAuthorizer` reproduces the
-reference's ability/condition semantics and emits the frozen `permission-decision` /
-`permission-capability-list`, and `OwnershipGuard` enforces access in two steps rather than by a role
-check. No OPA / Casbin / Cedar, no Keycloak, no `roles`/`permissions` table (the rules are declared —
-delivery tier A). See ADR-0004 D4 and the main repo's `docs/authorization-architecture.md`.
+## The generator
 
-### The two gates, and the data range (tier B)
-
-Enforcement is deliberately two questions, kept apart as the reference's `docs/data-scope.spec.md`
-requires. `PermissionAuthorizer` answers *may this action on this subject happen at all*;
-`ScopeFilter` answers *which rows* — `own`, `org`, `own_dept`, `own_dept_and_below`, `custom_dept`,
-`all`. Inlining a row set into the decision would make a capability depend on the data, and would push
-those names into the frozen `permission-capability-list.scope` enum, which is exactly `all` / `own`.
-
-Three properties are load-bearing, and each has a test:
-
-- **Rows are ranged by a typed predicate, never a SQL string** — `GET /customers` composes one through
-  the criteria API, so there is nothing to inject into and the shape stays inspectable. Filtering a
-  fetched list instead would read rows the caller may not see.
-- **Missing facts tighten, never widen.** A range that needs an organization or department the caller
-  does not have falls back to `own`. An absence of facts must not be what makes someone see more.
-- **An entity that is not scope-filterable gets no predicate** — its caller keeps its own condition.
-  "Match everything" is the one answer this must never give.
-
-`org-membership-scope` used to be carried but always empty; the department facts behind it are real
-now, which is what lets a range name a department at all.
-
-### The AI seam
-
-Deciding *what to call* is a seam (`ToolCallPlanner`), not something the entry point does inline. The
-runtime ships one planner that routes by rules, so the trust loop is reproducible without a model; a
-Spring AI or LangChain4j adapter implements the same interface and replaces it as a bean.
-
-The seam is a seam and not a way around the boundary because of what a plan may contain: a tool name
-and its arguments, and nothing else. Risk level, confirmation, audit and revoke come from the tool's
-own declaration and are applied by the engine, downstream and unconditionally. **A planner proposes;
-the runtime disposes** — and `ToolCallPlannerTest` pins that by replacing the planner with one that
-proposes a write and asserting the write is still held for a human.
-
-What is deliberately *not* here: model or provider configuration. Choosing a provider is a deployment
-concern, and a runtime that grew its own abstraction for it would be owning an AI pipeline rather than
-accepting one (ADR-0004 Parked).
-
-`TrustLoopTest` walks the whole loop over HTTP: read auto-executes → write is gated (nothing
-written) → approve executes and records a side effect → the audit chain verifies → revoke soft-
-deletes → cross-user access is 403 with no side effect. Because it runs over HTTP against a
-standalone app, it is the S3 evidence too: no generator involved.
-
-The audit chain is **appended under a database row lock**, not a JVM monitor. A monitor is released
-when the appending method returns while the transaction commits after that, so two appenders can read
-the same chain head in the gap and fork the chain — `AuditChainConcurrencyTest` shows the fork
-happens when that lock is removed. The row lock is held to the commit, which is also what a second
-instance would contend for on a shared database. (The spike's datasource is still in-memory and
-therefore per-process, so actually running two instances additionally needs a shared database.)
-
-### G2 — the generator
-
-`BusinessSpecParser` (S1) turns a natural-language business request into a `BusinessSpec`; `JavaGenerator`
-(S2) turns that spec into an ordinary Spring Boot project:
-
-```
+```text
 Business description
    → BusinessSpecParser → BusinessSpec        (entities, fields, ownership rule, AI tools + risk)
    → JavaGenerator      → Spring Boot project  (real .java sources + pom.xml + README)
 ```
 
-The output is real, editable source — a Maven project that builds on its own. The generated
-`GovernanceGate` reads the risk level through the **frozen protocol** (`cn.com.keelbase.protocol.RiskLevel`),
-so a generated app makes the same decisions the protocol defines. The same goes for access: the
-generated app carries the runtime's identity seam (`IdentityResolver` + a header adapter) and its
-`AuthorizationRules` / `PermissionAuthorizer` / `OwnershipGuard` pair, so a spec's policy reaches the
-caller as the frozen `permission-decision` / `permission-capability-list` data — served at
-`GET /auth/me/permissions` — rather than as a role string compared inside a controller. A spec that
-reserves an action for one role is generated as the *absence* of that action from the other roles.
+The output is **normal, editable source** — a Maven project that builds on its own, with its own
+governance wiring, depending only on the frozen protocol *library* and never on a KeelBase4J
+runtime service. A generated application carries the identity seam, the contract-derived
+authorization (`GET /auth/me/permissions`, same path and shape as the runtime), Flyway-owned
+schema, and the confirmation store — so it makes the same governance decisions the protocol
+defines, without this repository in the loop.
 
-`GeneratorTest` asserts the spec is complete (S1) and that the generated project **compiles** (S2),
-checked with the JDK compiler against the current classpath.
-
-The generated app is **self-contained** — it carries its own governance wiring and depends only on
-the frozen protocol *library* (risk levels, canonical JSON, audit chain), never on a KeelBase4J
-runtime service. So it builds and runs on its own (S3 axis A) and needs no KeelBase4J service at
-all (S3 axis B). To see the whole loop end to end on the *generated* artifact:
+Regeneration is a **three-way merge** against what the generator produced last time
+(`.keelbase/baseline/`), so a hand edit survives anywhere in a file; a file the generator never
+produced is left untouched and reported, and a genuine conflict is reported rather than guessed at.
 
 ```bash
-bash scripts/demo-generated-app.sh
+bash scripts/demo-generated-app.sh    # generate → build → run → trust loop, on the artifact
+bash scripts/demo-migration.sh        # the change carries existing rows
+bash scripts/demo-changeability.sh    # the hand edit survives the change
 ```
 
-It generates the project, builds it into a runnable jar, starts it, and checks that a read tool
-auto-executes, a write tool is gated, approving executes and records a side effect, the audit chain
-verifies, and revoke marks the effect revoked.
+See [What this is not](#what-this-is-not) items 2 and 3 for the boundary of this section.
 
-### G3 — a change carries the data
+---
 
-A change is not a re-create. The generated project owns its schema through **Flyway**: the generator
-emits a versioned baseline migration, and a change emits a **new, additive** one — an applied
-migration is never rewritten, because Flyway records its checksum. `spring.jpa.hibernate.ddl-auto` is
-`validate`, so Hibernate checks the entities against what Flyway built instead of mutating the schema
-behind its back. The database is **file-backed** rather than in-memory precisely so the promise is
-testable at all: an in-memory one loses the rows before a change could be made to carry them.
+## Portability: the second carrier
 
-```bash
-bash scripts/demo-migration.sh
-```
+This repository is the first proof that a KeelBase implementation can be written in another
+language and still be the *same* protocol, rather than a similar-looking one:
 
-It generates v1, runs the app, writes a row, applies a change, rebuilds on the **same** database, and
-checks the row is still there with the added column — while the baseline migration stayed
-byte-identical and the second run rolled forward exactly one version.
+- **8 frozen vectors** are vendored under `conformance/vectors/` and reproduced assertion by
+  assertion — canonical JSON (byte-faithful `JSON.stringify` sorted-key semantics, including
+  UTF-16 key order and JavaScript number formatting), the audit hash chain, the delegation token,
+  risk levels, governance binding, the confirmation lifecycle, and failure semantics.
+- **The wire contracts are reproduced, not reinvented.** `permission-decision`,
+  `permission-capability-list`, `org-membership-scope` and `authorization` are carried in
+  `cn.com.keelbase.protocol` and served in the frozen shape.
+- **The vectors are a read-only snapshot.** CI's `vector-drift` job diffs them against the
+  authoritative copy in the main repository on every push, so neither side can move alone. They are
+  never hand-edited here.
 
-### G3 — regeneration merges the developer's edits
-
-Regeneration is a **three-way merge**, not an overwrite: what the generator produced last time
-(recorded under `.keelbase/baseline/`), what the file is now, and what it would produce this time. An
-edit **anywhere** in a file survives — the `user-code` marker block the generated sources carry is now
-only a suggestion of where code is least likely to collide, not the mechanism. A region both sides
-changed is left with `diff3` conflict markers and **reported** by the generator rather than resolved by
-a guess; a file the generator never produced is left untouched and reported rather than replaced.
-
-```bash
-bash scripts/demo-changeability.sh
-```
-
-It hand-edits the generated entity *outside* the marker block — the edit the old mechanism silently
-discarded — and checks it is still there after the change, next to the new field.
-
-This is a **line-based** merge: it merges text, not meaning. It keeps two changes that touch different
-regions; it cannot tell that renaming a method and updating its call sites is a single change. That
-would need the program's structure rather than its lines, and is not attempted here.
+---
 
 ## Protocol sources
 
-The authoritative protocol lives in the main repository:
+The authoritative protocol lives in the main repository (`rain6fish/KeelBase`):
 
-- `docs/protocols/ai-governance-protocol.md` — the protocol (§2 chain / §3 token / §4 risk levels);
+- `docs/protocols/ai-governance-protocol.md` — the protocol (§2 chain · §3 token · §4 risk levels);
 - `Server-NestJS/specs/protocol/` — the machine-verifiable vectors and wire schemas;
-- §5.1 — how an implementation self-certifies against these vectors.
+- §5.1 — how an implementation self-certifies against those vectors.
 
-The copy under `conformance/vectors/` is a read-only snapshot; the main repo remains the source of
-truth. See `conformance/vectors/README.md`.
+The copy under `conformance/vectors/` is a snapshot; see
+[conformance/vectors/README.md](conformance/vectors/README.md) for how it is refreshed.
+
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — subsystems, component versions, the trust loop, and
+  the authorization/identity decisions
+- [CLAUDE.md](CLAUDE.md) — the frozen rules this repository is built to (dependency direction, the
+  protocol as source of truth, generated output being real source)
+- [conformance/vectors/README.md](conformance/vectors/README.md) — the vendored snapshot
 
 ## License
 
