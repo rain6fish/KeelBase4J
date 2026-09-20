@@ -320,6 +320,10 @@ public class JavaGenerator {
                 # Flyway owns the schema. Hibernate only checks the entities against what Flyway
                 # built; "update" would mutate the schema behind Flyway's back and hide drift.
                 spring.jpa.hibernate.ddl-auto=validate
+                # The whole surface is mounted under the reference's path prefix, because the
+                # runtime-neutral frontend keeps one base URL (/api/v1) and does not branch on which
+                # runtime it is talking to. An app answering at the root is not one it can talk to.
+                server.servlet.context-path=/api/v1
                 """.formatted(module, module);
     }
 
@@ -1713,7 +1717,10 @@ public class JavaGenerator {
      * unauthenticated by design, because the frontend has to learn what this system offers before
      * anyone holds a token.
      *
-     * <p>Served under {@code /api/v1} to match the prefix the frontend's API base defaults to.
+     * <p>The {@code /api/v1} prefix is not written here: it comes from {@code server.servlet.context-path}
+     * in the generated {@code application.properties}, which mounts the whole application under the
+     * prefix the frontend's API base defaults to. Putting it on this mapping instead would leave every
+     * other endpoint at the root, and the frontend's calls would 404.
      *
      * <p>The module label is baked in at generation time: the business request this artifact came from
      * carries no human-facing label for the module, so the entity name stands in and the description is
@@ -1735,7 +1742,7 @@ public class JavaGenerator {
                 import org.springframework.web.bind.annotation.RestController;
 
                 @RestController
-                @RequestMapping("/api/v1/app")
+                @RequestMapping("/app")
                 public class AppInfoController {
 
                     private static final String MODULE_ID = "%s";

@@ -24,7 +24,7 @@ if [ -n "${JAVA_HOME:-}" ]; then PATH="$JAVA_HOME/bin:$PATH"; export PATH; fi
 GEN_DIR="target/migration-demo"
 MIGRATIONS="$GEN_DIR/src/main/resources/db/migration"
 PORT="${PORT:-18082}"
-BASE="http://localhost:$PORT"
+BASE="http://localhost:$PORT/api/v1"
 
 fail=0
 check() { # name expected actual — literal match: the expected strings contain JSON punctuation

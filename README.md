@@ -100,7 +100,9 @@ boundary. Tools declare a risk level; the runtime — not a prompt — enforces 
 | `analyze_customer_risk` | R1 | executes immediately (read) |
 | `create_followup` | R3 | **not executed** until a human approves |
 
-Endpoints (a caller authenticates with a delegation token — see below):
+Endpoints (a caller authenticates with a delegation token — see below). Paths below are as mapped;
+the whole application is mounted under the reference's `/api/v1` prefix (`server.servlet.context-path`),
+so the URL is `/api/v1/ai/chat` and so on — the frontend keeps one base URL and no per-runtime branch:
 
 | Method | Path | Purpose |
 |---|---|---|

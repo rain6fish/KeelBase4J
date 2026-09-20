@@ -21,7 +21,7 @@ if [ -n "${JAVA_HOME:-}" ]; then PATH="$JAVA_HOME/bin:$PATH"; export PATH; fi
 
 GEN_DIR="target/gen-demo"
 PORT="${PORT:-18080}"
-BASE="http://localhost:$PORT"
+BASE="http://localhost:$PORT/api/v1"
 
 echo "== 1/4 install the modules =="
 mvn -q -B -DskipTests install

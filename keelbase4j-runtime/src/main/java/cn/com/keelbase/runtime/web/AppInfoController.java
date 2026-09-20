@@ -28,11 +28,14 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><b>On the {@code /api/v1} prefix.</b> The reference serves these under its global prefix and
  * URI version, and the frontend's API base defaults to {@code /api/v1}, so it asks for
  * {@code /api/v1/app/capabilities}. Serving that exact path is what makes this runtime a drop-in
- * for the frontend rather than one needing its base reconfigured. The rest of this runtime's
- * surface still sits at the root — aligning <em>that</em> is the remaining work, not this class.
+ * for the frontend rather than one needing its base reconfigured.
+ *
+ * <p>The prefix used to live here, on this class alone, and the rest of the surface sat at the root.
+ * It now comes from {@code server.servlet.context-path}, which mounts <em>everything</em> under
+ * {@code /api/v1} — so this mapping is the plain one and no endpoint has to remember the prefix.
  */
 @RestController
-@RequestMapping("/api/v1/app")
+@RequestMapping("/app")
 public class AppInfoController {
 
     private final ApplicationProfileProperties profile;

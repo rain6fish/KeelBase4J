@@ -27,7 +27,7 @@ fi
 
 GEN_DIR="target/s5-demo"
 PORT="${PORT:-18081}"
-BASE="http://localhost:$PORT"
+BASE="http://localhost:$PORT/api/v1"
 ENTITY="$GEN_DIR/src/main/java/com/example/crm/domain/Customer.java"
 
 echo "== 1/5 install the modules =="

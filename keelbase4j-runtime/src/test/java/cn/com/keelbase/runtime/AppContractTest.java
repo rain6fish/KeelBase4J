@@ -57,21 +57,21 @@ class AppContractTest {
 
     @Test
     void capabilitiesIsReachableWithoutAToken() {
-        Map<String, Object> body = get("/api/v1/app/capabilities");
+        Map<String, Object> body = get("/app/capabilities");
         assertTrue(PRESETS.contains(body.get("preset")),
                 "preset must be one of the frozen enum, was: " + body.get("preset"));
     }
 
     @Test
     void capabilitiesCarriesTheFourFrozenFields() {
-        Map<String, Object> body = get("/api/v1/app/capabilities");
+        Map<String, Object> body = get("/app/capabilities");
         assertEquals(Set.of("preset", "features", "ai", "businessModules"), body.keySet(),
                 "the contract is additionalProperties:false — no extra fields, none missing");
     }
 
     @Test
     void capabilitiesAiDistinguishesEnabledFromConfigured() {
-        Map<String, Object> ai = assertInstanceOf(Map.class, get("/api/v1/app/capabilities").get("ai"));
+        Map<String, Object> ai = assertInstanceOf(Map.class, get("/app/capabilities").get("ai"));
         assertEquals(Set.of("enabled", "providerConfigured", "provider"), ai.keySet());
 
         // This runtime ships the AI seam with no provider bound to it, and that difference is the
@@ -82,7 +82,7 @@ class AppContractTest {
 
     @Test
     void capabilitiesBusinessModulesAreProjectedInTheFrozenShape() {
-        Map<String, Object> body = get("/api/v1/app/capabilities");
+        Map<String, Object> body = get("/app/capabilities");
         List<?> modules = assertInstanceOf(List.class, body.get("businessModules"));
         assertTrue(!modules.isEmpty(), "a deployment that declares no modules renders no navigation");
 
@@ -95,7 +95,7 @@ class AppContractTest {
 
     @Test
     void provenanceIsReachableWithoutATokenAndCarriesSourceAndRuntime() {
-        Map<String, Object> body = get("/api/v1/app/provenance");
+        Map<String, Object> body = get("/app/provenance");
         assertEquals(Set.of("source", "runtime"), body.keySet());
 
         assertInstanceOf(Map.class, body.get("source"));
@@ -105,7 +105,7 @@ class AppContractTest {
 
     @Test
     void provenanceToolFingerprintCountsToolsWithoutDisclosingThem() {
-        Map<String, Object> runtime = assertInstanceOf(Map.class, get("/api/v1/app/provenance").get("runtime"));
+        Map<String, Object> runtime = assertInstanceOf(Map.class, get("/app/provenance").get("runtime"));
         Map<String, Object> fingerprint =
                 assertInstanceOf(Map.class, runtime.get("aiToolFingerprint"));
 
@@ -121,7 +121,7 @@ class AppContractTest {
 
     @Test
     void capabilitiesModuleTextSurvivesTheWireIntact() {
-        Map<String, Object> body = get("/api/v1/app/capabilities");
+        Map<String, Object> body = get("/app/capabilities");
         List<?> modules = assertInstanceOf(List.class, body.get("businessModules"));
         Map<?, ?> crm = assertInstanceOf(Map.class, modules.get(0));
 
