@@ -11,6 +11,7 @@ KeelBase/Server-NestJS/specs/protocol/
 ├── risk-level-v1-vector.json
 ├── governance-binding-v1-vector.json
 ├── confirmation-lifecycle-v1-vector.json
+├── confirmation-lifecycle-v2-vector.json
 └── failure-semantics-v1-vector.json
 ```
 
@@ -26,11 +27,12 @@ self-contained and buildable offline.
   See `docs/manual/semantic-change-checklist.md` in the main repo.
 - The vector files intentionally contain **no timestamps** — deterministic and diff-able.
 
-Copied: 2026-09-15 from `Server-NestJS/specs/protocol/` (main repo `a434292e`, vector version `v1`)
-via `scripts/sync-vectors.sh`.
+Copied: 2026-09-19 from `Server-NestJS/specs/protocol/` (main repo `dbba676e`) via
+`scripts/sync-vectors.sh`.
 
-> **Coverage note**: every vendored vector is consumed by a Java test class — the snapshot and the
-> conformance coverage are both complete.
+> **Coverage note**: the snapshot mirrors the main repo's vector directory, so it can hold a vector
+> that no Java test consumes. `confirmation-lifecycle-v1` is one: the lifecycle is consumed at **v2**
+> now, and v1 is kept here as protocol history.
 >
 > | Vector | Java consumer |
 > |---|---|
@@ -39,9 +41,9 @@ via `scripts/sync-vectors.sh`.
 > | `delegation-token-v1` | `DelegationTokenTest` |
 > | `risk-level-v1` | `RiskLevelTest` |
 > | `governance-binding-v1` | `GovernanceBindingTest` |
-> | `confirmation-lifecycle-v1` | `ConfirmationLifecycleTest` + `ConfirmationLifecycle` |
+> | `confirmation-lifecycle-v1` | — (superseded by v2; kept as protocol history) |
+> | `confirmation-lifecycle-v2` | `ConfirmationLifecycleTest` + `ConfirmationLifecycle` |
 > | `failure-semantics-v1` | `FailureSemanticsTest` |
 >
-> One `failure-semantics-v1` invariant is reproduced only in part — the spike has no surface for the
-> rest; it is listed with its reason in `FailureSemanticsTest`'s class comment. See
-> `KeelBase4J-Spike-报告_2026-09-14.md` §5.
+> One `failure-semantics-v1` invariant is reproduced only in part — the runtime has no surface for
+> the rest. The specific boundary is listed in `FailureSemanticsTest`'s class comment.
