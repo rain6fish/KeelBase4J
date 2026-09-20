@@ -134,6 +134,34 @@ check_absent "own scope keeps other owners' rows out" '"name":"alice-co"' "$BOB_
 MGR_LIST=$(curl -s "$BASE/customers" -H 'X-User-Id: carol' -H 'X-User-Role: manager')
 check "the unrestricted scope sees every row" '"name":"alice-co"' "$MGR_LIST"
 
+# ── one token, two deciders at once ───────────────────────────────────────────────────────────────
+# A token is one-shot (failure-semantics FP-2: "token 一次性，不二次执行"). Two approvals fired
+# together are the case that gives "one-shot" meaning: if the app reads the token, runs the tool and
+# only then forgets it, both calls pass the check and the write lands twice.
+# Eight at once rather than two: bash has no barrier, so overlap is a matter of timing, and a wider
+# field makes "at least two were in flight together" the likely case rather than the lucky one.
+RACE_EXECUTED_TWICE=0
+for _ in $(seq 1 3); do
+  RACE=$(curl -s -X POST "$BASE/ai/chat" -H 'Content-Type: application/json' -H 'X-User-Id: alice' \
+    -d '{"tool":"create_followup","customerId":1,"note":"race"}')
+  RTOKEN=$(printf '%s' "$RACE" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+  [ -n "$RTOKEN" ] || continue
+  BEFORE=$(curl -s "$BASE/ai/tool-effects" -H 'X-User-Id: alice' | grep -o '"id":' | wc -l)
+  # Bare `wait` would also wait for the demo app itself — started with `&` further up and never
+  # exiting — so the script would hang there forever. Wait for these eight by pid, nobody else.
+  RACE_PIDS=""
+  for _ in $(seq 1 8); do
+    curl -s -o /dev/null -X POST "$BASE/ai/confirmations/$RTOKEN" \
+      -H 'Content-Type: application/json' -H 'X-User-Id: alice' -d '{"decision":"approve"}' &
+    RACE_PIDS="$RACE_PIDS $!"
+  done
+  wait $RACE_PIDS || true
+  AFTER=$(curl -s "$BASE/ai/tool-effects" -H 'X-User-Id: alice' | grep -o '"id":' | wc -l)
+  # Exactly one, whatever the field size: the token is one-shot.
+  [ "$AFTER" -eq "$((BEFORE + 1))" ] || RACE_EXECUTED_TWICE=$((RACE_EXECUTED_TWICE + 1))
+done
+check "a token approved by eight at once writes exactly once" "0" "$RACE_EXECUTED_TWICE"
+
 if grep -qE "Exception" "$GEN_DIR/app.log"; then echo "  FAIL runtime exception in app.log"; fail=1; fi
 
 echo

@@ -640,7 +640,9 @@ public class JavaGenerator {
                 import java.util.Map;
                 import java.util.UUID;
                 import java.util.concurrent.ConcurrentHashMap;
+                import org.springframework.http.HttpStatus;
                 import org.springframework.stereotype.Component;
+                import org.springframework.web.server.ResponseStatusException;
 
                 /** Pending confirmations: a write does not happen until a token is approved. */
                 @Component
@@ -657,13 +659,24 @@ public class JavaGenerator {
                         return token;
                     }
 
-                    public Pending requireOwned(String token, String userId) {
+                    /**
+                     * Take the token out of pending, atomically. The caller that removes it is the only
+                     * one that may act on it — {@code ConcurrentHashMap.remove(key, value)} is the whole
+                     * arbitration, so a token cannot be approved twice however close together the two
+                     * approvals arrive. Reading the token, acting, and removing it afterwards would let
+                     * both callers past the check and run the tool twice.
+                     */
+                    public Pending claim(String token, String userId) {
                         Pending p = pending.get(token);
                         if (p == null) {
-                            throw new IllegalArgumentException("unknown confirmation token");
+                            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown confirmation token");
                         }
                         if (!p.userId().equals(userId)) {
-                            throw new IllegalStateException("confirmation belongs to another operator");
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "confirmation belongs to another operator");
+                        }
+                        if (!pending.remove(token, p)) {
+                            throw new ResponseStatusException(HttpStatus.CONFLICT, "confirmation already resolved");
                         }
                         return p;
                     }
@@ -671,10 +684,6 @@ public class JavaGenerator {
                     @SuppressWarnings("unchecked")
                     public Map<String, Object> args(Pending p) {
                         return new LinkedHashMap<>((Map<String, Object>) Json.parse(p.argsJson()));
-                    }
-
-                    public void remove(String token) {
-                        pending.remove(token);
                     }
                 }
                 """.formatted(pkg);
@@ -840,13 +849,23 @@ public class JavaGenerator {
                         return out;
                     }
 
+                    /**
+                     * Approve and perform the write. <b>The claim comes first</b>: only the caller that
+                     * takes the token out of pending reaches the tool, so a second approval arriving at
+                     * the same moment is refused rather than executing the write a second time.
+                     */
                     public Map<String, Object> approve(String token, String userId) {
-                        ConfirmationStore.Pending pending = confirmations.requireOwned(token, userId);
+                        ConfirmationStore.Pending pending = confirmations.claim(token, userId);
                         AiTool tool = registry.require(pending.toolName());
                         audit.append("tool_confirmation", userId, tool.name() + " approved");
-                        Map<String, Object> out = run(tool, confirmations.args(pending), userId);
-                        confirmations.remove(token);
-                        return out;
+                        return run(tool, confirmations.args(pending), userId);
+                    }
+
+                    /** Decline — the token is consumed and nothing is written. */
+                    public Map<String, Object> decline(String token, String userId) {
+                        ConfirmationStore.Pending pending = confirmations.claim(token, userId);
+                        audit.append("tool_confirmation", userId, pending.toolName() + " declined");
+                        return Map.of("status", "declined");
                     }
 
                     private Map<String, Object> run(AiTool tool, Map<String, Object> args, String userId) {
@@ -1349,12 +1368,14 @@ public class JavaGenerator {
                 import java.util.LinkedHashMap;
                 import java.util.List;
                 import java.util.Map;
+                import org.springframework.http.HttpStatus;
                 import org.springframework.web.bind.annotation.GetMapping;
                 import org.springframework.web.bind.annotation.PathVariable;
                 import org.springframework.web.bind.annotation.PostMapping;
                 import org.springframework.web.bind.annotation.RequestBody;
                 import org.springframework.web.bind.annotation.RequestHeader;
                 import org.springframework.web.bind.annotation.RestController;
+                import org.springframework.web.server.ResponseStatusException;
 
                 @RestController
                 public class AiController {
@@ -1407,7 +1428,14 @@ public class JavaGenerator {
                         if ("approve".equals(decision)) {
                             return engine.approve(token, principal.userId());
                         }
-                        return Map.of("status", "declined");
+                        if ("decline".equals(decision) || "reject".equals(decision)) {
+                            return engine.decline(token, principal.userId());
+                        }
+                        // Anything else is not a decision. Answering "declined" for a word nobody
+                        // defined would invent a result the caller never asked for -- and, worse,
+                        // leave the token pending, so the write it guards stays live.
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                "decision must be approve or decline");
                     }
                 }
                 """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
