@@ -1,7 +1,7 @@
 # KeelBase4J — Architecture & Components
 
-> Phase-0 spike (feasibility probe). This document describes what exists **today** in this
-> repository: its subsystems, their responsibilities, and the exact component versions.
+> This document describes what exists **today** in this repository: its subsystems, their
+> responsibilities, and the exact component versions.
 > Status legend: ✅ done · ⬜ not started.
 
 ---
@@ -26,7 +26,7 @@ vectors (`Server-NestJS/specs/protocol/`) are the source of truth.
 |---|---|---|
 | Protocol semantics | main repo `docs/protocols/ai-governance-protocol.md` | the specification to implement |
 | Frozen vectors + wire schemas | main repo `Server-NestJS/specs/protocol/` | vendored read-only snapshot in `conformance/vectors/` |
-| Conformance evidence | this repo `mvn test` (115 assertions) | proves cross-runtime parity (CE-1 role ③) |
+| Conformance evidence | this repo `mvn test` (138 tests) | proves cross-runtime parity (CE-1 role ③) |
 
 The vendored vectors are a snapshot; the main repo stays authoritative. CI job `vector-drift` diffs
 them so the snapshot cannot silently diverge.
@@ -71,19 +71,20 @@ boundary.
 | `audit` | `AuditService` — hash-chained AI audit + verify, appends serialized on a database row lock (`AuditChainHead`) |
 | `pipeline` | The AI seam: `ToolCallPlanner` (an SPI a model-driven pipeline implements) · `IntentPlan` (tool + args, and nothing else) · `RuleBasedPlanner` + `RuleBasedPlannerAutoConfiguration` (the default, so the loop is reproducible without a model). The default is registered `@ConditionalOnMissingBean`, so a deployment that declares its own planner simply replaces it — no `@Primary`, no exclusion list, no edit here. |
 | `engine` | `GovernedExecutionEngine` — the loop: gate → confirm → execute → audit → effect |
-| `web` | REST: `/ai/chat`, confirmations, tool-effects, `/audit/verify`, `/auth/me/permissions`, `/app/capabilities`, `/app/provenance`. Mapped at the root but mounted under `/api/v1` (`server.servlet.context-path`) — the reference's prefix, which is what lets one runtime-neutral frontend talk to this runtime without rebasing |
+| `web` | REST: `/ai/chat`, confirmations, tool-effects, `/audit/verify`, `/auth/me/permissions`, `/customers`, `/app/capabilities`, `/app/provenance`. Mapped at the root but mounted under `/api/v1` (`server.servlet.context-path`) — the reference's prefix, which is what lets one runtime-neutral frontend talk to this runtime without rebasing |
 
 ### 3.3 `keelbase4j-generator` — the generator (G2 ✅)
 
 | Class | Responsibility |
 |---|---|
 | `BusinessSpec` | the spec model: entities, fields, ownership rule, AI tools |
-| `BusinessSpecParser` | S1 — natural-language request → `BusinessSpec` |
-| `JavaGenerator` | S2 — spec → a self-contained Spring Boot project (real source) |
+| `BusinessSpecParser` | business request → `BusinessSpec`. A deterministic router over the requests it recognises — **not** a model-backed generator (see the README's "What this is not") |
+| `JavaGenerator` | spec → a self-contained Spring Boot project (real source) |
 | `GeneratorMain` | dev/CI entry point for the generator |
 
 The generated project is **self-contained**: it carries its own governance wiring and depends only on
-the protocol *library*, never on a KeelBase4J runtime service (S3 axes A and B).
+the protocol *library*, never on a KeelBase4J runtime service — so it builds and runs with no
+KeelBase4J deployment present at all.
 
 ### 3.4 `keelbase4j-springai` — the model-driven planner (adapter)
 
@@ -173,6 +174,7 @@ Every step is enforced by the runtime, not described in a prompt.
 | Jackson | 3.1.5 (`tools.jackson`; annotations stay 2.21) | JSON (web layer) |
 | SLF4J + Logback | 2.0.x / 1.5.38 | logging |
 | Micrometer | 1.17.1 | observability (transitive) |
+| Spring AI | 2.0.1 | the adapter module's `ChatClient` — **no provider is bound here**; which model to talk to is a deployment's decision |
 
 ### Test dependencies
 
@@ -275,9 +277,12 @@ provider, an identity provider) sit outside it.
 ## 6. Build & verification
 
 ```bash
-mvn test                              # protocol (57) + runtime (42, incl. the trust loop) + generator (16)
+mvn test                              # protocol 58 + runtime 54 + generator 16 + springai 10 = 138
 mvn -DskipTests install               # install every module into the local repo
 bash scripts/demo-generated-app.sh    # generate → build → run → exercise the generated app
+bash scripts/demo-changeability.sh    # change → regenerate → the hand edit survives
+bash scripts/demo-migration.sh        # change → additive migration → existing rows carry over
+bash scripts/demo-springai.sh         # a real model on the planner seam (needs a model key)
 ```
 
 CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-drift`
@@ -289,12 +294,13 @@ CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-
 
 | Phase | Scope | Status |
 |---|---|---|
-| G0 | protocol conformance (7 vectors + the permission/identity wire contracts, 57 assertions) | ✅ |
-| G1 | runtime core + trust loop (S3/S4 on a hand-written app) | ✅ |
-| G2 | generator: NL → spec → real Spring Boot source (S1/S2) | ✅ |
-| G2+ | generated app runs standalone; trust loop holds on the artifact (S3 axes A+B, S4) | ✅ |
-| G3 | changeability (S5 — the spike's kill gate): change applied as an additive migration, hand edits preserved, rule enforced, **the data already in the database carried over** | ✅ |
+| G0 | protocol conformance (8 vectors + the permission/identity wire contracts, 58 tests) | ✅ |
+| G1 | runtime core + trust loop, on a hand-written app | ✅ |
+| G2 | generator: business request → spec → real Spring Boot source | ✅ |
+| G2+ | the generated app runs standalone, and the trust loop holds on the artifact | ✅ |
+| G3 | changeability: the change is applied as an additive migration, hand edits are preserved, the new rule is enforced, and **the data already in the database is carried over** | ✅ |
 
-**Not yet in scope (by design):** authentication stack (identity is a pluggable seam), multi-tenancy,
-HA, UI, and the KeelBase AI pipeline (agent / RAG / memory) — the latter belongs to a Java AI
-framework, not to the runtime.
+**Not yet in scope (by design):** a Docker image or hosted demo, a user interface, multi-tenancy,
+HA, an MCP / OpenAPI bridge for existing systems, and the KeelBase AI pipeline (agent / RAG /
+memory) — the latter belongs to a Java AI framework, not to the runtime. Identity is a pluggable
+seam rather than a built-out authentication stack, and the datastore is a spike-grade in-memory H2.
