@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.protocol.Json;
+import cn.com.keelbase.runtime.domain.Customer;
+import cn.com.keelbase.runtime.domain.CustomerRepository;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -19,7 +21,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -52,6 +56,21 @@ class ChatStreamTest {
     @Value("${keelbase.delegation.secret}")
     String delegationSecret;
 
+    @Autowired
+    CustomerRepository customers;
+
+    /**
+     * A customer for the turn to act on. Without one the approve still succeeds and the write still
+     * fails — an assertion on the decision's shape would pass while nothing ran, so every test here
+     * seeds the customer its write needs.
+     */
+    private Long customerId;
+
+    @BeforeEach
+    void seedTheCustomerTheWriteActsOn() {
+        customerId = customers.save(new Customer("Stream Customer", "high", "alice")).getId();
+    }
+
     @Test
     void aDecisionMadeWhileTheStreamIsOpenReachesIt() throws Exception {
         List<Map<String, Object>> events = new ArrayList<>();
@@ -67,7 +86,8 @@ class ChatStreamTest {
                 if ("confirmation_request".equals(event.get("type"))) {
                     // Decided from a different request, which is the case the design exists for. This
                     // runs while the stream is still open, because the read above is blocked on it.
-                    approve(tokenOf(event));
+                    assertEquals(200, decide(tokenOf(event), "approve").statusCode(),
+                            "the approval itself must succeed");
                 }
             }
         }
@@ -78,6 +98,7 @@ class ChatStreamTest {
                 "the console expects these in this order; got " + events);
         Map<String, Object> decision = payload(events, "confirmation_decision");
         assertEquals(true, decision.get("approved"), "and it says what was decided");
+        assertEquals(true, decision.get("success"), "and the write it approved really ran: " + decision);
     }
 
     @Test
@@ -100,6 +121,27 @@ class ChatStreamTest {
         // "timeout" here would be a claim the data does not support, so no decision is claimed.
         assertFalse(types(events).contains("confirmation_decision"),
                 "an expired wait is not a decision");
+    }
+
+    /**
+     * The other half of D4: a stream going away is not a decision. The drawer closing leaves the
+     * confirmation exactly as decidable as it was — and an approval with nobody watching is an
+     * ordinary approval, which is what the decision path has to survive rather than fail on.
+     */
+    @Test
+    void aStreamThatWentAwayLeavesTheConfirmationDecidable() throws Exception {
+        String token;
+        try (BufferedReader reader = openStream("alice", "给客户建一条跟进记录")) {
+            token = firstConfirmationToken(reader);
+        }
+        // The reader is closed, so the console's drawer is gone and nothing is listening any more.
+
+        HttpResponse<String> approved = decide(token, "approve");
+
+        assertEquals(200, approved.statusCode(),
+                "the decision stands on its own, with no stream to deliver it to: " + approved.body());
+        assertTrue(approved.body().contains("\"status\":\"executed\""),
+                "and it still ran: " + approved.body());
     }
 
     /**
@@ -140,25 +182,38 @@ class ChatStreamTest {
                 .header("Authorization", "Bearer " + bearer)
                 .timeout(Duration.ofSeconds(20))
                 .POST(HttpRequest.BodyPublishers.ofString(
-                        "{\"message\":\"" + message + "\",\"customerId\":1}", StandardCharsets.UTF_8))
+                        "{\"message\":\"" + message + "\",\"customerId\":" + customerId + "}",
+                        StandardCharsets.UTF_8))
                 .build();
         return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofInputStream());
     }
 
-    private void approve(String token) throws Exception {
+    private HttpResponse<String> decide(String token, String decision) throws Exception {
         String bearer = TestTokens.forUser("alice", delegationSecret);
         HttpRequest request = HttpRequest.newBuilder(
                         URI.create("http://127.0.0.1:" + port + "/api/v1/ai/confirmations/" + token))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + bearer)
-                .POST(HttpRequest.BodyPublishers.ofString("{\"decision\":\"approve\"}"))
+                .POST(HttpRequest.BodyPublishers.ofString("{\"decision\":\"" + decision + "\"}"))
                 .build();
-        HttpResponse<String> response = HttpClient.newHttpClient().send(request,
-                HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, response.statusCode(), "the approval itself must succeed");
+        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    /** One SSE line, if it carries an event. The console reads {@code data:} and ignores the rest. */
+    /** Read up to the confirmation this turn raised, and hand back the token its card needs. */
+    private static String firstConfirmationToken(BufferedReader reader) throws Exception {
+        String line;
+        while ((line = reader.readLine()) != null) {
+            Map<String, Object> event = readEvent(line);
+            if (event != null && "confirmation_request".equals(event.get("type"))) {
+                return tokenOf(event);
+            }
+        }
+        throw new AssertionError("the stream ended without raising a confirmation");
+    }
+
+    /**
+     * One SSE line, if it carries an event. The console reads {@code data:} and ignores the rest.
+     */
     private static Map<String, Object> readEvent(String line) {
         if (!line.startsWith("data:")) {
             return null;
