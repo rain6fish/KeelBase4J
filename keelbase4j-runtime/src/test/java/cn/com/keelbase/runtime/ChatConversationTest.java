@@ -4,6 +4,7 @@ package cn.com.keelbase.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.runtime.conversation.ConversationMessage;
@@ -81,7 +82,7 @@ class ChatConversationTest {
     void aConversationBelongsToItsOwner() {
         String mine = (String) chat("alice", "你好", null).get("conversationId");
 
-        ResponseEntity<Map> asBob = chatRaw("bob", "你好", mine);
+        ResponseEntity<Map> asBob = chatRaw("bob", withCustomer("你好", mine));
 
         assertEquals(403, asBob.getStatusCode().value(),
                 "knowing the id is not the same as being allowed to continue the conversation");
@@ -99,22 +100,60 @@ class ChatConversationTest {
         assertEquals(new Principal("alice", "user").userId(), history.get(0).getUserId());
     }
 
+    /**
+     * The console does not send a customer id — it writes the one it is looking at into the first
+     * message of the conversation, and no frontend sends the field. A runtime that only read the
+     * field would answer this with a 500 from the tool, which is what the golden path found.
+     */
+    @Test
+    void theCallerCanNameTheCustomerInTheMessage() {
+        Map<String, Object> body = chat("alice", "当前客户「Acme」（ID 1）。给客户建一条跟进记录", null);
+
+        assertEquals("pending_confirmation", body.get("status"),
+                "the write the console asked for is proposed and waiting: " + body);
+        assertNotNull(body.get("token"), "with a token for its confirmation card");
+    }
+
+    /**
+     * The other half: a write with nobody to act on is not proposed at all. Handing a tool a null id
+     * is how this failed before — the planner could route the words but had no customer to bind.
+     */
+    @Test
+    void aWriteWithNoCustomerToActOnIsNotProposed() {
+        ResponseEntity<Map> res = chatRaw("alice", message("给客户建一条跟进记录"));
+
+        assertEquals(200, res.getStatusCode().value(), "not proposed, and not a failure either");
+        Map<String, Object> body = Envelopes.data(res.getBody());
+        assertNull(body.get("status"), "nothing was gated, because nothing was proposed");
+        assertNotNull(body.get("reply"), "the caller is told so rather than left with an error");
+    }
+
     private Map<String, Object> chat(String user, String message, String conversationId) {
-        ResponseEntity<Map> res = chatRaw(user, message, conversationId);
+        ResponseEntity<Map> res = chatRaw(user, withCustomer(message, conversationId));
         assertEquals(200, res.getStatusCode().value(), "POST /ai/chat");
         return Envelopes.data(res.getBody());
     }
 
-    private ResponseEntity<Map> chatRaw(String user, String message, String conversationId) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(TestTokens.forUser(user, delegationSecret));
-        Map<String, Object> body = new java.util.LinkedHashMap<>();
-        body.put("message", message);
+    /** The body the golden path and the tests have always sent: an explicit customer id. */
+    private static Map<String, Object> withCustomer(String message, String conversationId) {
+        Map<String, Object> body = message(message);
         body.put("customerId", 1);
         if (conversationId != null) {
             body.put("conversationId", conversationId);
         }
+        return body;
+    }
+
+    private static Map<String, Object> message(String message) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("message", message);
+        return body;
+    }
+
+    private ResponseEntity<Map> chatRaw(String user, Map<String, Object> body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(TestTokens.forUser(user, delegationSecret));
         return rest.postForEntity("/ai/chat", new HttpEntity<>(body, headers), Map.class);
     }
 }

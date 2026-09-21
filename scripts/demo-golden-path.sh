@@ -59,14 +59,23 @@ done
 echo "== 2/3 mint a delegation token =="
 # The one documented difference between the runtimes: this one verifies a delegation token the
 # deployment mints, rather than issuing an access token from /auth/login.
-TOKEN="$(mvn -q -B -pl keelbase4j-demo exec:java \
-  -Dexec.mainClass=cn.com.keelbase.demo.DevToken \
-  -Dexec.args="alice $SECRET" 2>/dev/null | tail -1)"
+mint() {
+  mvn -q -B -pl keelbase4j-demo exec:java \
+    -Dexec.mainClass=cn.com.keelbase.demo.DevToken \
+    -Dexec.args="$1 $SECRET" 2>/dev/null | tail -1
+}
+TOKEN="$(mint alice)"
 [ -n "$TOKEN" ] || { echo "  FAIL could not mint a token"; exit 1; }
 echo "   token minted for subject local:alice"
+# carol is this deployment's administrator (LocalIdentities). The console sends an administrator to
+# /admin/ai/chat/stream and everyone else to /ai/chat/stream, so the streaming leg needs her token.
+ADMIN_TOKEN="$(mint carol)"
+[ -n "$ADMIN_TOKEN" ] || { echo "  FAIL could not mint the administrator's token"; exit 1; }
+echo "   token minted for subject local:carol"
 
 echo "== 3/3 walk the golden path with the frontend's own modules =="
 cd "$FRONTEND_DIR"
 VITE_API_BASE="http://127.0.0.1:$PORT/api/v1" \
 KEELBASE_GOLDEN_PATH_TOKEN="$TOKEN" \
+KEELBASE_GOLDEN_PATH_ADMIN_TOKEN="$ADMIN_TOKEN" \
   npx vitest run src/api/golden-path.e2e.spec.ts

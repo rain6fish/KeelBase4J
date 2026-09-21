@@ -49,6 +49,15 @@ public class SecurityConfig {
                         // that actually explains it. A direct request to the error path is still an
                         // ordinary dispatch, so it is still authenticated.
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        // An async dispatch is the container coming back to a request it suspended
+                        // earlier — the streaming chat endpoint finishing, or giving up on a
+                        // confirmation nobody decided. The delegation filter does not run again on
+                        // that pass (a OncePerRequestFilter skips async dispatches), so there is no
+                        // context here by construction; reading that as unauthenticated refuses the
+                        // tail of a request that was authenticated on the way in, and the response
+                        // dies mid-body. Only the container produces this dispatch type, and only for
+                        // a request that already cleared this chain — so it opens no way in.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(tokens, UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling.authenticationEntryPoint(

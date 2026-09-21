@@ -1,17 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.web;
 
-import cn.com.keelbase.runtime.conversation.ConversationMessage;
-import cn.com.keelbase.runtime.conversation.ConversationStore;
-import cn.com.keelbase.runtime.engine.ExecutionOutcome;
-import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
 import cn.com.keelbase.runtime.identity.Principal;
-import cn.com.keelbase.runtime.pipeline.ChatReplier;
-import cn.com.keelbase.runtime.pipeline.ChatReply;
-import cn.com.keelbase.runtime.pipeline.ChatTurn;
-import cn.com.keelbase.runtime.pipeline.IntentPlan;
-import cn.com.keelbase.runtime.pipeline.ToolCallPlanner;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +11,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The AI entry point. A planner decides what to call, a replier decides what to say, and the engine
- * decides what may run — so an AI request and a direct tool call cross the same boundary.
+ * The AI entry point, answering in one body. A planner decides what to call, a replier decides what to
+ * say, and the engine decides what may run — so an AI request and a direct tool call cross the same
+ * boundary.
  *
  * <p><b>The response carries the reference implementation's fields, and more.</b> A conversational
  * client (the mobile app, the mini program) reads {@code conversationId}, {@code reply} and
@@ -29,71 +21,48 @@ import org.springframework.web.bind.annotation.RestController;
  * written against either runtime works unchanged. What is added is the governance facts —
  * {@code status}, {@code token}, {@code effectId}, {@code data}, {@code error}. They are here rather
  * than dropped because the reference delivers them over SSE, where a confirmation token travels as an
- * event, and this runtime has no SSE: this response is the only place a caller can learn that a write
+ * event, and this response is the only place a caller of <em>this</em> endpoint can learn that a write
  * is waiting on them. A superset, not a divergence — see ADR-0009 D1.
  *
  * <p>A turn that matches no tool is not an error here any more. A conversational endpoint that
  * answered 400 for "I cannot route that" would be reporting the planner's limits as a failed request;
  * it answers with a reply that says so, which is what the frontends' chat surfaces expect.
+ *
+ * <p>The streaming sibling is {@link ChatStreamController}; both run the same turn
+ * ({@link ChatTurnService}) and differ only in how they report it.
  */
 @RestController
 public class ChatController {
 
     private final CurrentPrincipal principals;
-    private final ToolCallPlanner planner;
-    private final ChatReplier replier;
-    private final ConversationStore conversations;
-    private final GovernedExecutionEngine engine;
+    private final ChatTurnService turns;
 
-    public ChatController(CurrentPrincipal principals, ToolCallPlanner planner, ChatReplier replier,
-                          ConversationStore conversations, GovernedExecutionEngine engine) {
+    public ChatController(CurrentPrincipal principals, ChatTurnService turns) {
         this.principals = principals;
-        this.planner = planner;
-        this.replier = replier;
-        this.conversations = conversations;
-        this.engine = engine;
+        this.turns = turns;
     }
 
     @PostMapping("/ai/chat")
     public Map<String, Object> chat(@RequestBody ChatRequest request) {
         Principal principal = principals.current();
-        String conversationId = conversations.openFor(request.conversationId(), principal);
-        conversations.append(conversationId, principal, ConversationMessage.USER, request.message());
-
-        Map<String, Object> context = new LinkedHashMap<>();
-        context.put("customerId", request.customerId());
-
-        // A planner proposes; the engine disposes. Nothing about the reply can change that, because
-        // the reply is written after the engine has already answered.
-        IntentPlan plan = planner.plan(request.message(), context).orElse(null);
-        ExecutionOutcome outcome = plan == null
-                ? null
-                : engine.execute(plan.tool(), plan.args(), principal);
-
-        ChatReply reply = replier.reply(request.message(), turns(conversationId), outcome);
-        conversations.append(conversationId, principal, ConversationMessage.ASSISTANT, reply.text());
+        ChatTurnService.Turn turn = turns.run(
+                request.message(), request.customerId(), request.conversationId(), principal);
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("conversationId", conversationId);
-        body.put("reply", reply.text());
-        body.put("provider", reply.provider());
-        body.put("model", reply.model());
+        body.put("conversationId", turn.conversationId());
+        body.put("reply", turn.reply().text());
+        body.put("provider", turn.reply().provider());
+        body.put("model", turn.reply().model());
         // The tool this turn actually used, which the reference also reports. Omitted rather than sent
         // empty when nothing was routed — the field means "these were called".
-        if (plan != null) {
-            body.put("toolCalls", List.of(plan.tool()));
+        if (turn.plan() != null) {
+            body.put("toolCalls", List.of(turn.plan().tool()));
         }
-        body.put("status", outcome == null ? null : outcome.status());
-        body.put("data", outcome == null ? null : outcome.data());
-        body.put("token", outcome == null ? null : outcome.token());
-        body.put("effectId", outcome == null ? null : outcome.effectId());
-        body.put("error", outcome == null ? null : outcome.error());
+        body.put("status", turn.outcome() == null ? null : turn.outcome().status());
+        body.put("data", turn.outcome() == null ? null : turn.outcome().data());
+        body.put("token", turn.outcome() == null ? null : turn.outcome().token());
+        body.put("effectId", turn.outcome() == null ? null : turn.outcome().effectId());
+        body.put("error", turn.outcome() == null ? null : turn.outcome().error());
         return body;
-    }
-
-    private List<ChatTurn> turns(String conversationId) {
-        return conversations.history(conversationId).stream()
-                .map(m -> new ChatTurn(m.getRole(), m.getContent()))
-                .toList();
     }
 }

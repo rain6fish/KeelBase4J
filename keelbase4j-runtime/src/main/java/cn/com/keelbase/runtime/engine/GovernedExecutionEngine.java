@@ -8,12 +8,14 @@ import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectService;
 import cn.com.keelbase.runtime.governance.ConfirmationRequest;
 import cn.com.keelbase.runtime.governance.ConfirmationStore;
+import cn.com.keelbase.runtime.governance.ConfirmationWatchers;
 import cn.com.keelbase.runtime.governance.GateDecision;
 import cn.com.keelbase.runtime.governance.GovernanceService;
 import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.tool.AiTool;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import cn.com.keelbase.runtime.tool.ToolResult;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
@@ -36,18 +38,21 @@ public class GovernedExecutionEngine {
     private final ConfirmationStore confirmations;
     private final SideEffectService sideEffects;
     private final AuditService audit;
+    private final ConfirmationWatchers watchers;
 
     public GovernedExecutionEngine(
             ToolRegistry registry,
             GovernanceService governance,
             ConfirmationStore confirmations,
             SideEffectService sideEffects,
-            AuditService audit) {
+            AuditService audit,
+            ConfirmationWatchers watchers) {
         this.registry = registry;
         this.governance = governance;
         this.confirmations = confirmations;
         this.sideEffects = sideEffects;
         this.audit = audit;
+        this.watchers = watchers;
     }
 
     /** Gate and (if allowed) execute a tool call. */
@@ -89,6 +94,9 @@ public class GovernedExecutionEngine {
         ExecutionOutcome outcome = run(tool, parseArgs(req.getArgsJson()), principal);
         req.setResultId(outcome.effectId());
         confirmations.save(req);
+        // Last, and after the row is durable: whoever is watching the stream is told once the decision
+        // is a fact, not before.
+        watchers.decided(token, decision("approve", req.getToolName(), outcome));
         return outcome;
     }
 
@@ -96,7 +104,29 @@ public class GovernedExecutionEngine {
     public ExecutionOutcome decline(String token, Principal principal) {
         ConfirmationRequest req = confirmations.claim(token, principal, ConfirmationLifecycle.DECLINED);
         audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined");
-        return new ExecutionOutcome(ConfirmationLifecycle.DECLINED, null, null, null, null);
+        ExecutionOutcome outcome =
+                new ExecutionOutcome(ConfirmationLifecycle.DECLINED, null, null, null, null);
+        watchers.decided(token, decision("decline", req.getToolName(), outcome));
+        return outcome;
+    }
+
+    /**
+     * What to tell a waiting stream. Shaped like the reference's {@code AiConfirmationDecision}: the
+     * decision word, whether it approved, whether the tool ran, and the result if it did.
+     */
+    private Map<String, Object> decision(String decision, String toolName, ExecutionOutcome outcome) {
+        Map<String, Object> d = new LinkedHashMap<>();
+        d.put("toolName", toolName);
+        d.put("decision", decision);
+        d.put("approved", "approve".equals(decision));
+        d.put("success", "executed".equals(outcome.status()));
+        if (outcome.effectId() != null) {
+            d.put("resultId", outcome.effectId());
+        }
+        if (outcome.error() != null) {
+            d.put("error", outcome.error());
+        }
+        return d;
     }
 
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal) {
