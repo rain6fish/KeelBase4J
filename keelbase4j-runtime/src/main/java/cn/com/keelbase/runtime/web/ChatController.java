@@ -10,6 +10,7 @@ import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.pipeline.ChatReplier;
 import cn.com.keelbase.runtime.pipeline.ChatReply;
 import cn.com.keelbase.runtime.pipeline.ChatTurn;
+import cn.com.keelbase.runtime.pipeline.IntentPlan;
 import cn.com.keelbase.runtime.pipeline.ToolCallPlanner;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,9 +65,10 @@ public class ChatController {
 
         // A planner proposes; the engine disposes. Nothing about the reply can change that, because
         // the reply is written after the engine has already answered.
-        ExecutionOutcome outcome = planner.plan(request.message(), context)
-                .map(plan -> engine.execute(plan.tool(), plan.args(), principal))
-                .orElse(null);
+        IntentPlan plan = planner.plan(request.message(), context).orElse(null);
+        ExecutionOutcome outcome = plan == null
+                ? null
+                : engine.execute(plan.tool(), plan.args(), principal);
 
         ChatReply reply = replier.reply(request.message(), turns(conversationId), outcome);
         conversations.append(conversationId, principal, ConversationMessage.ASSISTANT, reply.text());
@@ -76,6 +78,11 @@ public class ChatController {
         body.put("reply", reply.text());
         body.put("provider", reply.provider());
         body.put("model", reply.model());
+        // The tool this turn actually used, which the reference also reports. Omitted rather than sent
+        // empty when nothing was routed — the field means "these were called".
+        if (plan != null) {
+            body.put("toolCalls", List.of(plan.tool()));
+        }
         body.put("status", outcome == null ? null : outcome.status());
         body.put("data", outcome == null ? null : outcome.data());
         body.put("token", outcome == null ? null : outcome.token());

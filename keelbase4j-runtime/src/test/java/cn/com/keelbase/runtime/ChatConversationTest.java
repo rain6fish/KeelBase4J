@@ -55,6 +55,9 @@ class ChatConversationTest {
         // (ADR-0009 D1).
         assertNotNull(body.get("status"), "the engine's answer is still here");
         assertTrue(body.containsKey("token"), "including the confirmation token");
+        // The reference reports the tools a turn used, and so does this (ADR-0009 D1).
+        assertTrue(body.get("toolCalls") instanceof List<?> calls && calls.contains("create_followup"),
+                "the tool this turn used is named, as the reference names it: " + body.get("toolCalls"));
     }
 
     @Test
