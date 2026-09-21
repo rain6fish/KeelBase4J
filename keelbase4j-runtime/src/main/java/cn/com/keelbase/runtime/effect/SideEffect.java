@@ -45,17 +45,28 @@ public class SideEffect {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    /**
+     * Hash of the call's arguments — the console shows it and uses it to tell one effect from another.
+     *
+     * <p>Distinct from {@link #idempotencyKey} on purpose: that one folds in the user and the tool as
+     * well, so publishing it as "the arguments' hash" would misdescribe it. This hashes the arguments
+     * and nothing else.
+     */
+    @Column(name = "args_hash", nullable = false)
+    private String argsHash;
+
     protected SideEffect() {
     }
 
     public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
-                      Long resultId, String revokeClass) {
+                      Long resultId, String revokeClass, String argsHash) {
         this.idempotencyKey = idempotencyKey;
         this.userId = userId;
         this.toolName = toolName;
         this.resultType = resultType;
         this.resultId = resultId;
         this.revokeClass = revokeClass;
+        this.argsHash = argsHash;
     }
 
     public Long getId() {
@@ -84,6 +95,14 @@ public class SideEffect {
 
     public String getRevokeStatus() {
         return revokeStatus;
+    }
+
+    public String getArgsHash() {
+        return argsHash;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
     }
 
     public void setRevokeStatus(String revokeStatus) {

@@ -153,7 +153,7 @@ class FailureSemanticsTest {
     private void unavailableIsNeverReportedAsRevoked() {
         SideEffect external = sideEffectRepository.save(new SideEffect(
                 "failure-semantics:fp7:" + UUID.randomUUID(), "carol", "sync_crm",
-                "crm_record", 42L, "governed_external"));
+                "crm_record", 42L, "governed_external", "hash-fp7"));
 
         SideEffect after = sideEffects.revoke(external.getId(), new Principal("carol", "user"));
 
@@ -189,10 +189,10 @@ class FailureSemanticsTest {
     private void duplicateEffectKeyCannotFork() {
         String key = "failure-semantics:fp5:" + UUID.randomUUID();
         SideEffect winner = sideEffectRepository.saveAndFlush(
-                new SideEffect(key, "alice", "create_followup", "follow_up", 1L, "local_compensate"));
+                new SideEffect(key, "alice", "create_followup", "follow_up", 1L, "local_compensate", "hash-fp5"));
 
         assertThrows(DataIntegrityViolationException.class, () -> sideEffectRepository.saveAndFlush(
-                new SideEffect(key, "alice", "create_followup", "follow_up", 2L, "local_compensate")));
+                new SideEffect(key, "alice", "create_followup", "follow_up", 2L, "local_compensate", "hash-fp5")));
 
         // The same race driven through the service: the lookup misses, the insert hits the unique
         // key, and the call is an idempotent skip onto the winner's row — not a failure.

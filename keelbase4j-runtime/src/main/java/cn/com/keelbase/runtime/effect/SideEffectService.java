@@ -55,8 +55,9 @@ public class SideEffectService {
             return existing.get();
         }
         try {
-            return repository.saveAndFlush(
-                    new SideEffect(key, principal.userId(), toolName, resultType, resultId, revokeClass));
+            return repository.saveAndFlush(new SideEffect(
+                    key, principal.userId(), toolName, resultType, resultId, revokeClass,
+                    argsHash(argsJson)));
         } catch (DataIntegrityViolationException race) {
             // A concurrent call with the same key won. The effect exists, so this call is a skip, not
             // a failure — return the winner's row. If the re-read finds nothing the violation was
@@ -101,6 +102,11 @@ public class SideEffectService {
 
     static String idempotencyKey(String userId, String toolName, String argsJson) {
         return sha256Hex(userId + ":" + toolName + ":" + argsJson);
+    }
+
+    /** The arguments' own hash — what the console reads as {@code argsHash}. See {@link SideEffect}. */
+    static String argsHash(String argsJson) {
+        return sha256Hex(argsJson);
     }
 
     private static String sha256Hex(String s) {
