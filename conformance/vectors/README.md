@@ -30,8 +30,12 @@ buildable offline.
   See `docs/manual/semantic-change-checklist.md` in the main repo.
 - The vector files intentionally contain **no timestamps** — deterministic and diff-able.
 
+**Corresponds to `keelbase-contract` `v1.0.0`** — all 148 files verified byte-identical against the
+contract repository (2026-09-21). This is the version to cite; the contract is the source from here on.
+
 Copied: 2026-09-20 from `Server-NestJS/specs/protocol/` (main repo `79f32a49`) via
-`scripts/sync-vectors.sh`.
+`scripts/sync-vectors.sh`. The main repo is **still the refresh source** — the contract repository has
+no remote yet; phase 3 of ADR-0007 repoints this at the contract.
 
 > **Coverage note**: the snapshot mirrors the main repo's protocol directory, so it can hold a
 > vector or schema that no Java test consumes. `confirmation-lifecycle-v1` is one: the lifecycle is
