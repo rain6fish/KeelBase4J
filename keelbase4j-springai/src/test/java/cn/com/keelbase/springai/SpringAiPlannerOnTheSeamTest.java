@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.runtime.KeelBase4JApplication;
+import cn.com.keelbase.runtime.pipeline.ChatReplier;
+import cn.com.keelbase.runtime.pipeline.DeterministicReplier;
 import cn.com.keelbase.runtime.pipeline.RuleBasedPlanner;
 import cn.com.keelbase.runtime.pipeline.ToolCallPlanner;
 import java.util.ArrayList;
@@ -104,10 +106,46 @@ class SpringAiPlannerOnTheSeamTest {
         chat("alice", "盘点一下这个客户");
 
         assertFalse(StubModel.PROMPTS.isEmpty(), "the whole point is that the model was consulted");
-        String prompt = StubModel.PROMPTS.get(StubModel.PROMPTS.size() - 1);
-        assertTrue(prompt.contains("create_followup"), "it is told which tools exist");
-        assertFalse(prompt.contains("R3"),
-                "it is not told their risk level: " + prompt);
+        // The planner's prompt, not simply the last one: a turn now consults the model twice — once to
+        // plan, once to phrase the reply — so "the newest prompt" is no longer the planner's.
+        String plannerPrompt = StubModel.PROMPTS.stream()
+                .filter(p -> p.contains("Available tools"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("the planner was not consulted: " + StubModel.PROMPTS));
+        assertTrue(plannerPrompt.contains("create_followup"), "it is told which tools exist");
+        assertTrue(StubModel.PROMPTS.stream().noneMatch(p -> p.contains("R3")),
+                "and no prompt of either seam carries a risk level");
+    }
+
+    /**
+     * The replier is told what the engine did — deliberately, and worth stating outright since the
+     * rule about governance metadata reaching a model is close by.
+     *
+     * <p>The rule names three things a tool <em>declares</em> — risk level, confirmation requirement,
+     * revoke class — and keeps them server-side so that a planner cannot be talked around them. The
+     * outcome is not a declaration: it is the engine's answer, already settled before the replier
+     * runs, and a replier that could not see it would be free to tell the user an action succeeded
+     * while it is still waiting. What it does not get is the risk level, which this asserts.
+     */
+    @Test
+    void theReplierIsToldTheOutcomeButNotTheRiskLevel() {
+        chat("alice", "盘点一下这个客户");
+
+        String replierPrompt = StubModel.PROMPTS.stream()
+                .filter(p -> p.contains("Runtime outcome"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("the replier was not consulted: " + StubModel.PROMPTS));
+        assertTrue(replierPrompt.contains("pending_confirmation"),
+                "so it can say the write is still waiting rather than claim it happened");
+        assertFalse(replierPrompt.contains("R3"), "and it is still not handed the tool's risk level");
+    }
+
+    @Test
+    void theAdapterTakesBothSeams() {
+        assertTrue(context.getBean(ChatReplier.class) instanceof SpringAiChatReplier,
+                "a model is configured, so it also answers the second seam");
+        assertTrue(context.getBeansOfType(DeterministicReplier.class).isEmpty(),
+                "and the runtime's deterministic default stands down");
     }
 
     private ResponseEntity<Map> chat(String userId, String message) {
