@@ -36,7 +36,7 @@ SECRET="${DELEGATION_SECRET:-cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdc
 
 echo "== 1/3 build and start the runtime =="
 mvn -q -B -DskipTests install
-java -jar keelbase4j-runtime/target/keelbase4j-runtime-0.1.0-SNAPSHOT-exec.jar --server.port="$PORT" \
+java -jar keelbase4j-runtime/target/keelbase4j-runtime-0.1.0-exec.jar --server.port="$PORT" \
   > "$ROOT/keelbase4j-runtime/target/golden-path.log" 2>&1 &
 APP_PID=$!
 

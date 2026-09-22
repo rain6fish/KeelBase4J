@@ -1,0 +1,102 @@
+# Publish to Maven Central on a version tag (`git tag v0.1.0 && git push gitee v0.1.0 && git push origin v0.1.0`).
+#
+# What goes up: the parent pom and `keelbase4j-protocol` — the artifact a generated application
+# resolves. The runtime, generator, adapter and demo declare `maven.deploy.skip` in their own
+# `release` profiles, so `mvn -Prelease deploy` stages exactly those two.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   CENTRAL_TOKEN_USERNAME / CENTRAL_TOKEN_PASSWORD — Maven Central Portal user token
+#     (central.sonatype.com → Account → User Token)
+#   GPG_SECRET_KEY  — ASCII-armored export of the signing key (gpg --armor --export-secret-keys <id>)
+#   GPG_KEY_ID      — the signing key's id
+#   GPG_PASSPHRASE  — that key's passphrase
+#
+# Signing lives here rather than on a developer machine on purpose: a release should not require a
+# private key in anybody's ~/.gnupg to be reproducible.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to Maven Central
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # The protocol's tests read the vendored vectors from the repository root; they are in the
+      # checkout already, so the tag is verified by the same suite a push is.
+      - name: Reproduce the frozen protocol vectors
+        run: mvn -B -ntp verify
+
+      # ci.yml gates this on main and on pull requests, but a tag can be cut from a commit that never
+      # went through either — and publishing an implementation whose vendored vectors have drifted
+      # from the authoritative copy is exactly the divergence this repository exists not to produce.
+      - name: Check out the main repo's vectors
+        uses: actions/checkout@v5
+        with:
+          repository: rain6fish/KeelBase
+          ref: main
+          path: main-repo
+
+      - name: Vendored vectors must match the main repo
+        run: scripts/sync-vectors.sh main-repo --check
+
+      # A tag release cannot be taken back, so what it publishes is checked rather than assumed: the
+      # protocol library is the artifact a generated application resolves, and everything else is a
+      # deployment or studio-side tooling. The parent pom travels with it — a child pom whose parent
+      # is not in the repository cannot be resolved by a consumer. A module added later without an
+      # opt-out fails here instead of appearing on Central.
+      - name: Publishing only the parent pom and the protocol library
+        run: |
+          set -euo pipefail
+          published="keelbase4j"
+          for module in $(mvn -q -B help:evaluate -Dexpression=project.modules -DforceStdout \
+                            | grep -o '<string>[^<]*</string>' | sed 's|</\?string>||g'); do
+            skip=$(mvn -q -B -Prelease help:evaluate -Dexpression=maven.deploy.skip \
+                     -pl "$module" -DforceStdout 2>/dev/null | tail -1)
+            [ "$skip" = "true" ] || published="$published $module"
+          done
+          echo "will be published: $published"
+          [ "$published" = "keelbase4j keelbase4j-protocol" ] || {
+            echo "unexpected publish set — add a release-profile opt-out to any module that is not a library" >&2
+            exit 1
+          }
+
+      - name: Import the signing key
+        run: echo "${{ secrets.GPG_SECRET_KEY }}" | gpg --batch --yes --import
+
+      - name: Write Maven settings (Central Portal token)
+        run: |
+          mkdir -p "$HOME/.m2"
+          cat > "$HOME/.m2/settings.xml" <<EOF
+          <settings>
+            <servers>
+              <server>
+                <id>central</id>
+                <username>${{ secrets.CENTRAL_TOKEN_USERNAME }}</username>
+                <password>${{ secrets.CENTRAL_TOKEN_PASSWORD }}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      # -DskipTests: the suite already ran two steps up, on this same commit. Deploy would otherwise
+      # run it a second time — the gate is the step, not the phase.
+      - name: Deploy to Maven Central Portal
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: mvn -B -Prelease deploy -DskipTests -Dgpg.keyname="${{ secrets.GPG_KEY_ID }}" -Dgpg.passphrase="$GPG_PASSPHRASE"

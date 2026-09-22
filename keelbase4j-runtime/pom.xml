@@ -7,7 +7,7 @@
   <parent>
     <groupId>cn.com.keelbase</groupId>
     <artifactId>keelbase4j</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
   </parent>
 
   <artifactId>keelbase4j-runtime</artifactId>
@@ -105,4 +105,16 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- Not a Maven Central artifact. The module that is published is keelbase4j-protocol — it is
+         the one a generated application depends on (see the repository's hard rules). This module is
+         the deployment: it is built and shipped as an application, not resolved as a library. -->
+    <profile>
+      <id>release</id>
+      <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+      </properties>
+    </profile>
+  </profiles>
 </project>

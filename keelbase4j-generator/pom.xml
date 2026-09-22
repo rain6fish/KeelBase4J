@@ -7,7 +7,7 @@
   <parent>
     <groupId>cn.com.keelbase</groupId>
     <artifactId>keelbase4j</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
   </parent>
 
   <artifactId>keelbase4j-generator</artifactId>
@@ -56,4 +56,29 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <resources>
+      <!--
+        Filtered, so the version a generated project depends on has one source: this pom's own
+        version. A literal in the emitted template would be a second place to bump, and being one
+        release behind is a generated project that cannot resolve its dependency — the failure would
+        show up in somebody else's build, not here. GeneratorTest pins the emission to this file.
+      -->
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>true</filtering>
+      </resource>
+    </resources>
+  </build>
+
+  <profiles>
+    <!-- Not a Maven Central artifact — it is the studio-side tool (see the module description). -->
+    <profile>
+      <id>release</id>
+      <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+      </properties>
+    </profile>
+  </profiles>
 </project>

@@ -44,7 +44,7 @@ Requires JDK 17+ and Maven.
 mvn test
 ```
 
-**138 tests** green (protocol 58 · runtime 54 · generator 16 · springai 10). Then watch each claim
+**167 tests** green (protocol 59 · runtime 80 · generator 16 · springai 12). Then watch each claim
 in the next section actually happen — four scripts, no model required for the first three:
 
 ```bash

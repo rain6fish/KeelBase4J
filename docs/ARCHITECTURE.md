@@ -26,7 +26,7 @@ vectors (`Server-NestJS/specs/protocol/`) are the source of truth.
 |---|---|---|
 | Protocol semantics | main repo `docs/protocols/ai-governance-protocol.md` | the specification to implement |
 | Frozen vectors + wire schemas | main repo `Server-NestJS/specs/protocol/` | vendored read-only snapshot in `conformance/vectors/` |
-| Conformance evidence | this repo `mvn test` (138 tests) | proves cross-runtime parity (CE-1 role ③) |
+| Conformance evidence | this repo `mvn test` (167 tests) | proves cross-runtime parity (CE-1 role ③) |
 
 The vendored vectors are a snapshot; the main repo stays authoritative. CI job `vector-drift` diffs
 them so the snapshot cannot silently diverge.
@@ -196,12 +196,18 @@ verifiable.
 
 | Artifact | Version | Contents |
 |---|---|---|
-| `cn.com.keelbase:keelbase4j-protocol` | 0.1.0-SNAPSHOT | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on. |
-| `cn.com.keelbase:keelbase4j-runtime` | 0.1.0-SNAPSHOT | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
-| `cn.com.keelbase:keelbase4j-generator` | 0.1.0-SNAPSHOT | The generator (studio side). |
-| `cn.com.keelbase:keelbase4j-springai` | 0.1.0-SNAPSHOT | The Spring AI adapter — **depends on the runtime**, and nothing depends on it. |
-| `cn.com.keelbase:keelbase4j-demo` | 0.1.0-SNAPSHOT | The runnable demo deployment — runtime + adapter + one provider, chosen by Maven profile. |
-| `cn.com.keelbase:keelbase4j` | 0.1.0-SNAPSHOT | The parent/aggregator (`pom`). |
+| `cn.com.keelbase:keelbase4j-protocol` | 0.1.0 | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on, and the one published to Maven Central. |
+| `cn.com.keelbase:keelbase4j-runtime` | 0.1.0 | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
+| `cn.com.keelbase:keelbase4j-generator` | 0.1.0 | The generator (studio side). |
+| `cn.com.keelbase:keelbase4j-springai` | 0.1.0 | The Spring AI adapter — **depends on the runtime**, and nothing depends on it. |
+| `cn.com.keelbase:keelbase4j-demo` | 0.1.0 | The runnable demo deployment — runtime + adapter + one provider, chosen by Maven profile. |
+| `cn.com.keelbase:keelbase4j` | 0.1.0 | The parent/aggregator (`pom`). |
+
+Only `keelbase4j-protocol` — together with the parent pom it inherits from — is published: it is the
+one a generated application resolves, so it is the one that has to be in a repository. The other
+modules opt out of deployment in the `release` profile of their own poms. A generated project's
+dependency on it is not hand-written either: the version is filtered from this project's own version,
+so a release moves both together.
 
 The dependency edge is one-way — `runtime` → `protocol`, `generator` → `protocol` — and nothing
 depends on the runtime. That is what keeps the runtime the thing under test while adapters (a model
@@ -277,16 +283,19 @@ provider, an identity provider) sit outside it.
 ## 6. Build & verification
 
 ```bash
-mvn test                              # protocol 58 + runtime 54 + generator 16 + springai 10 = 138
+mvn test                              # protocol 59 + runtime 80 + generator 16 + springai 12 = 167
 mvn -DskipTests install               # install every module into the local repo
 bash scripts/demo-generated-app.sh    # generate → build → run → exercise the generated app
 bash scripts/demo-changeability.sh    # change → regenerate → the hand edit survives
 bash scripts/demo-migration.sh        # change → additive migration → existing rows carry over
+bash scripts/demo-golden-path.sh      # the frontend's own modules against this runtime (L3)
 bash scripts/demo-springai.sh         # a real model on the planner seam (needs a model key)
 ```
 
 CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-drift`
-(diff the vendored vectors against the main repo).
+(diff the vendored vectors against the main repo). Publishing runs on a `v*` tag
+(`.github/workflows/release.yml`): the parent pom and `keelbase4j-protocol` are signed and uploaded to
+Maven Central, which is why a generated project can resolve its dependency without a local install.
 
 ---
 
@@ -294,7 +303,7 @@ CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-
 
 | Phase | Scope | Status |
 |---|---|---|
-| G0 | protocol conformance (8 vectors + the permission/identity wire contracts, 58 tests) | ✅ |
+| G0 | protocol conformance (8 vectors + the permission/identity wire contracts, 59 tests) | ✅ |
 | G1 | runtime core + trust loop, on a hand-written app | ✅ |
 | G2 | generator: business request → spec → real Spring Boot source | ✅ |
 | G2+ | the generated app runs standalone, and the trust loop holds on the artifact | ✅ |

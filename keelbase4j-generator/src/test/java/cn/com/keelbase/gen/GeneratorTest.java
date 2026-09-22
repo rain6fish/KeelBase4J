@@ -9,11 +9,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import cn.com.keelbase.gen.BusinessSpec.ToolSpec;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.tools.DiagnosticCollector;
 import javax.tools.JavaCompiler;
@@ -100,6 +104,25 @@ class GeneratorTest {
         assertTrue(customer.contains("@Entity"), "a real JPA entity");
         assertTrue(customer.contains("class Customer"), "a real class");
 
+        // The generated project consumes a *published* coordinate, so the version in its pom has to be
+        // the one this build publishes. It is filtered from the project version for that reason; this
+        // pins the emission, because a literal written back into the template would be the silent way
+        // to drift — and the failure would land in the generated project's build instead of here.
+        String pom = Files.readString(out.resolve("pom.xml"));
+        Matcher protocolDependency = Pattern.compile(
+                        "<artifactId>keelbase4j-protocol</artifactId>\\s*<version>([^<]+)</version>")
+                .matcher(pom);
+        assertTrue(protocolDependency.find(), "the generated pom depends on the protocol library");
+        String filtered = versionThisBuildPublishes();
+        // Both sides read the same file, so a filtering regression would leave the raw placeholder on
+        // both and satisfy the equality below. Asserting the value is a version, not a placeholder, is
+        // what keeps that from being a passing test of nothing. The generator's own reader has the
+        // same guard, which is the end-to-end version of this check.
+        assertFalse(filtered.contains("@") || filtered.contains("$"),
+                "the build must have filtered the placeholder out: " + filtered);
+        assertEquals(filtered, protocolDependency.group(1),
+                "and the emitted dependency is on the version this build publishes, not a literal");
+
         // The generated project compiles as real Java source.
         List<File> sources = javaFiles(out.resolve("src/main/java"));
         assertFalse(sources.isEmpty(), "no sources generated");
@@ -127,6 +150,16 @@ class GeneratorTest {
             stream.filter(p -> p.toString().endsWith(".java")).forEach(p -> files.add(p.toFile()));
         }
         return files;
+    }
+
+    /** What the build filtered into the generator's resources — the one source for the version. */
+    private static String versionThisBuildPublishes() throws IOException {
+        try (InputStream in = GeneratorTest.class.getResourceAsStream("/keelbase4j-generator.properties")) {
+            assertNotNull(in, "the filtered resource must be on the test classpath");
+            Properties properties = new Properties();
+            properties.load(in);
+            return properties.getProperty("protocol.version");
+        }
     }
 
     private static void deleteRecursively(Path path) throws IOException {

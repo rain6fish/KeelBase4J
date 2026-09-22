@@ -6,6 +6,7 @@ import cn.com.keelbase.gen.BusinessSpec.FieldSpec;
 import cn.com.keelbase.gen.BusinessSpec.ToolSpec;
 import cn.com.keelbase.protocol.PermissionCapabilityList;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -16,6 +17,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
@@ -265,7 +267,7 @@ public class JavaGenerator {
                     <dependency>
                       <groupId>cn.com.keelbase</groupId>
                       <artifactId>keelbase4j-protocol</artifactId>
-                      <version>0.1.0-SNAPSHOT</version>
+                      <version>%s</version>
                     </dependency>
                   </dependencies>
                   <build>
@@ -277,7 +279,41 @@ public class JavaGenerator {
                     </plugins>
                   </build>
                 </project>
-                """.formatted(spec.module());
+                """.formatted(spec.module(), protocolVersion());
+    }
+
+    /**
+     * The version a generated project depends on, read from the resource Maven filters from this
+     * module's own version.
+     *
+     * <p>It is deliberately not a literal in the template above: that would be a second place to bump
+     * at release time, and a template one release behind emits a coordinate nobody can resolve. The
+     * failure would surface in the generated project's build rather than in this repository's, which
+     * is exactly the kind of drift this project gates elsewhere (see {@code sync-vectors.sh}).
+     *
+     * <p>Every failure mode here is a build misconfiguration, not a runtime condition: the resource is
+     * missing from the classpath only if the packaging changed, and {@code ${project.version}} survives
+     * unfiltered only if filtering was switched off. Both are worth stopping on.
+     */
+    private static String protocolVersion() {
+        try (InputStream in = JavaGenerator.class.getResourceAsStream("/keelbase4j-generator.properties")) {
+            if (in == null) {
+                throw new IllegalStateException("keelbase4j-generator.properties is not on the classpath; "
+                        + "the module must package src/main/resources (see its pom)");
+            }
+            Properties properties = new Properties();
+            properties.load(in);
+            String version = properties.getProperty("protocol.version");
+            if (version == null || version.isBlank() || version.indexOf('@') >= 0
+                    || version.indexOf('$') >= 0) {
+                throw new IllegalStateException("protocol.version is not filtered: " + version
+                        + " — check the module's resource filtering and its delimiter "
+                        + "(Spring Boot's parent switches it to '@')");
+            }
+            return version;
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot read keelbase4j-generator.properties", e);
+        }
     }
 
     private String readme(BusinessSpec spec) {

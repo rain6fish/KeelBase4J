@@ -13,7 +13,7 @@
 
   <groupId>cn.com.keelbase</groupId>
   <artifactId>keelbase4j</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <packaging>pom</packaging>
 
   <name>KeelBase4J</name>
@@ -30,6 +30,24 @@
       <url>https://www.apache.org/licenses/LICENSE-2.0</url>
     </license>
   </licenses>
+
+  <!-- Central requires this metadata on every published artifact — name, description, url, licenses,
+       developers and scm. The children inherit it from here, so only the coordinates beside the
+       artifact stay per-module. Only the parent pom and keelbase4j-protocol are published; the other
+       modules opt out in their own release profiles (see below). -->
+  <url>https://github.com/rain6fish/KeelBase4J</url>
+  <scm>
+    <connection>scm:git:https://github.com/rain6fish/KeelBase4J.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/rain6fish/KeelBase4J.git</developerConnection>
+    <tag>HEAD</tag>
+    <url>https://github.com/rain6fish/KeelBase4J</url>
+  </scm>
+  <developers>
+    <developer>
+      <id>rain6fish</id>
+      <name>Rain6fish</name>
+    </developer>
+  </developers>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -67,4 +85,74 @@
     <module>keelbase4j-springai</module>
     <module>keelbase4j-demo</module>
   </modules>
+
+  <profiles>
+    <!--
+      Release profile: what Maven Central needs on top of an ordinary build — sources, javadocs and a
+      signature for every published file. The upload itself runs in CI on a `v*` tag
+      (.github/workflows/release.yml), so no signing key is needed on a developer machine.
+
+      Not activated by default. Activating it changes nothing about what a normal build produces.
+
+      Which modules publish is decided here: only this parent pom and keelbase4j-protocol. The others
+      opt out through a `release` profile of their own, and that shape is deliberate — the obvious
+      alternative (skip by default here, override in protocol) would skip this pom too, and a child
+      whose parent is absent from the repository cannot be resolved by a consumer. The release
+      workflow re-checks the resulting set, so a module added later has to opt out rather than
+      appearing on Central by omission.
+    -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.3.0</version>
+            <executions>
+              <execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>3.6.3</version>
+            <executions>
+              <execution><id>attach-javadocs</id><goals><goal>jar</goal></goals></execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.2</version>
+            <configuration>
+              <!-- No pinentry in CI: sign from -Dgpg.passphrase, in batch mode. -->
+              <gpgArguments>
+                <arg>--batch</arg>
+                <arg>--pinentry-mode</arg>
+                <arg>loopback</arg>
+              </gpgArguments>
+            </configuration>
+            <executions>
+              <execution><id>sign-artifacts</id><phase>verify</phase>
+                <goals><goal>sign</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <!-- Central Portal (central.sonatype.com). The token comes from the `central` server in
+               settings.xml, which the release workflow writes from repository secrets. -->
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.9.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>true</autoPublish>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
