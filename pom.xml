@@ -94,12 +94,16 @@
 
       Not activated by default. Activating it changes nothing about what a normal build produces.
 
-      Which modules publish is decided here: only this parent pom and keelbase4j-protocol. The others
-      opt out through a `release` profile of their own, and that shape is deliberate — the obvious
-      alternative (skip by default here, override in protocol) would skip this pom too, and a child
-      whose parent is absent from the repository cannot be resolved by a consumer. The release
-      workflow re-checks the resulting set, so a module added later has to opt out rather than
-      appearing on Central by omission.
+      What actually publishes is the *reactor*, not a per-module flag: `central-publishing-maven-plugin`
+      bundles every module the build contains, and `maven.deploy.skip` does not reach it — the first
+      attempt at this shipped all six modules for exactly that reason. So the deploy restricts the
+      reactor instead (`-pl keelbase4j-protocol -am`, in .github/workflows/release.yml), and a step
+      there checks the restriction still yields exactly two modules: this parent pom and
+      keelbase4j-protocol, the artifact a generated application resolves. The parent travels with it
+      because a consumer cannot resolve a child pom whose parent is absent from the repository.
+
+      ⚠ Running `mvn -Prelease deploy` by hand, without `-pl`, would publish everything. Publishing
+      goes through the workflow; nothing here stops a manual run from doing the wrong thing.
     -->
     <profile>
       <id>release</id>

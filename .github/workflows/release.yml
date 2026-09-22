@@ -55,29 +55,34 @@ jobs:
       - name: Vendored vectors must match the main repo
         run: scripts/sync-vectors.sh main-repo --check
 
-      # A tag release cannot be taken back, so what it publishes is checked rather than assumed: the
-      # protocol library is the artifact a generated application resolves, and everything else is a
-      # deployment or studio-side tooling. The parent pom travels with it — a child pom whose parent
-      # is not in the repository cannot be resolved by a consumer. A module added later without an
-      # opt-out fails here instead of appearing on Central.
+      # A tag release cannot be taken back, so what it publishes is checked rather than assumed. The
+      # set is the *reactor*, not a per-module deploy flag: the first attempt at this shipped every
+      # module (and failed on one of them) because the publishing plugin bundles the whole reactor,
+      # and `maven.deploy.skip` never applied to it. So the deploy below restricts the reactor, and
+      # this step checks that restriction is still in effect — exactly two modules, the parent pom and
+      # the protocol library, which is the artifact a generated application resolves. The parent
+      # travels with it because a child pom whose parent is absent cannot be resolved by a consumer.
       - name: Publishing only the parent pom and the protocol library
         run: |
           set -euo pipefail
-          published="keelbase4j"
-          for module in $(mvn -q -B help:evaluate -Dexpression=project.modules -DforceStdout \
-                            | grep -o '<string>[^<]*</string>' | sed 's|</\?string>||g'); do
-            skip=$(mvn -q -B -Prelease help:evaluate -Dexpression=maven.deploy.skip \
-                     -pl "$module" -DforceStdout 2>/dev/null | tail -1)
-            [ "$skip" = "true" ] || published="$published $module"
-          done
-          echo "will be published: $published"
-          [ "$published" = "keelbase4j keelbase4j-protocol" ] || {
-            echo "unexpected publish set — add a release-profile opt-out to any module that is not a library" >&2
+          reactor=$(mvn -B -Prelease -DskipTests -pl keelbase4j-protocol -am validate \
+                    | grep -cE "^\[INFO\] Building ")
+          echo "modules in the publish reactor: $reactor"
+          [ "$reactor" = "2" ] || {
+            echo "expected exactly the parent pom and keelbase4j-protocol — check the deploy step's -pl/-am" >&2
             exit 1
           }
 
       - name: Import the signing key
         run: echo "${{ secrets.GPG_SECRET_KEY }}" | gpg --batch --yes --import
+
+      # Central refuses a deployment whose signatures it cannot check: "Could not find a public key by
+      # the key fingerprint" is what the first attempt failed with, because the key that signs is born
+      # in CI and its public half had never been published. Harmless to repeat.
+      - name: Publish the signing key to the keyservers Central reads
+        run: |
+          gpg --keyserver keyserver.ubuntu.com --send-keys "${{ secrets.GPG_KEY_ID }}"
+          gpg --keyserver pgp.mit.edu --send-keys "${{ secrets.GPG_KEY_ID }}" || true
 
       - name: Write Maven settings (Central Portal token)
         run: |
@@ -94,9 +99,12 @@ jobs:
           </settings>
           EOF
 
-      # -DskipTests: the suite already ran two steps up, on this same commit. Deploy would otherwise
-      # run it a second time — the gate is the step, not the phase.
+      # -pl ... -am: the reactor *is* the publish set (see the check above). -DskipTests: the suite
+      # already ran three steps up, on this same commit — the gate is the step, not the phase.
       - name: Deploy to Maven Central Portal
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        run: mvn -B -Prelease deploy -DskipTests -Dgpg.keyname="${{ secrets.GPG_KEY_ID }}" -Dgpg.passphrase="$GPG_PASSPHRASE"
+        run: |
+          mvn -B -Prelease deploy -DskipTests \
+            -pl keelbase4j-protocol -am \
+            -Dgpg.keyname="${{ secrets.GPG_KEY_ID }}" -Dgpg.passphrase="$GPG_PASSPHRASE"

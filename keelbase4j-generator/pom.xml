@@ -71,14 +71,4 @@
       </resource>
     </resources>
   </build>
-
-  <profiles>
-    <!-- Not a Maven Central artifact — it is the studio-side tool (see the module description). -->
-    <profile>
-      <id>release</id>
-      <properties>
-        <maven.deploy.skip>true</maven.deploy.skip>
-      </properties>
-    </profile>
-  </profiles>
 </project>

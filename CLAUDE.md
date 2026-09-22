@@ -35,7 +35,12 @@ CI（`.github/workflows/ci.yml`）门禁两件事：`conformance`（`mvn verify`
 
 ⚠️ **打 `v*` tag 会触发发布**（`.github/workflows/release.yml`）：先复现向量、再查两仓漂移、再校验
 发布集合，然后把**父 pom 与 `keelbase4j-protocol`**签名上传到 Maven Central。发到 Central 收不回来，
-所以 tag 只打在**已推且 CI 绿**的提交上。其余模块在各自 pom 的 `release` profile 里声明不发布。
+所以 tag 只打在**已推且 CI 绿**的提交上。
+
+**发布集合 = reactor**（**不是** per-module 的 `deploy.skip`）：central-publishing 插件会把**构建里
+所有模块**打包上传，`maven.deploy.skip` 拦不住它——第一次发布就是这么把六个模块全带上、并在其中一个
+上失败的。所以 deploy 步用 `-pl keelbase4j-protocol -am` 限制 reactor，另有一道检查确认结果恰为两个。
+⚠️ 手动跑 `mvn -Prelease deploy`（不带 `-pl`）会**把所有模块都发上去**。
 
 ## 提交约定
 

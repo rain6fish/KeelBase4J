@@ -74,13 +74,6 @@
         </dependency>
       </dependencies>
     </profile>
-    <!-- A deployment, not a library: nothing here is meant to be resolved by anyone's build. -->
-    <profile>
-      <id>release</id>
-      <properties>
-        <maven.deploy.skip>true</maven.deploy.skip>
-      </properties>
-    </profile>
   </profiles>
 
   <build>

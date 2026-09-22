@@ -56,15 +56,4 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
-
-  <profiles>
-    <!-- Not a Maven Central artifact: an adapter is deployment-side, and whether to freeze its API
-         is a separate decision from publishing the protocol. -->
-    <profile>
-      <id>release</id>
-      <properties>
-        <maven.deploy.skip>true</maven.deploy.skip>
-      </properties>
-    </profile>
-  </profiles>
 </project>

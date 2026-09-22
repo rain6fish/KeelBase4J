@@ -204,10 +204,11 @@ verifiable.
 | `cn.com.keelbase:keelbase4j` | 0.1.0 | The parent/aggregator (`pom`). |
 
 Only `keelbase4j-protocol` — together with the parent pom it inherits from — is published: it is the
-one a generated application resolves, so it is the one that has to be in a repository. The other
-modules opt out of deployment in the `release` profile of their own poms. A generated project's
-dependency on it is not hand-written either: the version is filtered from this project's own version,
-so a release moves both together.
+one a generated application resolves, so it is the one that has to be in a repository. What publishes
+is decided by the **reactor**, not by a per-module flag: the release workflow deploys with
+`-pl keelbase4j-protocol -am` and checks that the reactor it produces holds exactly those two. A
+generated project's dependency on it is not hand-written either: the version is filtered from this
+project's own version, so a release moves both together.
 
 The dependency edge is one-way — `runtime` → `protocol`, `generator` → `protocol` — and nothing
 depends on the runtime. That is what keeps the runtime the thing under test while adapters (a model
