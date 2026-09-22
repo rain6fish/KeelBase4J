@@ -56,6 +56,11 @@ public class CreateFollowUpTool implements AiTool {
         String note = args.get("note") == null ? "" : String.valueOf(args.get("note"));
         String dueDate = args.get("dueDate") == null ? null : String.valueOf(args.get("dueDate"));
 
+        // Same boundary rule as the read tool: a planner's arguments are a proposal, not a guarantee.
+        // findById(null) would throw and surface as a 500; a refused write is a governed outcome.
+        if (customerId == null) {
+            return ToolResult.fail("customerId is required and must be a number");
+        }
         Customer customer = customers.findById(customerId).orElse(null);
         if (customer == null) {
             return ToolResult.fail("customer not found: " + customerId);

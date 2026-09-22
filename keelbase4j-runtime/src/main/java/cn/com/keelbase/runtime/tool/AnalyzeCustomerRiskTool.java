@@ -44,6 +44,14 @@ public class AnalyzeCustomerRiskTool implements AiTool {
     @Override
     public ToolResult execute(Map<String, Object> args, Principal principal) {
         Long customerId = asLong(args.get("customerId"));
+        // The tool boundary does not trust the caller's arguments — not even a model planner's, whose
+        // output is a proposal, not a guarantee, however firmly the tool schema marks a field required.
+        // Without this, a missing or unparseable id reaches findById(null), which Spring Data answers
+        // with an exception — and an exception here surfaces as a 500. A tool that was handed nonsense
+        // is a governed outcome (a failure the caller can read and act on), not a server fault.
+        if (customerId == null) {
+            return ToolResult.fail("customerId is required and must be a number");
+        }
         Customer customer = customers.findById(customerId).orElse(null);
         if (customer == null) {
             return ToolResult.fail("customer not found: " + customerId);
@@ -63,6 +71,12 @@ public class AnalyzeCustomerRiskTool implements AiTool {
         return ToolResult.ok(out);
     }
 
+    /**
+     * Parse an id without ever throwing. A value that is absent <em>or</em> unparseable both come back
+     * as {@code null}, so the caller has one case to handle instead of two — and {@code "the first
+     * one"} from a model planner is the same kind of input as no value at all: something to refuse,
+     * not something to crash on.
+     */
     static Long asLong(Object v) {
         if (v == null) {
             return null;
@@ -70,6 +84,10 @@ public class AnalyzeCustomerRiskTool implements AiTool {
         if (v instanceof Number n) {
             return n.longValue();
         }
-        return Long.valueOf(String.valueOf(v));
+        try {
+            return Long.valueOf(String.valueOf(v));
+        } catch (NumberFormatException notAnId) {
+            return null;
+        }
     }
 }
