@@ -48,7 +48,14 @@ public class SecurityConfig {
                         // holds a token — it is how it decides what to render at all (ADR-0002 Rev-8).
                         // They disclose no caller and no data: only what this deployment declares
                         // itself to be. The reference marks the same two paths public.
-                        .requestMatchers("/app/capabilities", "/app/provenance").permitAll()
+                        //
+                        // The login page's two calls are public for the same reason and by the same
+                        // ruling: it asks which federated providers exist before anyone can log in,
+                        // and reports a page visit before there is a session to attribute it to.
+                        // Requiring a token for either would make the very page that obtains one
+                        // unreachable, and the reference marks both public too.
+                        .requestMatchers("/app/capabilities", "/app/provenance",
+                                "/auth/login-stats", "/auth/oauth/providers").permitAll()
                         // An error dispatch is the container re-rendering a failure this chain has
                         // already handled — a 403 from a controller, say. Demanding authentication a
                         // second time there would turn every refusal into a 401 and hide the status

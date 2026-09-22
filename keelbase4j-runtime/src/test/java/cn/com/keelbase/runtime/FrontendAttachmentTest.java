@@ -11,6 +11,7 @@ import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -169,6 +170,50 @@ class FrontendAttachmentTest {
                 "a rule denial must carry its basis — the frontend turns it into the guidance line");
         assertEquals("casl", explanation.get("deniedBy"));
         assertNotNull(explanation.get("reason"));
+    }
+
+    @Test
+    void whoAmISettlesTheSession() {
+        ResponseEntity<Map> res = rest.exchange("/auth/me", HttpMethod.GET,
+                entity("carol", null), Map.class);
+
+        assertEquals(200, res.getStatusCode().value(), "body was " + res.getBody());
+        Map<String, Object> me = Envelopes.data(res.getBody());
+        assertEquals("carol", me.get("username"));
+        assertEquals("admin", me.get("role"),
+                "the console keys its whole shell off this — the role is what routes the surface");
+        assertNull(me.get("id"),
+                "this deployment holds no numeric user id, and inventing one would hand out an "
+                        + "identifier nothing else accepts");
+        assertNull(me.get("email"),
+                "nor an email — an address nothing delivers to is not an improvement on none");
+    }
+
+    @Test
+    void whoAmIRefusesAnAnonymousCaller() {
+        // The login page asks this before it has a token; it must not be told who it is.
+        assertEquals(401, rest.exchange("/auth/me", HttpMethod.GET,
+                new HttpEntity<>(new HttpHeaders()), Map.class).getStatusCode().value());
+    }
+
+    @Test
+    void theLoginPageCanAskWhatItNeedsBeforeAnyonesLogsIn() {
+        // Both are called while rendering the login page, so neither may demand the token that the
+        // page exists to obtain.
+        ResponseEntity<Map> providers = rest.exchange("/auth/oauth/providers", HttpMethod.GET,
+                new HttpEntity<>(new HttpHeaders()), Map.class);
+        assertEquals(200, providers.getStatusCode().value(),
+                "a refusal here is an error the login page has to swallow");
+        Map<String, Object> config = Envelopes.data(providers.getBody());
+        assertEquals(List.of(), config.get("enabledProviders"),
+                "this deployment federates no providers, which is a fact and not an absence");
+
+        ResponseEntity<Map> stats = rest.exchange("/auth/login-stats", HttpMethod.POST,
+                new HttpEntity<>(Map.of("userAgent", "probe")), Map.class);
+        assertEquals(200, stats.getStatusCode().value());
+        assertEquals(Boolean.FALSE, Envelopes.<Map<String, Object>>data(stats.getBody()).get("ok"),
+                "no statistics sink exists here, so the ping says so instead of reporting a "
+                        + "record that was never made");
     }
 
     private <T> HttpEntity<T> entity(String userId, T body) {
