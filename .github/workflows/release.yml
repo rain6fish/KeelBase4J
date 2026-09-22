@@ -77,8 +77,11 @@ jobs:
         run: echo "${{ secrets.GPG_SECRET_KEY }}" | gpg --batch --yes --import
 
       # Central refuses a deployment whose signatures it cannot check: "Could not find a public key by
-      # the key fingerprint" is what the first attempt failed with, because the key that signs is born
-      # in CI and its public half had never been published. Harmless to repeat.
+      # the key fingerprint" is what the first two attempts failed with, because the key that signs is
+      # born in CI and its public half had never been published. Sending is not enough on its own —
+      # the keyserver has to *index* it, and Central's lookup happened seconds later. The third
+      # attempt, minutes after the send, went through. So: if this error comes back, re-run the job
+      # rather than changing the key. Harmless to repeat.
       - name: Publish the signing key to the keyservers Central reads
         run: |
           gpg --keyserver keyserver.ubuntu.com --send-keys "${{ secrets.GPG_KEY_ID }}"
