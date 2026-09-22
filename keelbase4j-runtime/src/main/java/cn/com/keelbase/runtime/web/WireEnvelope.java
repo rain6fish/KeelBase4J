@@ -41,6 +41,27 @@ final class WireEnvelope {
         return build(code, message, null);
     }
 
+    /**
+     * Failure carrying the optional {@code error-body} fields — {@code reason} / {@code impact} /
+     * {@code nextStep} (NC-2) and {@code explanation} (W5-⑦). The contract declares every one of
+     * them optional, so this only ever adds keys.
+     *
+     * <p>An absent value is written as nothing at all rather than as {@code null}: a frontend reads
+     * "was this key claimed?" to decide whether to show an actionable error card, and a key present
+     * but empty would claim something the runtime cannot back up.
+     */
+    static Map<String, Object> error(int code, String message, Map<String, Object> extra) {
+        Map<String, Object> body = build(code, message, null);
+        if (extra != null) {
+            extra.forEach((key, value) -> {
+                if (value != null) {
+                    body.put(key, value);
+                }
+            });
+        }
+        return body;
+    }
+
     /** Key order follows the reference (code / message / data / timestamp); the contract does not care. */
     private static Map<String, Object> build(int code, String message, Object data) {
         Map<String, Object> body = new LinkedHashMap<>();

@@ -20,8 +20,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
  * this class existed.
  *
  * <p>Failures are exempt, and the exemption is decided by <em>who produced the body</em> rather than
- * by inspecting it: {@link WireErrorController} already writes the {@code error-body} shape, and
- * wrapping that would nest one envelope inside another.
+ * by inspecting it: {@link WireErrorController} and {@link WireExceptionAdvice} already write the
+ * {@code error-body} shape, and wrapping either would nest one envelope inside another — turning a
+ * 403 into a 200 with the refusal buried in {@code data}.
  */
 @ControllerAdvice
 public class ApiResponseAdvice implements ResponseBodyAdvice<Object> {
@@ -29,7 +30,9 @@ public class ApiResponseAdvice implements ResponseBodyAdvice<Object> {
     @Override
     public boolean supports(MethodParameter returnType,
                             Class<? extends HttpMessageConverter<?>> converterType) {
-        return !WireErrorController.class.equals(returnType.getContainingClass());
+        Class<?> writer = returnType.getContainingClass();
+        return !WireErrorController.class.equals(writer)
+                && !WireExceptionAdvice.class.equals(writer);
     }
 
     @Override

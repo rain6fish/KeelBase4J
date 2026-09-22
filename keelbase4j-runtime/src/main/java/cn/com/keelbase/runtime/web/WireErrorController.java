@@ -22,10 +22,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Declaring an {@link ErrorController} bean makes Boot's own back off, so this is the single place
  * container errors are shaped — including the 401 that
  * {@link cn.com.keelbase.runtime.security.SecurityConfig} raises and the 404 for a path no
- * controller claims.
- *
- * <p>Server faults stay deliberately vague: the status is honest, the message is not, because a 5xx
- * message is the classic place internal detail leaks out.
+ * controller claims. Failures the application raises on purpose are shaped by
+ * {@link WireExceptionAdvice} instead; both take their wording from {@link WireFailure}, so a 403
+ * reads the same however it was produced.
  */
 @RestController
 public class WireErrorController implements ErrorController {
@@ -34,7 +33,9 @@ public class WireErrorController implements ErrorController {
     public ResponseEntity<Map<String, Object>> error(HttpServletRequest request) {
         HttpStatus status = statusOf(request);
         return ResponseEntity.status(status)
-                .body(WireEnvelope.error(status.value(), messageFor(status)));
+                .body(WireEnvelope.error(status.value(),
+                        WireFailure.messageFor(status),
+                        WireFailure.guidanceFor(status)));
     }
 
     private HttpStatus statusOf(HttpServletRequest request) {
@@ -46,14 +47,5 @@ public class WireErrorController implements ErrorController {
             }
         }
         return HttpStatus.INTERNAL_SERVER_ERROR;
-    }
-
-    private String messageFor(HttpStatus status) {
-        return switch (status) {
-            case UNAUTHORIZED -> "authentication required";
-            case FORBIDDEN -> "forbidden";
-            case NOT_FOUND -> "Not found";
-            default -> status.is5xxServerError() ? "服务器内部错误" : status.getReasonPhrase();
-        };
     }
 }

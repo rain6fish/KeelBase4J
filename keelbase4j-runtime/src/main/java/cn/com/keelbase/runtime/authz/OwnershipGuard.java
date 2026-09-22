@@ -41,7 +41,7 @@ public class OwnershipGuard {
     public void requireAction(Principal principal, String subject, String action) {
         PermissionDecision decision = authorizer.decide(principal, action, subject);
         if (!decision.allowed()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, decision.reason());
+            throw new RuleDeniedException(decision.deniedBy(), decision.reason());
         }
     }
 
@@ -58,8 +58,13 @@ public class OwnershipGuard {
         requireAction(principal, subject, action);
         if (ScopeFilter.filterable(subject)
                 && !scopes.covers(row, principal, scopes.levelFor(principal))) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "row is outside the data range of this caller");
+            // No deny basis is claimed here on purpose. The frozen permission-decision names
+            // `casl` as the basis of a rule denial, and this row gate is a different thing — the
+            // rule allowed the action, the row simply is not this caller's. The reference carries
+            // that distinction as a separate check name (`user_scoped`), but that value is not part
+            // of the frozen `deniedBy` set, so minting it here would be this runtime inventing
+            // contract vocabulary. The reason goes on the wire; the basis stays unclaimed.
+            throw new RuleDeniedException(null, "该行不在你的数据范围内");
         }
     }
 }

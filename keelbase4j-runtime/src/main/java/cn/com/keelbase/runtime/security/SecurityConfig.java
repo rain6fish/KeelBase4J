@@ -5,6 +5,7 @@ import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -34,6 +35,11 @@ public class SecurityConfig {
         http
                 // A stateless token API: no session to fix, no browser to forge a request from.
                 .csrf(AbstractHttpConfigurer::disable)
+                // Wires the CorsConfigurationSource bean in. Without this line Spring Security does
+                // not know CORS exists, so a browser's preflight falls through to
+                // `anyRequest().authenticated()` below and is refused — and that failure shows up
+                // only in a browser, never in Node, which is why the golden-path judge never saw it.
+                .cors(Customizer.withDefaults())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(requests -> requests
