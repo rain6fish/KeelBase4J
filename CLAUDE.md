@@ -33,10 +33,22 @@ bash scripts/demo-springai.sh       # 真模型上接缝（需 DEEPSEEK_API_KEY�
 CI（`.github/workflows/ci.yml`）门禁两件事：`conformance`（`mvn verify`）+ `vector-drift`
 （`sync-vectors.sh --check`）。
 
+⚠️ **打 `v*` tag 会触发发布**（`.github/workflows/release.yml`）：先复现向量、再查两仓漂移、再校验
+发布集合，然后把**父 pom 与 `keelbase4j-protocol`**签名上传到 Maven Central。发到 Central 收不回来，
+所以 tag 只打在**已推且 CI 绿**的提交上。其余模块在各自 pom 的 `release` profile 里声明不发布。
+
 ## 提交约定
 
 - **提交前先审计**：`git status` 核对暂存范围 → `git diff` 审查 → 跑相关测试。发现的问题先修再提交。
-- **消息中英双语**：`type(scope): 中文摘要` + 中文正文 + **空行 + English 段**。只写中文不合规。
+- **文字说明一律英文在前、中文在后**——提交信息、Release 说明、CHANGELOG 条目、**新写**的注释都按这条。
+  中英**各自成完整块**，块内不掺杂（专有名词、代码标识符、命令除外）；**唯一**允许中英混排的是标题行。
+  只写一种语言 = 不合规。存量注释不回溯改写。
+- **提交信息版式**：
+
+      标题行：  <type>(<scope>): <English summary> — <中文摘要>     （可只写英文）
+      正文一：  一整段英文（改了什么 / 为什么）
+      正文二：  一整段中文（与英文段对应，不是逐条配对）
+
 - **不带** `Co-Authored-By`。
 - 消息用 `git commit -F <文件>`，**不要**用 `-m "…"`——正文含反引号时会被 shell 当命令替换吞掉。
 - 未经明确指示**不推送**远程。
