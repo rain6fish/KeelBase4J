@@ -42,9 +42,13 @@ public class BusinessSpecParser {
 
         RoleRule roleRule = new RoleRule("ownerUserId", "user", "销售仅见本人客户；经理可见全部");
 
+        // The triggers are the request's own words for each tool ("AI 要能每天分析哪些客户风险高" /
+        // "AI 想给客户建跟进记录时"). They route a message when there is no model to do it.
         List<ToolSpec> tools = List.of(
-                new ToolSpec("analyze_customer_risk", "R1", false, null, "分析客户风险（只读，自动执行）"),
-                new ToolSpec("create_followup", "R3", true, "follow_up", "创建客户跟进（业务敏感写，需人工确认）"));
+                new ToolSpec("analyze_customer_risk", "R1", false, null, "分析客户风险（只读，自动执行）",
+                        List.of("风险", "分析")),
+                new ToolSpec("create_followup", "R3", true, "follow_up", "创建客户跟进（业务敏感写，需人工确认）",
+                        List.of("跟进", "创建")));
 
         // The module's name as the request gives it ("客户管理系统") — the capability surface reports a
         // module label, and that label is the module's, not the first entity's.

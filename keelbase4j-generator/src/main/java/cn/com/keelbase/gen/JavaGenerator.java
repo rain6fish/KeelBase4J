@@ -602,6 +602,181 @@ public class JavaGenerator {
         return sb.toString();
     }
 
+    // ── conversation (the transcript behind conversationId) ─────────────────────────────────────
+
+    /**
+     * The minimal conversation record ADR-0013 D4 asks for, matching the runtime's own.
+     *
+     * <p>It exists so that {@code conversationId} names something real. It is a <b>transcript</b>: turns and
+     * nothing more — no embeddings, no retrieval, no memory policy (ADR-0009 D3's boundary).
+     */
+    private String conversationMessageEntity(String pkg) {
+        return """
+                package %s.conversation;
+
+                import jakarta.persistence.Column;
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.GeneratedValue;
+                import jakarta.persistence.GenerationType;
+                import jakarta.persistence.Id;
+                import jakarta.persistence.Table;
+                import java.time.Instant;
+
+                /** One turn of a conversation: who said it, what they said, and when. */
+                @Entity
+                @Table(name = "conversation_messages")
+                public class ConversationMessage {
+
+                    public static final String USER = "user";
+                    public static final String ASSISTANT = "assistant";
+
+                    @Id
+                    @GeneratedValue(strategy = GenerationType.IDENTITY)
+                    private Long id;
+
+                    @Column(name = "conversation_id", nullable = false)
+                    private String conversationId;
+
+                    @Column(name = "user_id", nullable = false)
+                    private String userId;
+
+                    @Column(nullable = false)
+                    private String role;
+
+                    @Column(nullable = false, length = 4000)
+                    private String content;
+
+                    @Column(name = "created_at", nullable = false)
+                    private Instant createdAt = Instant.now();
+
+                    protected ConversationMessage() {
+                    }
+
+                    public ConversationMessage(String conversationId, String userId, String role, String content) {
+                        this.conversationId = conversationId;
+                        this.userId = userId;
+                        this.role = role;
+                        this.content = content;
+                    }
+
+                    public Long getId() {
+                        return id;
+                    }
+
+                    public String getConversationId() {
+                        return conversationId;
+                    }
+
+                    public String getUserId() {
+                        return userId;
+                    }
+
+                    public String getRole() {
+                        return role;
+                    }
+
+                    public String getContent() {
+                        return content;
+                    }
+
+                    public Instant getCreatedAt() {
+                        return createdAt;
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    private String conversationMessageRepository(String pkg) {
+        return """
+                package %s.conversation;
+
+                import java.util.List;
+                import org.springframework.data.jpa.repository.JpaRepository;
+
+                public interface ConversationMessageRepository extends JpaRepository<ConversationMessage, Long> {
+
+                    List<ConversationMessage> findByConversationIdOrderByIdAsc(String conversationId);
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * The conversation a turn belongs to.
+     *
+     * <p>Two rules, both about the id meaning something: a conversation is opened per caller, and an id this
+     * application never issued is <b>not adopted</b> — a caller cannot reach into somebody else's
+     * conversation by naming it. A conversation that does not exist yet starts one.
+     */
+    private String conversationStore(String pkg) {
+        return """
+                package %s.conversation;
+
+                import java.util.List;
+                import java.util.Optional;
+                import java.util.UUID;
+                import org.springframework.stereotype.Component;
+
+                /**
+                 * The conversation a turn belongs to: opens one when the caller has none, records turns, and
+                 * hands back the history a replier may read.
+                 */
+                @Component
+                public class ConversationStore {
+
+                    private final ConversationMessageRepository repository;
+
+                    public ConversationStore(ConversationMessageRepository repository) {
+                        this.repository = repository;
+                    }
+
+                    /**
+                     * The id to continue, or a new one. An id this application never issued starts a new
+                     * conversation rather than being adopted.
+                     */
+                    public String openFor(String conversationId, String userId) {
+                        if (conversationId != null && !conversationId.isBlank()
+                                && ownedBy(conversationId, userId)) {
+                            return conversationId;
+                        }
+                        return UUID.randomUUID().toString();
+                    }
+
+                    public ConversationMessage append(String conversationId, String userId, String role,
+                                                      String content) {
+                        return repository.save(new ConversationMessage(conversationId, userId, role, content));
+                    }
+
+                    /** The turns of a conversation, oldest first. */
+                    public List<ConversationMessage> history(String conversationId) {
+                        return repository.findByConversationIdOrderByIdAsc(conversationId);
+                    }
+
+                    private boolean ownedBy(String conversationId, String userId) {
+                        Optional<ConversationMessage> first = history(conversationId).stream().findFirst();
+                        return first.isPresent() && first.get().getUserId().equals(userId);
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    private String conversationMigration() {
+        return """
+                -- The conversation transcript (ADR-0013 D4). A table of turns and nothing more: it exists so
+                -- that the conversationId a chat response carries names something real. No embeddings, no
+                -- retrieval, no memory policy — see the module README.
+                CREATE TABLE conversation_messages (
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    conversation_id VARCHAR(255) NOT NULL,
+                    user_id VARCHAR(255) NOT NULL,
+                    role VARCHAR(32) NOT NULL,
+                    content VARCHAR(4000) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL
+                );
+
+                CREATE INDEX idx_conversation_messages_conversation ON conversation_messages (conversation_id);
+                """;
+    }
+
     private String repository(String pkg, EntitySpec entity) {
         return """
                 package %s.domain;

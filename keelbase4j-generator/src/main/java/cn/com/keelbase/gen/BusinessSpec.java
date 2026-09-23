@@ -42,7 +42,13 @@ public record BusinessSpec(
             String riskLevel,
             boolean requiresConfirmation,
             String resultType,
-            String description) {
+            String description,
+            /**
+             * How a message reaches this tool when there is no model to route it — the words the request
+             * itself used ("分析", "跟进"). This is a fallback for an application that runs without one,
+             * not a classifier: a deployment that puts a model behind the planner seam never reads these.
+             */
+            List<String> triggers) {
     }
 
     /** A policy rule: {@code action} on {@code entity} requires {@code requiredRole}. */
