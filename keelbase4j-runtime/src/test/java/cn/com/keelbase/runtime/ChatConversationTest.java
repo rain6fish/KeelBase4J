@@ -128,6 +128,33 @@ class ChatConversationTest {
         assertNotNull(body.get("reply"), "the caller is told so rather than left with an error");
     }
 
+    /**
+     * And the reference carries over. The console names the customer only in the <em>first</em> message
+     * of a conversation, so on the second turn — "再建一条" — there is no id in the request and none in
+     * that message. Reading the conversation is the only way left, and without it the second write of
+     * every console conversation would go unrouted.
+     */
+    @Test
+    void aLaterTurnStillKnowsWhichCustomerTheConversationIsAbout() {
+        Map<String, Object> first = Envelopes.data(
+                chatRaw("alice", message("当前客户「Acme」（ID 1）。给客户建一条跟进记录")).getBody());
+        String conversationId = (String) first.get("conversationId");
+        assertEquals("pending_confirmation", first.get("status"), "the first write is proposed");
+
+        Map<String, Object> second = Envelopes.data(
+                chatRaw("alice", reply(conversationId, "再建一条跟进记录")).getBody());
+
+        assertEquals("pending_confirmation", second.get("status"),
+                "the customer named in the first message still applies: " + second);
+        assertNotNull(second.get("token"), "so the second write waits on a human too");
+    }
+
+    private static Map<String, Object> reply(String conversationId, String message) {
+        Map<String, Object> body = message(message);
+        body.put("conversationId", conversationId);
+        return body;
+    }
+
     private Map<String, Object> chat(String user, String message, String conversationId) {
         ResponseEntity<Map> res = chatRaw(user, withCustomer(message, conversationId));
         assertEquals(200, res.getStatusCode().value(), "POST /ai/chat");

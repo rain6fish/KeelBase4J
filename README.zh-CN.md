@@ -35,7 +35,7 @@ KeelBase4J 是**载体**，不是第二个产品：它的存在，是让 Java/Sp
 mvn test
 ```
 
-**167 条测试**全绿（协议 59 · 运行时 80 · 生成器 16 · springai 12）。下面每个主张都能真跑出来——四个脚本，前三个不需要模型：
+**168 条测试**全绿（协议 59 · 运行时 81 · 生成器 16 · springai 12）。下面每个主张都能真跑出来——四个脚本，前三个不需要模型：
 
 ```bash
 bash scripts/demo-generated-app.sh    # 生成 → 构建 → 运行 → 走一遍信任闭环
@@ -93,6 +93,7 @@ bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
 | 变更携带库中已有的数据 | `demo-migration.sh`——11 项检查 | Flyway 拥有 schema；`ddl-auto=validate` |
 | 再生成会合并开发者的手改 | `demo-changeability.sh`——7 项检查 | **行级**合并：合并的是文本，不是语义 |
 | 真模型能路由，且运行时照样扣住写操作 | `demo-springai.sh`（DeepSeek 真 key） | 需要 key；是人跑的 demo，不是 CI 门禁 |
+| 前端自己的模块能驱动本运行时 | `demo-golden-path.sh`——5 项检查 | 控制台的 API 模块打真实例；浏览器界面本身属主仓 |
 
 以上数字均在本检出上实测——一次 `mvn test` 加三个无需 key 的 demo。
 
@@ -102,7 +103,8 @@ bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
 
 引用上面任何内容之前，先读这一节。
 
-1. **不是产品。** 没有 Docker 镜像、没有在线演示、没有用户界面。KeelBase 那套前端目前还没有指向这个运行时。
+1. **不是产品。** 没有 Docker 镜像、没有在线演示、也没有自带界面。KeelBase 的前端在主仓，那套前端**自己的**
+   API 模块可以直接打本运行时（`scripts/demo-golden-path.sh`），但本仓没有面向浏览器的打包。
 2. **不是完整的生成器。** `BusinessSpecParser` 是两句话上的确定性路由：对它识别的那条 CRM 形状请求产出固定 spec。它不会把任意自然语言变成模块，也不调用模型。
 3. **不是智能体框架。** 没有 RAG、没有向量化、没有记忆、没有子智能体、没有主动式 AI。这些是 ADR-0004 里的显式非目标；要解冻其中任何一项，都得另开 ADR。
 4. **不是存量系统的桥。** 这里没有 MCP 或 OpenAPI 接入。给存量系统加治理的那个 Java 侧桥在另一个仓（`rain6fish/KeelBase-java-starter`）。

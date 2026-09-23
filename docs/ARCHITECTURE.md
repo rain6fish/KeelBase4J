@@ -26,7 +26,7 @@ vectors (`Server-NestJS/specs/protocol/`) are the source of truth.
 |---|---|---|
 | Protocol semantics | main repo `docs/protocols/ai-governance-protocol.md` | the specification to implement |
 | Frozen vectors + wire schemas | main repo `Server-NestJS/specs/protocol/` | vendored read-only snapshot in `conformance/vectors/` |
-| Conformance evidence | this repo `mvn test` (167 tests) | proves cross-runtime parity (CE-1 role ③) |
+| Conformance evidence | this repo `mvn test` (168 tests) | proves cross-runtime parity (CE-1 role ③) |
 
 The vendored vectors are a snapshot; the main repo stays authoritative. CI job `vector-drift` diffs
 them so the snapshot cannot silently diverge.
@@ -284,7 +284,7 @@ provider, an identity provider) sit outside it.
 ## 6. Build & verification
 
 ```bash
-mvn test                              # protocol 59 + runtime 80 + generator 16 + springai 12 = 167
+mvn test                              # protocol 59 + runtime 81 + generator 16 + springai 12 = 168
 mvn -DskipTests install               # install every module into the local repo
 bash scripts/demo-generated-app.sh    # generate → build → run → exercise the generated app
 bash scripts/demo-changeability.sh    # change → regenerate → the hand edit survives

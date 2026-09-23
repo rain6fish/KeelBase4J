@@ -44,7 +44,7 @@ Requires JDK 17+ and Maven.
 mvn test
 ```
 
-**167 tests** green (protocol 59 · runtime 80 · generator 16 · springai 12). Then watch each claim
+**168 tests** green (protocol 59 · runtime 81 · generator 16 · springai 12). Then watch each claim
 in the next section actually happen — four scripts, no model required for the first three:
 
 ```bash
@@ -118,6 +118,7 @@ column is where to look; the last column is the honest boundary of the claim.
 | A change carries the data already in the database | `demo-migration.sh` — 11 checks | Flyway owns the schema; `ddl-auto=validate` |
 | Regeneration merges the developer's edits | `demo-changeability.sh` — 7 checks | a **line-level** merge: it merges text, not meaning |
 | A real model routes, and the runtime still holds the write | `demo-springai.sh` (DeepSeek, real key) | needs a key; it is a human-run demo, not a CI gate |
+| The frontend's own modules drive this runtime | `demo-golden-path.sh` — 5 checks | the console's API modules against a live instance; the browser UI itself is the main repo's |
 
 All numbers above were measured on this checkout — `mvn test` plus the three no-key demos.
 
@@ -127,8 +128,9 @@ All numbers above were measured on this checkout — `mvn test` plus the three n
 
 Read this section before quoting anything above.
 
-1. **Not a product.** There is no Docker image, no hosted demo and no user interface. The frontend
-   that ships with KeelBase does not talk to this runtime yet.
+1. **Not a product.** There is no Docker image, no hosted demo and no user interface of its own.
+   The KeelBase frontends live in the main repository and their own API modules run against this
+   runtime (`scripts/demo-golden-path.sh`), but nothing here is packaged for a browser.
 2. **Not a finished generator.** `BusinessSpecParser` is a deterministic router over two fixed
    sentences: it produces a fixed spec for the CRM-shaped request it recognises. It does not turn
    arbitrary natural language into modules, and it does not call a model.

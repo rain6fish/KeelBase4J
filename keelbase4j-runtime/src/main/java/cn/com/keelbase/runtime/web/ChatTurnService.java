@@ -14,6 +14,8 @@ import cn.com.keelbase.runtime.pipeline.ToolCallPlanner;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
 /**
@@ -40,6 +42,15 @@ public class ChatTurnService {
     public record Turn(String conversationId, IntentPlan plan, ExecutionOutcome outcome, ChatReply reply) {
     }
 
+    /**
+     * The customer the console is looking at, as it writes it into the message: 「Acme」（ID 1）.
+     *
+     * <p>One reader for this, here rather than in the planner: the reference is conversation state, and this is
+     * where the transcript is. A planner receives the resolved id in its context and routes on it.
+     */
+    private static final Pattern CUSTOMER_MARKER =
+            Pattern.compile("[（(]\\s*ID\\s*(\\d+)\\s*[）)]", Pattern.CASE_INSENSITIVE);
+
     private final ToolCallPlanner planner;
     private final ChatReplier replier;
     private final ConversationStore conversations;
@@ -58,7 +69,7 @@ public class ChatTurnService {
         conversations.append(id, principal, ConversationMessage.USER, message);
 
         Map<String, Object> context = new LinkedHashMap<>();
-        context.put("customerId", customerId);
+        context.put("customerId", customerId != null ? customerId : mentionedCustomer(id));
 
         IntentPlan plan = planner.plan(message, context).orElse(null);
         ExecutionOutcome outcome = plan == null
@@ -78,5 +89,28 @@ public class ChatTurnService {
         return conversations.history(conversationId).stream()
                 .map(m -> new ChatTurn(m.getRole(), m.getContent()))
                 .toList();
+    }
+
+    /**
+     * Which customer this conversation is about, as named in its own transcript.
+     *
+     * <p>The console names it once — in the <em>first</em> message ("当前客户「Acme」（ID 1）。给客户建一条
+     * 跟进记录"), because no frontend sends a customer id as a field. A model reads that reference wherever it
+     * appears; a runtime without one has to as well, or the second write in a conversation — "再建一条" — goes
+     * to a tool with nobody to act on. So the most recent mention wins, and the caller's explicit id (handled by
+     * the caller of this method) beats everything.
+     *
+     * <p>Reading the transcript is what the store is for: this is not embeddings, not retrieval and not a memory
+     * policy (ADR-0009 D3 — a transcript, not memory).
+     */
+    private Long mentionedCustomer(String conversationId) {
+        List<ConversationMessage> history = conversations.history(conversationId);
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Matcher marker = CUSTOMER_MARKER.matcher(history.get(i).getContent());
+            if (marker.find()) {
+                return Long.valueOf(marker.group(1));
+            }
+        }
+        return null;
     }
 }
