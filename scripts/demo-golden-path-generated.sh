@@ -43,7 +43,9 @@ mvn -q -B -DskipTests -pl keelbase4j-generator compile exec:java \
 echo "== 3/4 build and start it =="
 mvn -q -B -f "$GEN_DIR/pom.xml" clean package -DskipTests
 JAR="$(ls "$ROOT/$GEN_DIR"/target/*.jar | head -1)"
-java -jar "$JAR" --server.port="$PORT" > "$ROOT/$GEN_DIR/verdict.log" 2>&1 &
+# Run from inside the generated project, as the other demos do: its database is file-backed and belongs
+# to the project, not to whatever directory the script happened to be started from.
+( cd "$ROOT/$GEN_DIR" && exec java -jar "$JAR" --server.port="$PORT" ) > "$ROOT/$GEN_DIR/verdict.log" 2>&1 &
 APP_PID=$!
 
 # Git Bash's `kill` cannot signal a native Windows process, so ask Windows which pid owns the port.

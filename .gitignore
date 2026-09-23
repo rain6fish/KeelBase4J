@@ -1,5 +1,7 @@
 # Build output
 target/
+# A demo that starts a generated app from the repository root leaves its file-backed H2 here.
+data/
 *.class
 *.jar
 *.war
