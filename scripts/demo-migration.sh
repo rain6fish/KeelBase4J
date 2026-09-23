@@ -99,6 +99,9 @@ check "a row is in the database before the change" '"name":"Legacy Co"' "$LEGACY
 check_absent "and the column the change will add does not exist yet" '"tier"' "$LEGACY"
 stop_app
 cp "$MIGRATIONS/V1__crm_baseline.sql" "$GEN_DIR/v1.before"
+# The conversation transcript (ADR-0013 D4) is pinned at V2 and written once. The change below must take
+# the next version after it rather than collide with it — the numbering is part of what this checks.
+cp "$MIGRATIONS/V2__add_conversations.sql" "$GEN_DIR/v2.before"
 
 echo "== 3/4 apply the change =="
 mvn -q -B -DskipTests -pl keelbase4j-generator compile exec:java \
@@ -109,14 +112,20 @@ if cmp -s "$GEN_DIR/v1.before" "$MIGRATIONS/V1__crm_baseline.sql"; then
 else
   echo "  FAIL the change rewrote an applied migration"; fail=1
 fi
+if cmp -s "$GEN_DIR/v2.before" "$MIGRATIONS/V2__add_conversations.sql"; then
+  echo "  ok   and the conversation migration pinned at V2 is untouched"
+else
+  echo "  FAIL the change rewrote the conversation migration"; fail=1
+fi
 
-V2="$(ls "$MIGRATIONS"/V2__*.sql 2>/dev/null | head -1 || true)"
-if [ -n "$V2" ]; then
-  echo "  ok   the change generated a new migration ($(basename "$V2"))"
+# The baseline is V1 and the transcript took V2, so the change is the next version after them.
+CHANGED="$(ls "$MIGRATIONS"/V3__*.sql 2>/dev/null | head -1 || true)"
+if [ -n "$CHANGED" ]; then
+  echo "  ok   the change generated a new migration ($(basename "$CHANGED"))"
 else
   echo "  FAIL the change generated no migration"; fail=1
 fi
-ADDED="$(cat "$V2" 2>/dev/null || true)"
+ADDED="$(cat "$CHANGED" 2>/dev/null || true)"
 check "it adds the new column" "ADD COLUMN tier" "$ADDED"
 check_absent "and drops nothing" "DROP" "$ADDED"
 check_absent "and re-creates nothing" "CREATE TABLE" "$ADDED"
@@ -130,7 +139,7 @@ check "the row written before the change is still there" '"name":"Legacy Co"' "$
 check "and it now carries the added column" '"tier":null' "$AFTER"
 
 RUN2_LOG="$(cat "$ROOT/$GEN_DIR/run2.log")"
-check "the second run rolled forward one version" 'to version "2' "$RUN2_LOG"
+check "the second run rolled forward one version" 'to version "3' "$RUN2_LOG"
 check_absent "without re-running the baseline" '1 - crm baseline' "$RUN2_LOG"
 stop_app
 

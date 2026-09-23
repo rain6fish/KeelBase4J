@@ -89,8 +89,12 @@ fi
 
 echo
 echo "-- axis 2: shape — the frontend's payloads, over the identity it accepts"
-CHAT=$(curl -s -X POST "$BASE/ai/chat" -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $TOKEN" -d '{"message":"给客户建一条跟进记录","customerId":1}')
+# The body goes over a pipe rather than as a curl argument: Git Bash gives a native curl.exe its argv
+# in the machine's ANSI code page, so a UTF-8 Chinese body sent with -d arrives as GBK and the server
+# rejects it as malformed JSON — a 400 about the console, not about this app. (The frontend's own spec
+# below talks over axios, which was never affected; this probe was.)
+CHAT=$(printf '%s' '{"message":"给客户建一条跟进记录","customerId":1}' | curl -s -X POST "$BASE/ai/chat" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" --data-binary @-)
 echo "  POST /ai/chat {message, customerId} -> ${CHAT:0:120}"
 PERMS=$(curl -s "$BASE/auth/me/permissions" -H "Authorization: Bearer $TOKEN")
 echo "  GET  /auth/me/permissions -> ${PERMS:0:120}"

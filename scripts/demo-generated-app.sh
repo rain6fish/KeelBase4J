@@ -97,15 +97,33 @@ check_absent() { # name unexpected actual — the negative half of a scope asser
   if printf '%s' "$3" | grep -qF "$2"; then echo "  FAIL $1 -- '$2' must not appear in: $3"; fail=1; else echo "  ok   $1"; fi
 }
 
+# POST a chat message with the body supplied on stdin, not as a curl argument. Git Bash hands an
+# argv-supplied payload to the native curl.exe in the machine's ANSI code page, so a UTF-8 Chinese
+# message sent with -d arrives as GBK and the server rejects it as malformed JSON ("Invalid UTF-8
+# start byte 0xb7") — a 400 that says nothing about the application. Through a pipe the bytes are
+# carried verbatim, whatever the console's code page is.
+post_chat() { # token body
+  printf '%s' "$2" | curl -s -X POST "$BASE/ai/chat" -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $1" --data-binary @-
+}
+
 TOOLS=$(curl -s "$BASE/ai/tools")
 check "tools exposed (R1/R3)" '"riskLevel":"R3"' "$TOOLS"
 
-READ=$(curl -s -X POST "$BASE/ai/chat" -H 'Content-Type: application/json' -H "Authorization: Bearer $ALICE" \
-  -d '{"tool":"analyze_customer_risk"}')
-check "read tool auto-executes" '"status":"executed"' "$READ"
+# The chat entry takes a *message* and answers the conversation shape the runtime answers — the same
+# fields, so one frontend reads either. The reply is not from a model and says so, and conversationId
+# names a stored turn rather than an id made up on the spot.
+READ=$(post_chat "$ALICE" '{"message":"分析客户风险"}')
+check "a message routes to the read tool and it auto-executes" '"status":"executed"' "$READ"
+check "the answer names its conversation" '"conversationId"' "$READ"
+check "and reports the tool it used" '"toolCalls":["analyze_customer_risk"]' "$READ"
+check "the reply is honestly attributed to no model" '"provider":"deterministic","model":"none"' "$READ"
 
-WRITE=$(curl -s -X POST "$BASE/ai/chat" -H 'Content-Type: application/json' -H "Authorization: Bearer $ALICE" \
-  -d '{"tool":"create_followup","customerId":1,"note":"renewal reminder"}')
+# A message that names no customer still routes — the write is gated on a human either way.
+GATED=$(post_chat "$ALICE" '{"message":"给客户建一条跟进记录"}')
+check "a message naming no customer still reaches the write tool" '"status":"pending_confirmation"' "$GATED"
+
+WRITE=$(post_chat "$ALICE" '{"message":"给客户建一条跟进记录","customerId":1}')
 check "write tool is gated" '"status":"pending_confirmation"' "$WRITE"
 TOKEN=$(printf '%s' "$WRITE" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
 
@@ -183,8 +201,7 @@ check_absent "and keeps the other owner's rows out of it" '"note":"alice-fu"' "$
 # field makes "at least two were in flight together" the likely case rather than the lucky one.
 RACE_EXECUTED_TWICE=0
 for _ in $(seq 1 3); do
-  RACE=$(curl -s -X POST "$BASE/ai/chat" -H 'Content-Type: application/json' -H "Authorization: Bearer $ALICE" \
-    -d '{"tool":"create_followup","customerId":1,"note":"race"}')
+  RACE=$(post_chat "$ALICE" '{"message":"给客户建一条跟进记录","customerId":1}')
   RTOKEN=$(printf '%s' "$RACE" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
   [ -n "$RTOKEN" ] || continue
   BEFORE=$(curl -s "$BASE/ai/tool-effects" -H "Authorization: Bearer $ALICE" | grep -o '"id":' | wc -l)
