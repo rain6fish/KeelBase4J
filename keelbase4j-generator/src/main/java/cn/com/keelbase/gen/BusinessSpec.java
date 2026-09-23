@@ -9,9 +9,16 @@ import java.util.List;
  * <p>It is deliberately small: the entities and their fields, the ownership rule, the AI tools with
  * their governance metadata, and any policy rules (e.g. "only a manager may update a customer").
  * It is <b>not</b> a runtime dialect — it is a source from which ordinary Java is generated.
+ *
+ * @param module      the module's machine name ({@code crm}) — package, artifact, feature key
+ * @param moduleLabel the module's name as the caller described it ("客户管理"). The capability surface
+ *                    reports it, and a label belongs to the module rather than to one of its entities:
+ *                    naming it after the first entity is a label that stops being true the moment the
+ *                    module has a second one
  */
 public record BusinessSpec(
         String module,
+        String moduleLabel,
         List<EntitySpec> entities,
         RoleRule roleRule,
         List<ToolSpec> tools,

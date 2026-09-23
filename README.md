@@ -44,8 +44,9 @@ Requires JDK 17+ and Maven.
 mvn test
 ```
 
-**172 tests** green (protocol 59 · runtime 85 · generator 16 · springai 12). Then watch each claim
-in the next section actually happen — four scripts, no model required for the first three:
+**The suite is green** — `mvn test` covers the protocol library, the runtime, the generator and the
+adapter, and the CI badge above is where the live state lives rather than a number written here. Then
+watch each claim in the next section actually happen — four scripts, no model required for the first three:
 
 ```bash
 bash scripts/demo-generated-app.sh    # generate → build → run → walk the trust loop

@@ -46,7 +46,9 @@ public class BusinessSpecParser {
                 new ToolSpec("analyze_customer_risk", "R1", false, null, "分析客户风险（只读，自动执行）"),
                 new ToolSpec("create_followup", "R3", true, "follow_up", "创建客户跟进（业务敏感写，需人工确认）"));
 
-        return new BusinessSpec("crm", entities, roleRule, tools, List.of());
+        // The module's name as the request gives it ("客户管理系统") — the capability surface reports a
+        // module label, and that label is the module's, not the first entity's.
+        return new BusinessSpec("crm", "客户管理", entities, roleRule, tools, List.of());
     }
 
     /**
@@ -79,7 +81,8 @@ public class BusinessSpecParser {
             }
         }
 
-        return new BusinessSpec(base.module(), entities, base.roleRule(), base.tools(), policies);
+        return new BusinessSpec(base.module(), base.moduleLabel(), entities, base.roleRule(), base.tools(),
+                policies);
     }
 
     private static void require(String text, String needle, String what) {

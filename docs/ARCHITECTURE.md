@@ -27,7 +27,7 @@ vectors (`Server-NestJS/specs/protocol/`) are the source of truth.
 | Protocol semantics | main repo `docs/protocols/ai-governance-protocol.md` | the specification to implement |
 | Frozen vectors + wire schemas | main repo `Server-NestJS/specs/protocol/` | vendored read-only snapshot in `conformance/vectors/` |
 | Behaviour-level scenario packs (their `replay`) | main repo `Server-NestJS/specs/scenarios/` | vendored read-only snapshot in `conformance/vectors/scenarios/`, replayed over HTTP by `ScenarioReplayTest` (conformance-profile §2.4, Extended layer) |
-| Conformance evidence | this repo `mvn test` (172 tests) | proves cross-runtime parity (CE-1 role ③) |
+| Conformance evidence | this repo `mvn test` — the whole suite, green (the CI badge is the live count) | proves cross-runtime parity (CE-1 role ③) |
 
 The vendored vectors are a snapshot; the main repo stays authoritative. CI job `vector-drift` diffs
 them so the snapshot cannot silently diverge.
@@ -285,7 +285,7 @@ provider, an identity provider) sit outside it.
 ## 6. Build & verification
 
 ```bash
-mvn test                              # protocol 59 + runtime 85 + generator 16 + springai 12 = 172
+mvn test                              # protocol · runtime · generator · springai — the whole suite
 mvn -DskipTests install               # install every module into the local repo
 bash scripts/demo-generated-app.sh    # generate → build → run → exercise the generated app
 bash scripts/demo-changeability.sh    # change → regenerate → the hand edit survives
@@ -305,7 +305,7 @@ Maven Central, which is why a generated project can resolve its dependency witho
 
 | Phase | Scope | Status |
 |---|---|---|
-| G0 | protocol conformance (8 vectors + the permission/identity wire contracts, 59 tests) | ✅ |
+| G0 | protocol conformance (8 vectors + the permission/identity wire contracts) | ✅ |
 | G1 | runtime core + trust loop, on a hand-written app | ✅ |
 | G2 | generator: business request → spec → real Spring Boot source | ✅ |
 | G2+ | the generated app runs standalone, and the trust loop holds on the artifact | ✅ |

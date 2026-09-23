@@ -1768,7 +1768,10 @@ public class JavaGenerator {
      */
     private String appInfoController(String pkg, BusinessSpec spec) {
         String moduleId = spec.module();
-        String moduleLabel = spec.entities().get(0).name();
+        // The module's own label. This used to be the first entity's name, which is a label for that
+        // entity rather than for the module — and one that stops being true as soon as the module holds
+        // a second entity (see BusinessSpec.moduleLabel).
+        String moduleLabel = spec.moduleLabel();
         return """
                 package %s.web;
 

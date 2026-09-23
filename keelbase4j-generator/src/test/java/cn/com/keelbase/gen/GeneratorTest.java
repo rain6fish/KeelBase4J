@@ -45,6 +45,10 @@ class GeneratorTest {
         BusinessSpec spec = new BusinessSpecParser().parse(REQUEST);
 
         assertEquals("crm", spec.module());
+        // The module carries the name the request gave it, which is what the capability surface reports.
+        // It is deliberately not the first entity's name: a module label that names one of its entities
+        // is wrong the moment the module has a second one.
+        assertEquals("客户管理", spec.moduleLabel());
         assertEquals(2, spec.entities().size(), "two entities");
         assertTrue(spec.entities().stream().anyMatch(e -> e.name().equals("Customer")));
         assertTrue(spec.entities().stream().anyMatch(e -> e.name().equals("FollowUp")));
@@ -110,6 +114,12 @@ class GeneratorTest {
         String customer = Files.readString(out.resolve("src/main/java/com/example/crm/domain/Customer.java"));
         assertTrue(customer.contains("@Entity"), "a real JPA entity");
         assertTrue(customer.contains("class Customer"), "a real class");
+
+        // The F5 capability surface reports the module's label. It used to report the first entity's
+        // name, which a console would show as the module's name.
+        String appInfo = Files.readString(out.resolve("src/main/java/com/example/crm/web/AppInfoController.java"));
+        assertTrue(appInfo.contains("MODULE_LABEL = \"客户管理\""),
+                "the module is labelled as the module, not as one of its entities");
 
         // The generated project consumes a *published* coordinate, so the version in its pom has to be
         // the one this build publishes. It is filtered from the project version for that reason; this
