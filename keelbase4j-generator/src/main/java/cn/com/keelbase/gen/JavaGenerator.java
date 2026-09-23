@@ -55,10 +55,17 @@ public class JavaGenerator {
         // which is what lets the rows already in the database survive it.
         Path migrationDir = resources.resolve("db/migration");
         Map<String, Set<String>> applied = appliedColumns(migrationDir);
-        if (applied.isEmpty()) {
+        boolean fresh = applied.isEmpty();
+        if (fresh) {
             project.keep(migrationDir.resolve("V1__" + spec.module() + "_baseline.sql"),
                     migrationBaseline(spec));
-        } else {
+        }
+        // The conversation transcript (ADR-0013 D4): additive, version-pinned at V2, written once and
+        // never rewritten. Kept *before* the diff below so that a later change takes the next version
+        // after this one rather than colliding with it — the identity of the change migration and the
+        // number the demos pin both depend on that order.
+        project.keep(migrationDir.resolve("V2__add_conversations.sql"), conversationMigration());
+        if (!fresh) {
             Map<String, List<String>> missing = missingColumns(spec, applied);
             if (!missing.isEmpty()) {
                 project.keep(
@@ -85,6 +92,27 @@ public class JavaGenerator {
         for (ToolSpec tool : spec.tools()) {
             project.write(javaDir.resolve("ai/" + pascal(tool.name()) + "Tool.java"), toolClass(pkg, tool, spec));
         }
+
+        // The two AI seams (ADR-0013 D2/D3). A planner proposes what to call, a replier decides what to
+        // say; each has a deterministic default and each yields to a deployment's own bean. The
+        // defaults are what let the application answer a *message* with no model at all: the spec's own
+        // trigger words route it, and the reply describes what the engine actually did.
+        project.write(javaDir.resolve("ai/ToolCallPlanner.java"), toolCallPlanner(pkg));
+        project.write(javaDir.resolve("ai/Proposal.java"), proposal(pkg));
+        project.write(javaDir.resolve("ai/RuleBasedPlanner.java"), ruleBasedPlanner(pkg, spec));
+        project.write(javaDir.resolve("ai/ChatReplier.java"), chatReplier(pkg));
+        project.write(javaDir.resolve("ai/Reply.java"), reply(pkg));
+        project.write(javaDir.resolve("ai/ChatTurn.java"), chatTurn(pkg));
+        project.write(javaDir.resolve("ai/DeterministicReplier.java"), deterministicReplier(pkg));
+        project.write(javaDir.resolve("ai/ChatPipelineConfiguration.java"), chatPipelineConfiguration(pkg));
+
+        // The conversation transcript behind conversationId (ADR-0013 D4): turns and nothing more. It
+        // exists so the id a chat answer carries names something real rather than being invented, and
+        // it is deliberately not memory — no embeddings, no retrieval, no memory policy.
+        project.write(javaDir.resolve("conversation/ConversationMessage.java"), conversationMessageEntity(pkg));
+        project.write(javaDir.resolve("conversation/ConversationMessageRepository.java"),
+                conversationMessageRepository(pkg));
+        project.write(javaDir.resolve("conversation/ConversationStore.java"), conversationStore(pkg));
 
         // Identity seam + contract-derived authorization. The same shape the KeelBase4J runtime wires,
         // emitted as this app's own source: the identity is resolved once per request, and every
@@ -338,12 +366,35 @@ public class JavaGenerator {
             sb.append("\n");
         }
         sb.append("\n## Ownership\n\n").append(spec.roleRule().description()).append("\n\n");
-        sb.append("## AI tools\n\n| tool | risk | confirmation |\n|---|---|---|\n");
+        sb.append("## AI tools\n\n| tool | risk | confirmation | routes on |\n|---|---|---|---|\n");
         for (ToolSpec t : spec.tools()) {
             sb.append("| `").append(t.name()).append("` | ").append(t.riskLevel())
-                    .append(" | ").append(t.requiresConfirmation() ? "yes" : "no").append(" |\n");
+                    .append(" | ").append(t.requiresConfirmation() ? "yes" : "no").append(" | ")
+                    .append(String.join(" / ", t.triggers() == null ? List.of() : t.triggers()))
+                    .append(" |\n");
         }
-        sb.append("\n## Identity\n\n");
+        sb.append("\n## Conversation\n\n");
+        sb.append("`POST /ai/chat` takes a **message** and answers the conversation shape the reference\n");
+        sb.append("implementation and the KeelBase4J runtime both answer — the same fields, so a client written\n");
+        sb.append("against either works unchanged:\n\n");
+        sb.append("```\nPOST /ai/chat  { message, conversationId?, customerId? }\n");
+        sb.append("->  { conversationId, reply, provider, model, toolCalls?, status, data, token, effectId, error }\n");
+        sb.append("```\n\n");
+        sb.append("A turn runs planner -> engine -> replier. The planner proposes a tool, the engine decides\n");
+        sb.append("whether it may run (a write waits on a human confirmation, and nothing is written until it\n");
+        sb.append("is approved), and the replier says what happened. `conversationId` names rows in\n");
+        sb.append("`conversation_messages` — a transcript of the turns and nothing more: no embeddings, no\n");
+        sb.append("retrieval, no memory policy.\n\n");
+        sb.append("**The answer is not from a model.** With none configured the reply is deterministic:\n");
+        sb.append("`provider` is `deterministic` and `model` is `none`, and the text only describes what the\n");
+        sb.append("engine actually did. Two seams make that replaceable — `ToolCallPlanner` (what to call) and\n");
+        sb.append("`ChatReplier` (what to say). Declare your own bean for either and the default steps aside;\n");
+        sb.append("`ChatPipelineConfiguration` registers both behind `@ConditionalOnMissingBean`.\n\n");
+        sb.append("The default planner routes a message to a tool by the words in the \"routes on\" column\n");
+        sb.append("above — the words the request itself used. That routing is a **fallback for running without\n");
+        sb.append("a model, not a classifier and not \"AI\"**: a deployment that puts a model behind the planner\n");
+        sb.append("never reads those words.\n\n");
+        sb.append("## Identity\n\n");
         sb.append("Callers prove who they are with a KeelBase delegation token — `Authorization: Bearer <jwt>` —\n");
         sb.append("verified against the frozen contract with `keelbase.delegation.secret` and\n");
         sb.append("`keelbase.delegation.audience` (set `DELEGATION_SECRET` / `DELEGATION_AUDIENCE`, or edit\n");
@@ -768,9 +819,9 @@ public class JavaGenerator {
                     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                     conversation_id VARCHAR(255) NOT NULL,
                     user_id VARCHAR(255) NOT NULL,
-                    role VARCHAR(32) NOT NULL,
+                    role VARCHAR(255) NOT NULL,
                     content VARCHAR(4000) NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE NOT NULL
+                    created_at TIMESTAMP NOT NULL
                 );
 
                 CREATE INDEX idx_conversation_messages_conversation ON conversation_messages (conversation_id);
@@ -1117,7 +1168,9 @@ public class JavaGenerator {
                         }
                         audit.append("tool_call", userId, tool.name() + " -> ok");
                         Map<String, Object> out = status("executed");
-                        out.put("result", result);
+                        // The tool's answer is reported as `data`, the name the chat response uses —
+                        // so the engine's own outcome and the wire shape are the same field set.
+                        out.put("data", result);
                         if (effectId != null) {
                             out.put("effectId", effectId);
                         }
@@ -1135,6 +1188,11 @@ public class JavaGenerator {
 
     private String toolClass(String pkg, ToolSpec tool, BusinessSpec spec) {
         // The write tool persists the spec's "detail" entity (the second one); the read tool is a stub.
+        // The write body reads the args by the names `customerId` and `note`, and the generated planner
+        // proposes exactly those names — so the proposal and the tool body are one contract in two
+        // places. A deployment that replaces the planner with a model has to hand the tools those same
+        // keys; nothing checks that for it. (Compare `ruleBasedPlanner`, which names the same coupling
+        // from the planner side; this is the tool side of the same fragile point, ADR-0013 §5.1.)
         EntitySpec detail = spec.entities().size() > 1 ? spec.entities().get(1) : spec.entities().get(0);
         String body;
         if (tool.requiresConfirmation()) {
@@ -1196,6 +1254,336 @@ public class JavaGenerator {
                 .formatted(pkg, pkg, detail.name(), pkg, detail.name(), tool.description(), pascal(tool.name()),
                         detail.name(), decap(detail.name()), pascal(tool.name()), detail.name(), decap(detail.name()),
                         decap(detail.name()), decap(detail.name()), tool.name(), tool.riskLevel(), body);
+    }
+
+    // ── AI seams: the planner and the replier (ADR-0013 D2/D3) ──────────────────
+
+    /**
+     * Where this application decides what to call. A proposal, never a permission: everything the gate
+     * applies comes from the tool's own declaration, downstream and unconditional (ADR-0013, hard rule 7).
+     */
+    private String toolCallPlanner(String pkg) {
+        return """
+                package %s.ai;
+
+                import java.util.Map;
+                import java.util.Optional;
+
+                /**
+                 * Where this application decides what to call — the seam a model plugs into, if the
+                 * deployment has one.
+                 *
+                 * <p>A planner <b>proposes</b>: a tool and its arguments. It never decides whether the
+                 * call may run. The risk level, the confirmation requirement, the audit entry and the
+                 * revoke path all come from the tool's own declaration and are applied by
+                 * {@link GovernanceEngine}, downstream and unconditionally — so a planner, however
+                 * clever and whichever model drives it, cannot propose its way past the gate.
+                 *
+                 * <p>This application ships one implementation, routed by the words the business
+                 * specification declares for each tool ({@link RuleBasedPlanner}). A deployment that
+                 * configures a model declares its own bean and that one steps aside. Model and provider
+                 * configuration are deliberately not here: choosing a provider is a deployment concern,
+                 * not this application's.
+                 */
+                public interface ToolCallPlanner {
+
+                    /**
+                     * What to call for this message, or empty when nothing fits.
+                     *
+                     * @param message the caller's words
+                     * @param context the caller-supplied fields a plan may draw on (e.g. an entity id);
+                     *                never authorization facts, which come from the identity
+                     */
+                    Optional<Proposal> plan(String message, Map<String, Object> context);
+                }
+                """.formatted(pkg);
+    }
+
+    /** What a planner proposed: a tool and its arguments, and nothing that could clear the gate. */
+    private String proposal(String pkg) {
+        return """
+                package %s.ai;
+
+                import java.util.Collections;
+                import java.util.LinkedHashMap;
+                import java.util.Map;
+
+                /**
+                 * What a planner decided to call: a tool and its arguments, and nothing else.
+                 *
+                 * <p>It deliberately carries no risk level and no confirmation flag. Those are the
+                 * engine's facts, read from the tool's own declaration — a proposal that could set them
+                 * would be one that could talk its way past the gate.
+                 *
+                 * @param tool the tool to call, by name
+                 * @param args the arguments to call it with
+                 */
+                public record Proposal(String tool, Map<String, Object> args) {
+
+                    public Proposal {
+                        // A defensive copy that tolerates null values — an absent argument is a real thing
+                        // to pass on, and Map.copyOf would reject it.
+                        args = Collections.unmodifiableMap(new LinkedHashMap<>(args));
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * The default planner: a deterministic router over the message, built from the trigger words the
+     * business specification carries for each tool.
+     *
+     * <p>This is a <b>fallback for an application that runs without a model</b>, not a classifier. A
+     * deployment that puts a model behind {@link ToolCallPlanner} never reads these words — the whole
+     * point of the seam is that the model decides. It is registered by
+     * {@link ChatPipelineConfiguration}, and that registration yields to a deployment's own bean.
+     */
+    private String ruleBasedPlanner(String pkg, BusinessSpec spec) {
+        StringBuilder branches = new StringBuilder();
+        for (ToolSpec tool : spec.tools()) {
+            if (tool.triggers() == null || tool.triggers().isEmpty()) {
+                // A tool the spec gives no words for is simply not routed by this fallback.
+                continue;
+            }
+            StringBuilder condition = new StringBuilder();
+            for (String trigger : tool.triggers()) {
+                if (condition.length() > 0) {
+                    condition.append(" || ");
+                }
+                condition.append("text.contains(").append(literal(trigger)).append(')');
+            }
+            branches.append("        if (").append(condition).append(") {\n");
+            branches.append("            Map<String, Object> args = new LinkedHashMap<>();\n");
+            branches.append("            if (context.get(\"customerId\") instanceof Number customerId) {\n");
+            branches.append("                args.put(\"customerId\", customerId.longValue());\n");
+            branches.append("            }\n");
+            if (tool.requiresConfirmation()) {
+                // The write tool's body reads a `note`; the caller's own words are what it records.
+                branches.append("            args.put(\"note\", text);\n");
+            }
+            branches.append("            return Optional.of(new Proposal(").append(literal(tool.name()))
+                    .append(", args));\n");
+            branches.append("        }\n");
+        }
+        return """
+                package %s.ai;
+
+                import java.util.LinkedHashMap;
+                import java.util.Map;
+                import java.util.Optional;
+
+                /**
+                 * The default planner: a deterministic router over the message, built from the trigger
+                 * words the business specification carries for each tool.
+                 *
+                 * <p>This is a <b>fallback for an application that runs without a model</b>, not a
+                 * classifier and not "AI". It routes a message to a tool by words the request itself used;
+                 * a deployment that puts a model behind {@link ToolCallPlanner} replaces this bean and
+                 * these words are never read.
+                 *
+                 * <p><b>The arguments are a fixed shape, and the tools read that same shape.</b> The write
+                 * tool reads {@code customerId} and {@code note}; the read tool ignores its arguments. The
+                 * names are shared between this proposal and the tool body and nothing checks them — a
+                 * planner replaced by a model has to hand the tools those same keys. This is the one place
+                 * an adapter can get a call wrong in a way the rest of this application would not catch
+                 * (ADR-0013 §5.1).
+                 *
+                 * <p>An argument that is not there is left out rather than invented: a message that names
+                 * no customer still routes, and the tool decides what it can do without one.
+                 */
+                public class RuleBasedPlanner implements ToolCallPlanner {
+
+                    @Override
+                    public Optional<Proposal> plan(String message, Map<String, Object> context) {
+                        String text = message == null ? "" : message;
+                %s        return Optional.empty();
+                    }
+                }
+                """.formatted(pkg, branches);
+    }
+
+    /** Where the words come from — the second seam, alongside the planner. */
+    private String chatReplier(String pkg) {
+        return """
+                package %s.ai;
+
+                import java.util.List;
+                import java.util.Map;
+
+                /**
+                 * Where the words come from — the second AI seam, alongside {@link ToolCallPlanner}.
+                 *
+                 * <p>The planner answers "what should be called"; this answers "what should be said". They
+                 * are separate because an application can have one without the other: the generated router
+                 * routes without a model, and the deterministic replier describes what happened without
+                 * one.
+                 *
+                 * <p>What the engine did is handed in as a fact, never something a replier can influence:
+                 * the risk level, the confirmation and the audit entry are applied downstream and
+                 * unconditionally.
+                 */
+                public interface ChatReplier {
+
+                    /**
+                     * What to say back.
+                     *
+                     * @param message the caller's words
+                     * @param history the conversation so far, oldest first — what a model needs to answer
+                     *                in context
+                     * @param outcome what the engine did with this turn, or {@code null} when nothing was
+                     *                routed. A replier describes it; it never decides it.
+                     */
+                    Reply reply(String message, List<ChatTurn> history, Map<String, Object> outcome);
+                }
+                """.formatted(pkg);
+    }
+
+    /** What a replier decided to say, and who said it. */
+    private String reply(String pkg) {
+        return """
+                package %s.ai;
+
+                /**
+                 * What a {@link ChatReplier} decided to say, and who said it.
+                 *
+                 * <p>{@code provider} and {@code model} are not decoration: a caller has to be able to
+                 * tell a deterministic fallback from a model's answer, and a reply that left them blank
+                 * would make the two indistinguishable on the wire. {@link DeterministicReplier} names
+                 * itself.
+                 */
+                public record Reply(String text, String provider, String model) {
+
+                    public Reply {
+                        if (text == null) {
+                            throw new IllegalArgumentException("a reply has text");
+                        }
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /** One turn handed to a replier — a role and what was said, not the stored entity. */
+    private String chatTurn(String pkg) {
+        return """
+                package %s.ai;
+
+                /**
+                 * One turn handed to a {@link ChatReplier} — a role and what was said, and nothing else.
+                 *
+                 * <p>A separate type rather than the stored entity: what a replier needs is the
+                 * conversation, not a handle on this application's persistence.
+                 *
+                 * @param role {@code user} or {@code assistant}
+                 */
+                public record ChatTurn(String role, String content) {
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * The default replier: it describes what the engine did, without a model.
+     *
+     * <p>Held to one rule a fallback is especially prone to breaking — <b>it must not read as though a
+     * model wrote it.</b> Every sentence is derived from an outcome the engine actually produced, and
+     * {@link #PROVIDER} says outright that no model was involved (ADR-0013 D3).
+     */
+    private String deterministicReplier(String pkg) {
+        return """
+                package %s.ai;
+
+                import java.util.List;
+                import java.util.Map;
+
+                /**
+                 * The default replier: it describes what the engine did, without a model.
+                 *
+                 * <p>It is held to one rule a fallback is especially prone to breaking: <b>it must not
+                 * read as though a model wrote it.</b> Every sentence here is derived from an outcome the
+                 * engine actually produced, and {@link #PROVIDER} says outright that no model was
+                 * involved. A deployment that wants words from a model replaces this bean; a deployment
+                 * that does not gets something true and plainly mechanical, which is the honest
+                 * alternative to an invented answer.
+                 */
+                public class DeterministicReplier implements ChatReplier {
+
+                    /** Named as what it is. A caller can tell this apart from a model's answer without guessing. */
+                    public static final String PROVIDER = "deterministic";
+
+                    public static final String MODEL = "none";
+
+                    @Override
+                    public Reply reply(String message, List<ChatTurn> history, Map<String, Object> outcome) {
+                        return new Reply(describe(outcome), PROVIDER, MODEL);
+                    }
+
+                    /**
+                     * What to say about this turn. Deliberately flat and specific: it reports the engine's
+                     * answer and never speculates past it.
+                     */
+                    private String describe(Map<String, Object> outcome) {
+                        if (outcome == null) {
+                            return "I could not match that to a tool I can call, so I proposed nothing.";
+                        }
+                        Object status = outcome.get("status");
+                        return switch (status == null ? "" : status.toString()) {
+                            case "pending_confirmation" ->
+                                    "I proposed a write. It is waiting for your confirmation, and nothing has "
+                                            + "been written yet.";
+                            case "executed" -> "Done — it ran, and the side effect is recorded.";
+                            case "requires_approval" -> "That needs approval before it can run.";
+                            case "blocked" -> "That was blocked by the risk policy, so nothing ran.";
+                            case "declined" -> "You declined it, so nothing was written.";
+                            case "error" -> "It failed: " + (outcome.get("error") == null
+                                    ? "no detail given" : outcome.get("error"));
+                            default -> "The engine answered: " + status + ".";
+                        };
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * Registers the deterministic planner and replier as defaults, not fixtures.
+     *
+     * <p>{@code @ConditionalOnMissingBean} on each bean, so a deployment that declares its own planner or
+     * replier — a model-backed adapter — makes the matching default step aside. One configuration, two
+     * independent seams: replacing the planner does not replace the replier.
+     */
+    private String chatPipelineConfiguration(String pkg) {
+        return """
+                package %s.ai;
+
+                import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+                import org.springframework.context.annotation.Bean;
+                import org.springframework.context.annotation.Configuration;
+
+                /**
+                 * Registers the deterministic planner and replier as defaults, not fixtures.
+                 *
+                 * <p>Both are behind {@code @ConditionalOnMissingBean}, so a deployment that declares its
+                 * own {@link ToolCallPlanner} or {@link ChatReplier} — a model-backed one — makes the
+                 * matching default step aside. Nothing else changes: the engine applies the same
+                 * governance to whatever the planner proposes, whichever model wrote the words.
+                 *
+                 * <p>The generated routing words matter only while this default is in place. With a model
+                 * behind the seam they are never read.
+                 */
+                @Configuration
+                public class ChatPipelineConfiguration {
+
+                    @Bean
+                    @ConditionalOnMissingBean(ToolCallPlanner.class)
+                    ToolCallPlanner ruleBasedPlanner() {
+                        return new RuleBasedPlanner();
+                    }
+
+                    @Bean
+                    @ConditionalOnMissingBean(ChatReplier.class)
+                    ChatReplier deterministicReplier() {
+                        return new DeterministicReplier();
+                    }
+                }
+                """.formatted(pkg);
     }
 
     // ── identity seam + authorization (self-contained) ──────────────────────────
@@ -1734,8 +2122,15 @@ public class JavaGenerator {
         return """
                 package %s.web;
 
+                import %s.ai.ChatReplier;
+                import %s.ai.ChatTurn;
                 import %s.ai.GovernanceEngine;
+                import %s.ai.Proposal;
+                import %s.ai.Reply;
+                import %s.ai.ToolCallPlanner;
                 import %s.ai.ToolRegistry;
+                import %s.conversation.ConversationMessage;
+                import %s.conversation.ConversationStore;
                 import %s.identity.IdentityEvidence;
                 import %s.identity.IdentityResolver;
                 import %s.identity.Principal;
@@ -1751,17 +2146,38 @@ public class JavaGenerator {
                 import org.springframework.web.bind.annotation.RestController;
                 import org.springframework.web.server.ResponseStatusException;
 
+                /**
+                 * The AI entry point.
+                 *
+                 * <p>{@code POST /ai/chat} takes a <b>message</b> and answers the conversation shape the
+                 * reference implementation and the KeelBase4J runtime both answer, field for field, so a
+                 * client written against either works unchanged: {@code conversationId}, {@code reply},
+                 * {@code provider}, {@code model}, an optional {@code toolCalls}, and the governance facts
+                 * {@code status}, {@code data}, {@code token}, {@code effectId}, {@code error}.
+                 *
+                 * <p>A turn is planner -> engine -> replier. The planner proposes a tool (and nothing about
+                 * whether it may run), the engine applies the gate — a write waits on a human confirmation —
+                 * and the replier says what happened afterwards. A message that routes to nothing is not an
+                 * error here: it answers with a reply that says so, which is what a chat surface expects.
+                 */
                 @RestController
                 public class AiController {
 
                     private final ToolRegistry registry;
                     private final GovernanceEngine engine;
+                    private final ToolCallPlanner planner;
+                    private final ChatReplier replier;
+                    private final ConversationStore conversations;
                     private final IdentityResolver identities;
 
-                    public AiController(ToolRegistry registry, GovernanceEngine engine,
+                    public AiController(ToolRegistry registry, GovernanceEngine engine, ToolCallPlanner planner,
+                                        ChatReplier replier, ConversationStore conversations,
                                         IdentityResolver identities) {
                         this.registry = registry;
                         this.engine = engine;
+                        this.planner = planner;
+                        this.replier = replier;
+                        this.conversations = conversations;
                         this.identities = identities;
                     }
 
@@ -1784,10 +2200,52 @@ public class JavaGenerator {
                             @RequestBody Map<String, Object> body) {
                         Principal principal =
                                 identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
-                        String tool = String.valueOf(body.getOrDefault("tool", ""));
-                        Map<String, Object> args = new LinkedHashMap<>(body);
-                        args.remove("tool");
-                        return engine.execute(tool, args, principal.userId());
+                        String message = body.get("message") == null ? "" : String.valueOf(body.get("message"));
+
+                        // The id is this application's to issue. One it never issued starts a new
+                        // conversation rather than being adopted, so a caller cannot reach into somebody
+                        // else's by naming it (see ConversationStore).
+                        String conversationId = conversations.openFor(
+                                body.get("conversationId") == null
+                                        ? null : String.valueOf(body.get("conversationId")),
+                                principal.userId());
+                        conversations.append(conversationId, principal.userId(), ConversationMessage.USER, message);
+
+                        Map<String, Object> context = new LinkedHashMap<>();
+                        context.put("customerId", body.get("customerId"));
+                        Proposal proposal = planner.plan(message, context).orElse(null);
+                        // The planner proposes; the engine decides. Nothing the planner returns can skip
+                        // this — risk, confirmation and audit are applied here and unconditionally.
+                        Map<String, Object> outcome = proposal == null
+                                ? null : engine.execute(proposal.tool(), proposal.args(), principal.userId());
+
+                        Reply reply = replier.reply(message, turns(conversationId), outcome);
+                        conversations.append(conversationId, principal.userId(), ConversationMessage.ASSISTANT,
+                                reply.text());
+
+                        Map<String, Object> answer = new LinkedHashMap<>();
+                        answer.put("conversationId", conversationId);
+                        answer.put("reply", reply.text());
+                        answer.put("provider", reply.provider());
+                        answer.put("model", reply.model());
+                        // The tool this turn actually used. Omitted rather than sent empty when nothing was
+                        // routed — the field means "these were called".
+                        if (proposal != null) {
+                            answer.put("toolCalls", List.of(proposal.tool()));
+                        }
+                        answer.put("status", outcome == null ? null : outcome.get("status"));
+                        answer.put("data", outcome == null ? null : outcome.get("data"));
+                        answer.put("token", outcome == null ? null : outcome.get("token"));
+                        answer.put("effectId", outcome == null ? null : outcome.get("effectId"));
+                        answer.put("error", outcome == null ? null : outcome.get("error"));
+                        return answer;
+                    }
+
+                    /** The conversation so far, oldest first — the context a replier reads. */
+                    private List<ChatTurn> turns(String conversationId) {
+                        return conversations.history(conversationId).stream()
+                                .map(turn -> new ChatTurn(turn.getRole(), turn.getContent()))
+                                .toList();
                     }
 
                     @PostMapping("/ai/confirmations/{token}")
@@ -1814,7 +2272,7 @@ public class JavaGenerator {
                                 "decision must be approve or decline");
                     }
                 }
-                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg);
     }
 
     private String authController(String pkg) {
@@ -2443,5 +2901,28 @@ public class JavaGenerator {
 
     static String lower(String s) {
         return s.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * A Java string literal for a value that may carry quotes or backslashes.
+     *
+     * <p>The values interpolated this way are the spec's trigger words and tool names — today plain
+     * text — but a generator that pasted them in raw would break on the first request that used a
+     * quote, and the breakage would land in the generated project's compile rather than here.
+     */
+    private static String literal(String value) {
+        StringBuilder sb = new StringBuilder("\"");
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"' -> sb.append("\\\"");
+                case '\\' -> sb.append("\\\\");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> sb.append(c);
+            }
+        }
+        return sb.append('"').toString();
     }
 }

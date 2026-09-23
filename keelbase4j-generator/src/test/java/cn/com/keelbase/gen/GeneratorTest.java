@@ -111,6 +111,17 @@ class GeneratorTest {
         assertTrue(properties.contains("jdbc:h2:file:"), "a database that outlives the process");
         assertTrue(properties.contains("ddl-auto=validate"), "Flyway owns the schema; Hibernate checks it");
 
+        // The conversation transcript is a migration of its own (ADR-0013 D4) — additive, so it lands
+        // as a new version rather than rewriting the baseline.
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("db/migration/V2__add_conversations.sql")),
+                "the additive conversation migration");
+        String conversation = Files.readString(
+                out.resolve("src/main/resources/db/migration/V2__add_conversations.sql"));
+        assertTrue(conversation.contains("CREATE TABLE conversation_messages"),
+                "it creates the transcript table the chat's conversationId names");
+        assertFalse(conversation.contains("ALTER") || conversation.contains("DROP"),
+                "and it is additive: it alters and drops nothing");
+
         String customer = Files.readString(out.resolve("src/main/java/com/example/crm/domain/Customer.java"));
         assertTrue(customer.contains("@Entity"), "a real JPA entity");
         assertTrue(customer.contains("class Customer"), "a real class");
@@ -132,6 +143,60 @@ class GeneratorTest {
                 out.resolve("src/main/java/com/example/crm/identity/HeaderIdentityResolver.java"));
         assertFalse(headerResolver.contains("@Component"),
                 "the header adapter must not be the default: a role from a request is a role the caller grants itself");
+
+        // The two AI seams and the transcript behind conversationId (ADR-0013). All of it is generated
+        // source, so the app answers a message with no model and still depends only on the protocol
+        // library — and it converges on the runtime's conversation shape rather than inventing one.
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/ToolCallPlanner.java")), "planner seam");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/Proposal.java")), "a proposal type");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/RuleBasedPlanner.java")), "the default planner");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/ChatReplier.java")), "replier seam");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/Reply.java")), "a reply type");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/ChatTurn.java")), "a turn type");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/DeterministicReplier.java")),
+                "the deterministic default replier");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/ChatPipelineConfiguration.java")),
+                "one configuration registering both defaults, each conditional");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("conversation/ConversationMessage.java")),
+                "the transcript entity");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("conversation/ConversationStore.java")),
+                "the conversation store");
+
+        // The default planner routes on the words the spec carries — the request's own — one branch per
+        // tool; and the deterministic replier identifies itself instead of implying a model wrote it.
+        String planner = Files.readString(out.resolve("src/main/java/com/example/crm/ai/RuleBasedPlanner.java"));
+        assertTrue(planner.contains("text.contains(\"风险\")") && planner.contains("text.contains(\"分析\")"),
+                "the read tool is routed on the spec's trigger words");
+        assertTrue(planner.contains("new Proposal(\"create_followup\""),
+                "and the write tool likewise, from the same spec");
+        String replier = Files.readString(
+                out.resolve("src/main/java/com/example/crm/ai/DeterministicReplier.java"));
+        assertTrue(replier.contains("PROVIDER = \"deterministic\""), "the default reply declares no model");
+        assertTrue(replier.contains("MODEL = \"none\""), "and names itself deterministic/none");
+
+        // `/ai/chat` takes a message and answers the conversation shape the runtime answers, field for
+        // field. The tool-name-in path it replaced must be gone — this is a convergence, not a second
+        // endpoint, and an entry that still took a tool name would be the old shape living on.
+        String ai = Files.readString(out.resolve("src/main/java/com/example/crm/web/AiController.java"));
+        assertTrue(ai.contains("body.get(\"message\")"), "the chat takes a message");
+        for (String field : List.of("conversationId", "reply", "provider", "model", "toolCalls",
+                "status", "data", "token", "effectId", "error")) {
+            assertTrue(ai.contains("answer.put(\"" + field + "\""),
+                    "/ai/chat must answer the reference field '" + field + "'");
+        }
+        assertTrue(ai.contains("planner.plan(message, context)"), "a turn goes through the planner");
+        assertTrue(ai.contains("replier.reply("), "and is answered by the replier");
+        assertFalse(ai.contains("getOrDefault(\"tool\""),
+                "the tool-name-in shape must be gone, not kept alongside");
+        assertTrue(ai.contains("@GetMapping(\"/ai/tools\")"), "the tool list stays");
+
+        // The README has to say what the answer is, or "deterministic fallback" reads as a model the
+        // deployment forgot to configure.
+        String readme = Files.readString(out.resolve("README.md"));
+        assertTrue(readme.contains("## Conversation"), "the README documents the conversation shape");
+        assertTrue(readme.contains("`provider` is `deterministic`"),
+                "including that the default reply names itself as no model");
+        assertTrue(readme.contains("routes on"), "and the words the fallback routes on");
 
         // The generated project consumes a *published* coordinate, so the version in its pom has to be
         // the one this build publishes. It is filtered from the project version for that reason; this
