@@ -115,13 +115,14 @@ column is where to look; the last column is the honest boundary of the claim.
 | A write is not executed until a human approves | `TrustLoopTest` | — |
 | One confirmation token executes the tool exactly once | `ConfirmationConcurrencyTest` (written red first) · the eight-at-once check in `demo-generated-app.sh` | — |
 | The audit chain is tamper-evident and appended under a row lock | `AuditChainConcurrencyTest` · `GET /audit/verify` | the spike's datastore is in-memory, so it is per-process |
-| The generated application runs standalone | `demo-generated-app.sh` — 19 checks | the generator handles the CRM-shaped request it was built for |
-| A change carries the data already in the database | `demo-migration.sh` — 11 checks | Flyway owns the schema; `ddl-auto=validate` |
-| Regeneration merges the developer's edits | `demo-changeability.sh` — 7 checks | a **line-level** merge: it merges text, not meaning |
+| The generated application runs standalone | `demo-generated-app.sh` | the generator handles the CRM-shaped request it was built for |
+| A change carries the data already in the database | `demo-migration.sh` | Flyway owns the schema; `ddl-auto=validate` |
+| Regeneration merges the developer's edits | `demo-changeability.sh` | a **line-level** merge: it merges text, not meaning |
 | A real model routes, and the runtime still holds the write | `demo-springai.sh` (DeepSeek, real key) | needs a key; it is a human-run demo, not a CI gate |
-| The frontend's own modules drive this runtime | `demo-golden-path.sh` — 5 checks | the console's API modules against a live instance; the browser UI itself is the main repo's |
+| The frontend's own modules drive this runtime | `demo-golden-path.sh` | the console's API modules against a live instance; the browser UI itself is the main repo's |
 
-All numbers above were measured on this checkout — `mvn test` plus the three no-key demos.
+Every claim above is measured on this checkout — `mvn test` plus the no-key demos, each of which
+prints its own checks as it runs.
 
 ---
 

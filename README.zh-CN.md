@@ -89,13 +89,13 @@ bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
 | 没有人批准，写操作不执行 | `TrustLoopTest` | — |
 | 一个确认令牌恰好执行一次工具 | `ConfirmationConcurrencyTest`（先写会红的测试）· `demo-generated-app.sh` 里的八并发检查 | — |
 | 审计链防篡改，且串行追加在行锁上 | `AuditChainConcurrencyTest` · `GET /audit/verify` | spike 的存储是内存库，故为进程内 |
-| 生成物可独立运行 | `demo-generated-app.sh`——19 项检查 | 生成器处理的是它所针对的 CRM 形状请求 |
-| 变更携带库中已有的数据 | `demo-migration.sh`——11 项检查 | Flyway 拥有 schema；`ddl-auto=validate` |
-| 再生成会合并开发者的手改 | `demo-changeability.sh`——7 项检查 | **行级**合并：合并的是文本，不是语义 |
+| 生成物可独立运行 | `demo-generated-app.sh` | 生成器处理的是它所针对的 CRM 形状请求 |
+| 变更携带库中已有的数据 | `demo-migration.sh` | Flyway 拥有 schema；`ddl-auto=validate` |
+| 再生成会合并开发者的手改 | `demo-changeability.sh` | **行级**合并：合并的是文本，不是语义 |
 | 真模型能路由，且运行时照样扣住写操作 | `demo-springai.sh`（DeepSeek 真 key） | 需要 key；是人跑的 demo，不是 CI 门禁 |
-| 前端自己的模块能驱动本运行时 | `demo-golden-path.sh`——5 项检查 | 控制台的 API 模块打真实例；浏览器界面本身属主仓 |
+| 前端自己的模块能驱动本运行时 | `demo-golden-path.sh` | 控制台的 API 模块打真实例；浏览器界面本身属主仓 |
 
-以上数字均在本检出上实测——一次 `mvn test` 加三个无需 key 的 demo。
+以上每一条都在本检出上实测——一次 `mvn test` 加几个无需 key 的 demo，每个 demo 跑的时候会把自己检查的项打出来。
 
 ---
 

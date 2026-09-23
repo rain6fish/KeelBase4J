@@ -105,6 +105,14 @@ check "role is the contract's vocabulary" '"role":"user"' "$PERMS"
 ANON=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/auth/me/permissions")
 check "no identity => 401 (nothing runs anonymously)" "401" "$ANON"
 
+# ── the capability surface, as this app actually serves it ───────────────────────────────────────
+# F5's own rule is that the shell reads this *before* it holds a token, so it is fetched without one.
+# Nothing else checks the served payload: the unit test pins the file that produces it, not the JSON.
+CAPS=$(curl -s "$BASE/app/capabilities")
+check "capabilities is served without a token (the shell reads it first)" '"preset":"full"' "$CAPS"
+check "the module block is the contract's three keys, labelled as the module" \
+  '{"id":"crm","label":"客户管理","description":""}' "$CAPS"
+
 EFF=$(curl -s "$BASE/ai/tool-effects" -H 'X-User-Id: alice' | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)
 REVOKED=$(curl -s -X DELETE "$BASE/ai/tool-effects/$EFF" -H 'X-User-Id: alice')
 check "revoke marks the effect revoked" '"revokeStatus":"revoked"' "$REVOKED"
