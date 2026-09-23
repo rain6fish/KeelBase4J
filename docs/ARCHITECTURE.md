@@ -26,7 +26,8 @@ vectors (`Server-NestJS/specs/protocol/`) are the source of truth.
 |---|---|---|
 | Protocol semantics | main repo `docs/protocols/ai-governance-protocol.md` | the specification to implement |
 | Frozen vectors + wire schemas | main repo `Server-NestJS/specs/protocol/` | vendored read-only snapshot in `conformance/vectors/` |
-| Conformance evidence | this repo `mvn test` (168 tests) | proves cross-runtime parity (CE-1 role ③) |
+| Behaviour-level scenario packs (their `replay`) | main repo `Server-NestJS/specs/scenarios/` | vendored read-only snapshot in `conformance/vectors/scenarios/`, replayed over HTTP by `ScenarioReplayTest` (conformance-profile §2.4, Extended layer) |
+| Conformance evidence | this repo `mvn test` (172 tests) | proves cross-runtime parity (CE-1 role ③) |
 
 The vendored vectors are a snapshot; the main repo stays authoritative. CI job `vector-drift` diffs
 them so the snapshot cannot silently diverge.
