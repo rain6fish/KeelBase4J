@@ -244,14 +244,25 @@ language and still be the *same* protocol, rather than a similar-looking one:
 
 ## Protocol sources
 
-The authoritative protocol lives in the main repository (`rain6fish/KeelBase`):
+The authoritative protocol lives in its own repository —
+[`rain6fish/keelbase-contract`](https://github.com/rain6fish/keelbase-contract): the language-neutral
+vectors, the wire-object schemas, and the single version line they share. Both runtimes consume it;
+neither owns it.
 
-- `docs/protocols/ai-governance-protocol.md` — the protocol (§2 chain · §3 token · §4 risk levels);
-- `Server-NestJS/specs/protocol/` — the machine-verifiable vectors and wire schemas;
+- the contract repository — the vectors and schemas that decide conformance;
+- `docs/protocols/ai-governance-protocol.md` in the main repository — the protocol in prose
+  (§2 chain · §3 token · §4 risk levels);
 - §5.1 — how an implementation self-certifies against those vectors.
 
 The copy under `conformance/vectors/` is a snapshot; see
 [conformance/vectors/README.md](conformance/vectors/README.md) for how it is refreshed.
+
+## Repositories
+
+- [`keelbase-contract`](https://github.com/rain6fish/keelbase-contract) — the protocol, independent of any implementation
+- [`KeelBase`](https://github.com/rain6fish/KeelBase) — the TypeScript runtime and the product documentation
+- `KeelBase4J` — this repository; the second carrier of the same protocol
+- [`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter) — Spring Boot starter for the Java side of the bridge
 
 ## Documentation
 

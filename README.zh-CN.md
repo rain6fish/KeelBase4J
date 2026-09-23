@@ -183,13 +183,21 @@ bash scripts/demo-changeability.sh    # 手改在变更后存活
 
 ## 协议真源
 
-权威协议在主仓（`rain6fish/KeelBase`）：
+权威协议住在它自己的仓——[`rain6fish/keelbase-contract`](https://github.com/rain6fish/keelbase-contract)：
+语言中立的向量、线缆对象 schema，以及两者共用的那一条版本线。两个 runtime 都消费它，**谁也不拥有它**。
 
-- `docs/protocols/ai-governance-protocol.md`——协议（§2 链 · §3 令牌 · §4 风险级）；
-- `Server-NestJS/specs/protocol/`——机器可验证的向量与线缆 schema；
+- 契约仓——决定一致性判定的向量与 schema；
+- 主仓的 `docs/protocols/ai-governance-protocol.md`——协议的散文表述（§2 链 · §3 令牌 · §4 风险级）；
 - §5.1——一个实现如何对着这些向量自证。
 
 `conformance/vectors/` 下是快照；刷新方式见 [conformance/vectors/README.md](conformance/vectors/README.md)。
+
+## 仓库
+
+- [`keelbase-contract`](https://github.com/rain6fish/keelbase-contract)——协议本体，独立于任何实现
+- [`KeelBase`](https://github.com/rain6fish/KeelBase)——TypeScript runtime 与产品文档
+- `KeelBase4J`——本仓，同一协议的第二载体
+- [`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter)——桥接的 Java 侧 Spring Boot Starter
 
 ## 文档
 
