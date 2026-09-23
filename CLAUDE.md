@@ -24,9 +24,11 @@ only **consumes** them.
 ## 构建与验证
 
 ```bash
-mvn test                            # 协议一致性 + 生成器 + 运行时
+mvn test                            # 协议一致性 + 生成器 + 运行时 + 适配器
 bash scripts/demo-generated-app.sh  # 生成 → 构建 → 独立运行 → 信任闭环
 bash scripts/demo-changeability.sh  # 变更 → 再生成 → 手改存活 → 新规则生效
+bash scripts/demo-migration.sh      # 变更 → 加性迁移 → 存量数据跟着走
+bash scripts/demo-golden-path.sh    # 前端自己的模块打本运行时（需主仓 Web-Admin-Vue 检出）
 bash scripts/demo-springai.sh       # 真模型上接缝（需 DEEPSEEK_API_KEY；无 key 时会明确报错退出）
 ```
 

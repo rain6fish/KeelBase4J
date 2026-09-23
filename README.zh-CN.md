@@ -105,7 +105,7 @@ bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
 
 1. **不是产品。** 没有 Docker 镜像、没有在线演示、也没有自带界面。KeelBase 的前端在主仓，那套前端**自己的**
    API 模块可以直接打本运行时（`scripts/demo-golden-path.sh`），但本仓没有面向浏览器的打包。
-2. **不是完整的生成器。** `BusinessSpecParser` 是两句话上的确定性路由：对它识别的那条 CRM 形状请求产出固定 spec。它不会把任意自然语言变成模块，也不调用模型。
+2. **不是完整的生成器。** `BusinessSpecParser` 是「它识别的那几种请求形状」上的确定性路由——CRM 形状的初始请求，以及编辑该 spec 的增量变更请求。它不会把任意自然语言变成模块，也不调用模型。
 3. **不是智能体框架。** 没有 RAG、没有向量化、没有记忆、没有子智能体、没有主动式 AI。这些是 ADR-0004 里的显式非目标；要解冻其中任何一项，都得另开 ADR。
 4. **不是存量系统的桥。** 这里没有 MCP 或 OpenAPI 接入。给存量系统加治理的那个 Java 侧桥在另一个仓（`rain6fish/KeelBase-java-starter`）。
 5. **不替代主仓。** 本仓只**消费**协议。协议变更先在主仓落地（向量 → 实现）；两仓漂移由 CI 拦下，不容忍。
@@ -128,16 +128,20 @@ bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
 
 `keelbase4j-protocol` 正是**生成物所依赖**的那个 artifact，所以它保持零第三方依赖：当它与运行时共用一份 jar 时，那个库悄悄带上了 Spring Security，而继承了其自动配置的生成应用把所有端点都锁死了。适配器——模型 provider、身份 provider——属于运行时**之外**，依赖它，而不是反过来。
 
-运行时服务九个端点，全部挂在参照实现的 `/api/v1` 前缀下（`server.servlet.context-path`），这样一套 runtime-neutral 前端只保留一个 base URL，不需要按 runtime 分支：
+运行时服务十四条路由，全部挂在参照实现的 `/api/v1` 前缀下（`server.servlet.context-path`），这样一套 runtime-neutral 前端只保留一个 base URL，不需要按 runtime 分支：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | POST | `/ai/chat` | 规划器 → 受治理的工具调用 |
+| POST | `/ai/chat/stream` · `/admin/ai/chat/stream` | 同一回合的 SSE 形态；`/admin` 那条要求管理角色 |
 | POST | `/ai/confirmations/{token}` | `approve`（执行）或 `decline`（什么都不写） |
 | GET | `/ai/tool-effects` | 已记录的副作用 |
 | DELETE | `/ai/tool-effects/{id}` | 撤销 → 本地补偿（软删除） |
 | GET | `/audit/verify` | 重算并校验审计哈希链 |
+| GET | `/auth/me` | 调用方是谁——按本部署所知道的 |
 | GET | `/auth/me/permissions` | 调用方的能力清单，按冻结契约形状返回 |
+| GET | `/auth/oauth/providers` | 本部署提供哪些联邦登录——没有，这就是答案 |
+| POST | `/auth/login-stats` | 登录页的访问上报，故意答 `ok:false`：没有落点可记 |
 | GET | `/customers` | 按调用方的数据范围收窄 |
 | GET | `/app/capabilities` · `/app/provenance` | 这个部署对自己声明了什么 |
 

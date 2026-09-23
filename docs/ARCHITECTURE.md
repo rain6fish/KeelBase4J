@@ -67,12 +67,13 @@ boundary.
 | `authz` | `AuthorizationRules` (declared role → capability) · `PermissionAuthorizer` (self-built decision function → frozen `permission-decision` / `permission-capability-list`) · `OwnershipGuard` (the single enforcement point: coarse gate, then row gate) |
 | `scope` | The row range: `ScopeLevel` / `ScopeDescriptor` (internal, never on the wire) · `ScopeFilter` (descriptor → typed predicate, and the object-level check) · `DataScopeRules` (declared level per role) · `Departments` (declared tree) |
 | `tool` | `AiTool` contract, `ToolRegistry`, the two AI tools (R1 read / R3 write) |
-| `governance` | `GovernanceService` (risk → gate), confirmation store + entity |
+| `governance` | `GovernanceService` (risk → gate), confirmation store + entity, `ConfirmationSweeper` (the offline window closing), `ConfirmationWatchers` (the in-process registry that carries a decision to an open stream) |
 | `effect` | `SideEffect` + record/revoke (content-derived idempotency, class-aware revoke) |
 | `audit` | `AuditService` — hash-chained AI audit + verify, appends serialized on a database row lock (`AuditChainHead`) |
-| `pipeline` | The AI seam: `ToolCallPlanner` (an SPI a model-driven pipeline implements) · `IntentPlan` (tool + args, and nothing else) · `RuleBasedPlanner` + `RuleBasedPlannerAutoConfiguration` (the default, so the loop is reproducible without a model). The default is registered `@ConditionalOnMissingBean`, so a deployment that declares its own planner simply replaces it — no `@Primary`, no exclusion list, no edit here. |
+| `pipeline` | The AI seam: `ToolCallPlanner` (an SPI a model-driven pipeline implements) · `IntentPlan` (tool + args, and nothing else) · `ChatReplier` (what to say back, the second seam, with `DeterministicReplier` as its default) · `RuleBasedPlanner` + `RuleBasedPlannerAutoConfiguration` (the default, so the loop is reproducible without a model). The default is registered `@ConditionalOnMissingBean`, so a deployment that declares its own planner simply replaces it — no `@Primary`, no exclusion list, no edit here. |
 | `engine` | `GovernedExecutionEngine` — the loop: gate → confirm → execute → audit → effect |
-| `web` | REST: `/ai/chat`, confirmations, tool-effects, `/audit/verify`, `/auth/me/permissions`, `/customers`, `/app/capabilities`, `/app/provenance`. Mapped at the root but mounted under `/api/v1` (`server.servlet.context-path`) — the reference's prefix, which is what lets one runtime-neutral frontend talk to this runtime without rebasing |
+| `conversation` | The transcript behind `conversationId`: `ConversationStore` + `ConversationMessage` — turns and nothing more (no embeddings, no retrieval, no memory policy) |
+| `web` | REST: chat in both shapes (`/ai/chat`, `/ai/chat/stream` with `/admin/ai/chat/stream` behind the admin role), confirmations, tool-effects, `/audit/verify`, the identity surface (`/auth/me`, `/auth/me/permissions`, `/auth/oauth/providers`, `/auth/login-stats`), `/customers`, `/app/capabilities`, `/app/provenance`. Mapped at the root but mounted under `/api/v1` (`server.servlet.context-path`) — the reference's prefix, which is what lets one runtime-neutral frontend talk to this runtime without rebasing |
 
 ### 3.3 `keelbase4j-generator` — the generator (G2 ✅)
 

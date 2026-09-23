@@ -132,8 +132,8 @@ Read this section before quoting anything above.
 1. **Not a product.** There is no Docker image, no hosted demo and no user interface of its own.
    The KeelBase frontends live in the main repository and their own API modules run against this
    runtime (`scripts/demo-golden-path.sh`), but nothing here is packaged for a browser.
-2. **Not a finished generator.** `BusinessSpecParser` is a deterministic router over two fixed
-   sentences: it produces a fixed spec for the CRM-shaped request it recognises. It does not turn
+2. **Not a finished generator.** `BusinessSpecParser` is a deterministic router over the request
+   shapes it recognises — the CRM-shaped request, and the incremental changes that edit its spec. It does not turn
    arbitrary natural language into modules, and it does not call a model.
 3. **Not an agent framework.** No RAG, no embeddings, no memory, no sub-agents, no proactive AI.
    These are explicit non-goals (ADR-0004); unfreezing any of them requires a new ADR.
@@ -171,18 +171,22 @@ silently carried Spring Security, and a generated app inheriting its auto-config
 every endpoint. An adapter — a model provider, an identity provider — belongs **outside** the
 runtime and depends on it.
 
-The runtime serves nine endpoints, all mounted under the reference's `/api/v1` prefix
+The runtime serves fourteen routes, all mounted under the reference's `/api/v1` prefix
 (`server.servlet.context-path`), so a runtime-neutral frontend keeps one base URL and no
 per-runtime branch:
 
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/ai/chat` | planner → governed tool call |
+| POST | `/ai/chat/stream` · `/admin/ai/chat/stream` | the same turn over SSE; the `/admin` path requires the admin role |
 | POST | `/ai/confirmations/{token}` | `approve` (executes) or `decline` (writes nothing) |
 | GET | `/ai/tool-effects` | recorded side effects |
 | DELETE | `/ai/tool-effects/{id}` | revoke → local compensation (soft delete) |
 | GET | `/audit/verify` | recompute and verify the audit hash chain |
+| GET | `/auth/me` | who the caller is, as this deployment knows them |
 | GET | `/auth/me/permissions` | the caller's capability list, in the frozen contract shape |
+| GET | `/auth/oauth/providers` | the federated providers offered here — none, and that is the answer |
+| POST | `/auth/login-stats` | the login page's visit ping, answered `ok: false` on purpose: there is no sink to record it |
 | GET | `/customers` | row-scoped by the caller's range |
 | GET | `/app/capabilities` · `/app/provenance` | what this deployment declares about itself |
 

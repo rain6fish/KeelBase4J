@@ -40,8 +40,9 @@ buildable offline.
   See `docs/manual/semantic-change-checklist.md` in the main repo.
 - The vector files intentionally contain **no timestamps** — deterministic and diff-able.
 
-**Corresponds to `keelbase-contract` `v1.0.0`** — all 148 files verified byte-identical against the
-contract repository (2026-09-21). This is the version to cite; the contract is the source from here on.
+**Corresponds to `keelbase-contract` `v1.0.0`** — every vendored file verified byte-identical against
+the contract repository (2026-09-21; `sync-vectors.sh --check` prints the current file count, which is
+why this line does not carry one). This is the version to cite; the contract is the source from here on.
 
 Copied: 2026-09-20 from `Server-NestJS/specs/protocol/` (main repo `79f32a49`) via
 `scripts/sync-vectors.sh`. The main repo is **still the refresh source** — the contract repository has
