@@ -122,7 +122,8 @@ planner stays in charge, which is what makes it safe to have a model-shaped depe
     ├── java/com/example/<module>/
     │   ├── Application.java
     │   ├── domain/   <Entity>.java · <Entity>Repository.java
-    │   ├── identity/ Principal · IdentityEvidence · IdentityResolver · HeaderIdentityResolver
+    │   ├── identity/ Principal · IdentityEvidence · IdentityResolver · DelegationTokenIdentityResolver
+    │   │             LocalIdentities · HeaderIdentityResolver (for deployments behind a guard)
     │   ├── authz/    AuthorizationRules · PermissionAuthorizer · OwnershipGuard
     │   ├── ai/       AiTool · GovernanceGate · ToolRegistry · GovernanceEngine
     │   │             ConfirmationStore · SideEffectStore · AuditChainStore · <Tool>Tool

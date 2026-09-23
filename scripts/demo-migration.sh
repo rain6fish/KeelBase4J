@@ -26,6 +26,11 @@ MIGRATIONS="$GEN_DIR/src/main/resources/db/migration"
 PORT="${PORT:-18082}"
 BASE="http://localhost:$PORT/api/v1"
 
+SECRET="${DELEGATION_SECRET:-cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd}"
+mint() {
+  mvn -q -B -pl keelbase4j-demo exec:java     -Dexec.mainClass=cn.com.keelbase.demo.DevToken     -Dexec.args="$1 $SECRET" 2>/dev/null | tail -1
+}
+
 fail=0
 check() { # name expected actual — literal match: the expected strings contain JSON punctuation
   if printf '%s' "$3" | grep -qF "$2"; then echo "  ok   $1"; else echo "  FAIL $1 -- expected '$2' in: $3"; fail=1; fi
@@ -84,7 +89,11 @@ mvn -q -B -DskipTests -pl keelbase4j-generator compile exec:java \
 mvn -q -B -f "$GEN_DIR/pom.xml" clean package -DskipTests
 start_app "$ROOT/$GEN_DIR/run1.log" || exit 1
 
-LEGACY=$(curl -s -X POST "$BASE/customers" -H 'Content-Type: application/json' -H 'X-User-Id: alice' \
+# This app verifies the frozen delegation token — the default identity adapter is the token one.
+ALICE="$(mint alice)"
+[ -n "$ALICE" ] || { echo "  FAIL could not mint a token" >&2; exit 1; }
+
+LEGACY=$(curl -s -X POST "$BASE/customers" -H 'Content-Type: application/json' -H "Authorization: Bearer $ALICE" \
   -d '{"name":"Legacy Co","level":"low"}')
 check "a row is in the database before the change" '"name":"Legacy Co"' "$LEGACY"
 check_absent "and the column the change will add does not exist yet" '"tier"' "$LEGACY"
@@ -116,7 +125,7 @@ echo "== 4/4 rebuild on the same database and look for the row =="
 mvn -q -B -f "$GEN_DIR/pom.xml" clean package -DskipTests
 start_app "$ROOT/$GEN_DIR/run2.log" || { stop_app; exit 1; }
 
-AFTER=$(curl -s "$BASE/customers" -H 'X-User-Id: alice')
+AFTER=$(curl -s "$BASE/customers" -H "Authorization: Bearer $ALICE")
 check "the row written before the change is still there" '"name":"Legacy Co"' "$AFTER"
 check "and it now carries the added column" '"tier":null' "$AFTER"
 

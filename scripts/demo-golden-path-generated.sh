@@ -76,24 +76,26 @@ BEARER=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/auth/me/permissions" \
 echo "  bearer token on /auth/me/permissions -> $BEARER"
 HEADERS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/auth/me/permissions" \
   -H 'X-User-Id: alice')
-echo "  this app's own convention (X-User-Id) -> $HEADERS"
-if [ "$BEARER" = "200" ]; then
-  echo "  => a generated app accepts the frontend's identity"
+echo "  self-declared headers (X-User-Id)     -> $HEADERS"
+if [ "$BEARER" = "200" ] && [ "$HEADERS" != "200" ]; then
+  echo "  => the frontend's identity is accepted, and a self-declared one is not"
+elif [ "$BEARER" = "200" ]; then
+  echo "  => the frontend's identity is accepted (but so is a self-declared one — check the adapter)"
 else
-  echo "  => GAP: a generated app does not accept the frontend's identity (bearer token ignored)"
+  echo "  => GAP: the frontend's identity is not accepted (bearer token rejected)"
 fi
 
 echo
-echo "-- axis 2: shape — the frontend's payloads, with identity this app accepts"
-CHAT=$(curl -s -X POST "$BASE/ai/chat" -H 'Content-Type: application/json' -H 'X-User-Id: alice' \
-  -d '{"message":"给客户建一条跟进记录","customerId":1}')
+echo "-- axis 2: shape — the frontend's payloads, over the identity it accepts"
+CHAT=$(curl -s -X POST "$BASE/ai/chat" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" -d '{"message":"给客户建一条跟进记录","customerId":1}')
 echo "  POST /ai/chat {message, customerId} -> ${CHAT:0:120}"
-PERMS=$(curl -s "$BASE/auth/me/permissions" -H 'X-User-Id: alice')
-echo "  GET  /auth/me/permissions -> ${PERMS:0,120}"
+PERMS=$(curl -s "$BASE/auth/me/permissions" -H "Authorization: Bearer $TOKEN")
+echo "  GET  /auth/me/permissions -> ${PERMS:0:120}"
 CAPS=$(curl -s "$BASE/app/capabilities")
 echo "  GET  /app/capabilities -> ${CAPS:0:120}"
 CHATSTREAM=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/ai/chat/stream" \
-  -H 'Content-Type: application/json' -H 'X-User-Id: alice' -d '{"message":"hi"}')
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -d '{"message":"hi"}')
 echo "  POST /ai/chat/stream -> $CHATSTREAM"
 
 echo

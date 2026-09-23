@@ -93,6 +93,11 @@ public class JavaGenerator {
         project.write(javaDir.resolve("identity/Principal.java"), principal(pkg));
         project.write(javaDir.resolve("identity/IdentityEvidence.java"), identityEvidence(pkg));
         project.write(javaDir.resolve("identity/IdentityResolver.java"), identityResolver(pkg));
+        project.write(javaDir.resolve("identity/LocalIdentities.java"), localIdentities(pkg));
+        // The default adapter is the delegation token one; the header adapter ships too, for deployments
+        // behind a guard, but is deliberately not a bean (see its javadoc and JV-9).
+        project.write(javaDir.resolve("identity/DelegationTokenIdentityResolver.java"),
+                delegationTokenIdentityResolver(pkg));
         project.write(javaDir.resolve("identity/HeaderIdentityResolver.java"), headerIdentityResolver(pkg));
         project.write(javaDir.resolve("authz/AuthorizationRules.java"), authorizationRules(pkg, spec));
         project.write(javaDir.resolve("authz/PermissionAuthorizer.java"), permissionAuthorizer(pkg));
@@ -338,6 +343,17 @@ public class JavaGenerator {
             sb.append("| `").append(t.name()).append("` | ").append(t.riskLevel())
                     .append(" | ").append(t.requiresConfirmation() ? "yes" : "no").append(" |\n");
         }
+        sb.append("\n## Identity\n\n");
+        sb.append("Callers prove who they are with a KeelBase delegation token — `Authorization: Bearer <jwt>` —\n");
+        sb.append("verified against the frozen contract with `keelbase.delegation.secret` and\n");
+        sb.append("`keelbase.delegation.audience` (set `DELEGATION_SECRET` / `DELEGATION_AUDIENCE`, or edit\n");
+        sb.append("`application.properties`). Nothing runs anonymously: a request without a valid token is a 401.\n\n");
+        sb.append("`LocalIdentities` says which local user and role a *verified* subject holds. It ships with the\n");
+        sb.append("demo entries; **replace them with your directory**. A role is never taken from the request —\n");
+        sb.append("a caller that could state its own role would grant itself one.\n\n");
+        sb.append("`HeaderIdentityResolver` ships for deployments that sit behind a guard which has already\n");
+        sb.append("authenticated the caller; declare it as your `IdentityResolver` bean in that shape, or\n");
+        sb.append("implement the `IdentityResolver` interface for anything else.\n");
         sb.append("\n## Run\n\n```\nmvn spring-boot:run\n```\n");
         sb.append("\n## Regenerating\n\n");
         sb.append("Edit this code freely, anywhere — the marker block is only a suggestion of where it\n");
@@ -364,6 +380,11 @@ public class JavaGenerator {
                 # runtime-neutral frontend keeps one base URL (/api/v1) and does not branch on which
                 # runtime it is talking to. An app answering at the root is not one it can talk to.
                 server.servlet.context-path=/api/v1
+                # The delegation token this application verifies (the frozen contract's §3). Spike
+                # defaults so the demos run; a deployment supplies DELEGATION_SECRET and
+                # DELEGATION_AUDIENCE. Same keys as the runtime's, so one token works on both.
+                keelbase.delegation.secret=${DELEGATION_SECRET:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd}
+                keelbase.delegation.audience=${DELEGATION_AUDIENCE:keelbase4j}
                 """.formatted(module, module);
     }
 
@@ -1065,13 +1086,17 @@ public class JavaGenerator {
                     public static final String USER_ID = "userId";
                     public static final String ROLE = "role";
                     public static final String OIDC_SUBJECT = "oidcSubject";
+                    /** The {@code Authorization} header as it arrived — a carrier, not a claim. */
+                    public static final String AUTHORIZATION = "authorization";
 
                     public IdentityEvidence {
                         attributes = Map.copyOf(attributes);
                     }
 
-                    public static IdentityEvidence ofHeaders(String userId, String role, String oidcSubject) {
+                    public static IdentityEvidence ofHeaders(String authorization, String userId, String role,
+                            String oidcSubject) {
                         Map<String, String> attributes = new LinkedHashMap<>();
+                        putIfPresent(attributes, AUTHORIZATION, authorization);
                         putIfPresent(attributes, USER_ID, userId);
                         putIfPresent(attributes, ROLE, role);
                         putIfPresent(attributes, OIDC_SUBJECT, oidcSubject);
@@ -1121,14 +1146,16 @@ public class JavaGenerator {
                 import org.springframework.web.server.ResponseStatusException;
 
                 /**
-                 * The default adapter: reads the caller from request headers.
+                 * For deployments behind a guard: it reads an identity the guard has already established —
+                 * {@code X-User-Id} (required), {@code X-User-Role} (default {@code user}), an optional
+                 * {@code X-Oidc-Sub}.
                  *
-                 * <p>{@code X-User-Id} (required), {@code X-User-Role} (default {@code user}) and an
-                 * optional {@code X-Oidc-Sub} standing in for an SSO subject. The rule it upholds is the
-                 * one the runtime upholds: every governed operation carries an identity, and nothing runs
-                 * anonymously — a request with no identity is rejected rather than defaulted.
+                 * <p><b>Not the default, and deliberately not a bean.</b> A role taken from a request is a
+                 * role the caller grants itself, and the runtime removed exactly this adapter for exactly
+                 * that reason (JV-9). It is safe only where the guard strips what the client sent and
+                 * rewrites these headers itself; a deployment in that shape declares this class as its
+                 * {@link IdentityResolver} bean. Everyone else gets {@link DelegationTokenIdentityResolver}.
                  */
-                @Component
                 public class HeaderIdentityResolver implements IdentityResolver {
 
                     public static final String USER_ID_HEADER = "X-User-Id";
@@ -1145,6 +1172,134 @@ public class JavaGenerator {
                         String role = evidence.attribute(IdentityEvidence.ROLE);
                         return new Principal(userId, role == null ? Principal.ROLE_USER : role,
                                 evidence.attribute(IdentityEvidence.OIDC_SUBJECT));
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * Which local user and role a verified subject maps to.
+     *
+     * <p>The default adapter is the delegation token one, and this is where the subject it proves becomes
+     * a role this deployment actually holds: declared here, not read from the request, because a role the
+     * caller states is a role the caller grants itself.
+     */
+    private String localIdentities(String pkg) {
+        return """
+                package %s.identity;
+
+                import java.util.Map;
+                import java.util.Optional;
+                import org.springframework.stereotype.Component;
+
+                /**
+                 * The local identity a verified subject maps to.
+                 *
+                 * <p><b>Declared, not looked up.</b> This application has no user table: which user and which
+                 * role a subject holds is this deployment's statement, which is why it lives in code a
+                 * deployment can edit rather than in a request it cannot trust.
+                 *
+                 * <p>The entries below are the demo identities the demos mint tokens for. A deployment
+                 * replaces them with its own directory — or the whole class with an implementation that
+                 * reads one.
+                 */
+                @Component
+                public class LocalIdentities {
+
+                    /** A local identity: the user a subject maps to, and the role they hold here. */
+                    public record Entry(String userId, String role) {
+                    }
+
+                    private final Map<String, Entry> bySubject;
+
+                    public LocalIdentities() {
+                        this(Map.of(
+                                "local:alice", new Entry("alice", Principal.ROLE_USER),
+                                "local:bob", new Entry("bob", Principal.ROLE_USER),
+                                "local:carol", new Entry("carol", Principal.ROLE_ADMIN)));
+                    }
+
+                    public LocalIdentities(Map<String, Entry> bySubject) {
+                        this.bySubject = Map.copyOf(bySubject);
+                    }
+
+                    /**
+                     * The identity a verified subject maps to, or empty when this deployment does not know
+                     * it. Unknown means unknown: the caller is refused rather than defaulted to a role this
+                     * deployment never granted.
+                     */
+                    public Optional<Entry> lookup(String subject) {
+                        return Optional.ofNullable(bySubject.get(subject));
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * The default adapter: the caller proves who it is with a KeelBase delegation token.
+     *
+     * <p>Verification is the frozen protocol's own, and the role comes from the directory — so what the
+     * caller says about itself counts for nothing here, which is the difference between this and reading
+     * identity off a header.
+     */
+    private String delegationTokenIdentityResolver(String pkg) {
+        return """
+                package %s.identity;
+
+                import cn.com.keelbase.protocol.DelegationToken;
+                import java.time.Instant;
+                import org.springframework.beans.factory.annotation.Value;
+                import org.springframework.http.HttpStatus;
+                import org.springframework.stereotype.Component;
+                import org.springframework.web.server.ResponseStatusException;
+
+                /**
+                 * The default adapter: a KeelBase delegation token proves the subject, the local directory
+                 * decides the role.
+                 *
+                 * <p>Verification is the frozen protocol's own, so this application cannot drift from the
+                 * contract by re-implementing JWT checks — and a token minted by a KeelBase deployment is
+                 * the same token this adapter accepts, because secret and audience are the contract's own
+                 * settings. A token that fails verification leaves the caller unauthenticated; the reason is
+                 * not echoed back, since it tells a prober whether the token was expired or forged.
+                 */
+                @Component
+                public class DelegationTokenIdentityResolver implements IdentityResolver {
+
+                    private static final String BEARER = "Bearer ";
+
+                    private final String secret;
+                    private final String audience;
+                    private final LocalIdentities identities;
+
+                    public DelegationTokenIdentityResolver(
+                            @Value("${keelbase.delegation.secret}") String secret,
+                            @Value("${keelbase.delegation.audience}") String audience,
+                            LocalIdentities identities) {
+                        this.secret = secret;
+                        this.audience = audience;
+                        this.identities = identities;
+                    }
+
+                    @Override
+                    public Principal resolve(IdentityEvidence evidence) {
+                        String header = evidence.attribute(IdentityEvidence.AUTHORIZATION);
+                        if (header == null || !header.startsWith(BEARER)) {
+                            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "missing delegation token");
+                        }
+                        DelegationToken.Result verified = DelegationToken.verify(
+                                header.substring(BEARER.length()), secret, audience,
+                                Instant.now().getEpochSecond());
+                        if (!verified.ok()) {
+                            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "delegation token rejected");
+                        }
+                        String subject = String.valueOf(verified.payload().get("sub"));
+                        Object oidcSubject = verified.payload().get("oidcSub");
+                        LocalIdentities.Entry entry = identities.lookup(subject).orElseThrow(() ->
+                                new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                        "this deployment does not know the subject"));
+                        return new Principal(entry.userId(), entry.role(),
+                                oidcSubject == null ? null : String.valueOf(oidcSubject));
                     }
                 }
                 """.formatted(pkg);
@@ -1447,12 +1602,13 @@ public class JavaGenerator {
 
                     @PostMapping("/ai/chat")
                     public Map<String, Object> chat(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
                             @RequestHeader(value = "X-User-Role", required = false) String role,
                             @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject,
                             @RequestBody Map<String, Object> body) {
                         Principal principal =
-                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
                         String tool = String.valueOf(body.getOrDefault("tool", ""));
                         Map<String, Object> args = new LinkedHashMap<>(body);
                         args.remove("tool");
@@ -1462,12 +1618,13 @@ public class JavaGenerator {
                     @PostMapping("/ai/confirmations/{token}")
                     public Map<String, Object> confirm(
                             @PathVariable String token,
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
                             @RequestHeader(value = "X-User-Role", required = false) String role,
                             @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject,
                             @RequestBody Map<String, Object> body) {
                         Principal principal =
-                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
                         String decision = String.valueOf(body.getOrDefault("decision", ""));
                         if ("approve".equals(decision)) {
                             return engine.approve(token, principal.userId());
@@ -1519,11 +1676,12 @@ public class JavaGenerator {
 
                     @GetMapping("/auth/me/permissions")
                     public Map<String, Object> myPermissions(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
                             @RequestHeader(value = "X-User-Role", required = false) String role,
                             @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
                         Principal principal =
-                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
                         return authorizer.describe(principal).toWire();
                     }
                 }
@@ -1898,11 +2056,12 @@ public class JavaGenerator {
 
                     @GetMapping("/ai/tool-effects")
                     public List<SideEffectStore.Effect> effects(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
                             @RequestHeader(value = "X-User-Role", required = false) String role,
                             @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
                         Principal principal =
-                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
                         if (principal.isManager()) {
                             return sideEffects.all();
                         }
@@ -1914,11 +2073,12 @@ public class JavaGenerator {
                     @DeleteMapping("/ai/tool-effects/{id}")
                     public Map<String, Object> revoke(
                             @PathVariable Long id,
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
                             @RequestHeader(value = "X-User-Role", required = false) String role,
                             @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
                         Principal principal =
-                                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
                         // The row-level "is this yours?" check stays in the store, as it does in the
                         // runtime; what changed is that the role it consults is the contract's, not a
                         // string compared here.
@@ -1981,7 +2141,7 @@ public class JavaGenerator {
         sb.append("    public ").append(name).append(" create(@RequestBody ").append(name).append(" body,\n");
         sb.append(identityHeaders());
         sb.append("        Principal principal =\n");
-        sb.append("                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));\n");
+        sb.append("                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));\n");
         sb.append("        ownership.requireAction(principal, \"").append(name).append("\", \"create\");\n");
         sb.append("        body.setOwnerUserId(principal.userId());\n");
         sb.append("        return repository.save(body);\n    }\n\n");
@@ -1990,7 +2150,7 @@ public class JavaGenerator {
         sb.append("    public List<").append(name).append("> list(\n");
         sb.append(identityHeaders());
         sb.append("        Principal principal =\n");
-        sb.append("                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));\n");
+        sb.append("                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));\n");
         sb.append("        ownership.requireAction(principal, \"").append(name).append("\", \"read\");\n");
         sb.append("        List<").append(name).append("> rows = repository.findAll();\n");
         sb.append("        if (!ownership.seesOwnRowsOnly(principal, \"").append(name).append("\")) {\n");
@@ -2005,7 +2165,7 @@ public class JavaGenerator {
         sb.append("            @RequestBody ").append(name).append(" patch,\n");
         sb.append(identityHeaders());
         sb.append("        Principal principal =\n");
-        sb.append("                identities.resolve(IdentityEvidence.ofHeaders(userId, role, oidcSubject));\n");
+        sb.append("                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));\n");
         sb.append("        ").append(name).append(" entity = repository.findById(id)\n");
         sb.append("                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));\n");
         sb.append("        ownership.requireAccess(principal, \"").append(name)
@@ -2021,9 +2181,14 @@ public class JavaGenerator {
         return sb.toString();
     }
 
-    /** The three identity headers every governed endpoint reads before resolving a principal. */
+    /**
+     * The carriers every governed endpoint reads before resolving a principal: the delegation token the
+     * default adapter verifies, and the headers a deployment behind a guard may hand over instead. All of
+     * them are optional at this level — which carrier is required is the resolver's decision.
+     */
     private static String identityHeaders() {
-        return "            @RequestHeader(value = \"X-User-Id\", required = false) String userId,\n"
+        return "            @RequestHeader(value = \"Authorization\", required = false) String authorization,\n"
+                + "            @RequestHeader(value = \"X-User-Id\", required = false) String userId,\n"
                 + "            @RequestHeader(value = \"X-User-Role\", required = false) String role,\n"
                 + "            @RequestHeader(value = \"X-Oidc-Sub\", required = false) String oidcSubject) {\n";
     }

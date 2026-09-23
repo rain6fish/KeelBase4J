@@ -121,6 +121,18 @@ class GeneratorTest {
         assertTrue(appInfo.contains("MODULE_LABEL = \"客户管理\""),
                 "the module is labelled as the module, not as one of its entities");
 
+        // Who the caller is comes from a verified delegation token, and the role from the app's own
+        // directory. Reading either off the request would let a caller grant itself one — the adapter the
+        // runtime removed for that reason (JV-9) — so the header adapter ships, but not as the default.
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("identity/DelegationTokenIdentityResolver.java")),
+                "the default adapter verifies the frozen delegation token");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("identity/LocalIdentities.java")),
+                "and the role comes from a declared directory");
+        String headerResolver = Files.readString(
+                out.resolve("src/main/java/com/example/crm/identity/HeaderIdentityResolver.java"));
+        assertFalse(headerResolver.contains("@Component"),
+                "the header adapter must not be the default: a role from a request is a role the caller grants itself");
+
         // The generated project consumes a *published* coordinate, so the version in its pom has to be
         // the one this build publishes. It is filtered from the project version for that reason; this
         // pins the emission, because a literal written back into the template would be the silent way

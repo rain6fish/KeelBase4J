@@ -28,6 +28,13 @@ fi
 GEN_DIR="target/s5-demo"
 PORT="${PORT:-18081}"
 BASE="http://localhost:$PORT/api/v1"
+
+SECRET="${DELEGATION_SECRET:-cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd}"
+mint() {
+  mvn -q -B -pl keelbase4j-demo exec:java \
+    -Dexec.mainClass=cn.com.keelbase.demo.DevToken \
+    -Dexec.args="$1 $SECRET" 2>/dev/null | tail -1
+}
 ENTITY="$GEN_DIR/src/main/java/com/example/crm/domain/Customer.java"
 
 echo "== 1/5 install the modules =="
@@ -84,25 +91,34 @@ APP_PID=$!
 trap stop_app EXIT
 for _ in $(seq 1 60); do sleep 1; curl -s -o /dev/null "$BASE/ai/tools" && break; done
 
-ID=$(curl -s -X POST "$BASE/customers" -H 'Content-Type: application/json' -H 'X-User-Id: alice' \
+# The generated app verifies the frozen delegation token; carol is a manager because its directory says so.
+ALICE="$(mint alice)"
+BOB="$(mint bob)"
+CAROL="$(mint carol)"
+if [ -z "$ALICE" ] || [ -z "$BOB" ] || [ -z "$CAROL" ]; then
+  echo "  FAIL could not mint tokens" >&2
+  exit 1
+fi
+
+ID=$(curl -s -X POST "$BASE/customers" -H 'Content-Type: application/json' -H "Authorization: Bearer $ALICE" \
   -d '{"name":"Acme","level":"low"}' | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)
 echo "   created customer id=$ID"
 
 USER_PATCH=$(curl -s -o /dev/null -w '%{http_code}' -X PATCH "$BASE/customers/$ID" \
-  -H 'Content-Type: application/json' -H 'X-User-Id: bob' -H 'X-User-Role: user' \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $BOB" \
   -d '{"tier":"gold"}')
 check "regular user is denied (403)" "403" "$USER_PATCH"
 
 MGR_PATCH=$(curl -s -X PATCH "$BASE/customers/$ID" -H 'Content-Type: application/json' \
-  -H 'X-User-Id: carol' -H 'X-User-Role: manager' -d '{"tier":"gold"}')
+  -H "Authorization: Bearer $CAROL" -d '{"tier":"gold"}')
 check "manager is allowed and the field changes" '"tier":"gold"' "$MGR_PATCH"
 
 # Why the 403 above happened is now observable rather than inferred: the spec's policy reaches the
 # caller as contract data. A hardcoded role check could not produce either of these answers.
-BOB_PERMS=$(curl -s "$BASE/auth/me/permissions" -H 'X-User-Id: bob' -H 'X-User-Role: user')
+BOB_PERMS=$(curl -s "$BASE/auth/me/permissions" -H "Authorization: Bearer $BOB")
 check "the user's Customer capability excludes update" \
   '"subject":"Customer","scope":"own","actions":["create","read","delete"]' "$BOB_PERMS"
-CAROL_PERMS=$(curl -s "$BASE/auth/me/permissions" -H 'X-User-Id: carol' -H 'X-User-Role: manager')
+CAROL_PERMS=$(curl -s "$BASE/auth/me/permissions" -H "Authorization: Bearer $CAROL")
 check "the manager's capability is unrestricted" '"subject":"all","scope":"all"' "$CAROL_PERMS"
 
 if grep -qE "Exception" "$GEN_DIR/app.log"; then echo "  FAIL runtime exception in app.log"; fail=1; fi
