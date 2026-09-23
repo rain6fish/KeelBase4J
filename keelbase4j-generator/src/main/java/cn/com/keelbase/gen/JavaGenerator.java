@@ -133,7 +133,7 @@ public class JavaGenerator {
 
         project.write(javaDir.resolve("web/AiController.java"), aiController(pkg));
         project.write(javaDir.resolve("web/AuthController.java"), authController(pkg));
-        project.write(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg));
+        project.write(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg, spec));
         // F4 + F5 of the frozen Full profile. Without them the artifact cannot serve the
         // runtime-neutral frontend at all: the frontend unwraps the envelope on every call, and it
         // reads the capability surface before it holds a token.
@@ -394,6 +394,23 @@ public class JavaGenerator {
         sb.append("above — the words the request itself used. That routing is a **fallback for running without\n");
         sb.append("a model, not a classifier and not \"AI\"**: a deployment that puts a model behind the planner\n");
         sb.append("never reads those words.\n\n");
+        sb.append("## Side effects\n\n");
+        sb.append("Every write the tools perform is recorded, and every one of those records is revocable:\n\n");
+        sb.append("```\nGET    /ai/tool-effects?page=1&limit=20\n");
+        sb.append("->  { total, page, limit, items: [ { id, toolName, conversationId, resultType, resultId,\n");
+        sb.append("      argsHash, createdAt, targetExists, targetSoftDeleted, targetTitle,\n");
+        sb.append("      revokeClass, revokeStatus, status, revocable } ] }\n");
+        sb.append("DELETE /ai/tool-effects/{id}   ->  { effectId, resultType, revokeClass, revokeStatus }\n```\n\n");
+        sb.append("The envelope and the item's fields are the shape the runtime-neutral console reads — the\n");
+        sb.append("same one the KeelBase4J runtime answers, so the console pages and renders both. `limit` is\n");
+        sb.append("capped at 100; a non-manager sees their own effects whatever id they pass, and a manager\n");
+        sb.append("may narrow the list by `userId`.\n\n");
+        sb.append("`targetExists` / `targetSoftDeleted` / `targetTitle` describe the row the write created,\n");
+        sb.append("looked up at read time (its note is the title the console shows). `revokeClass` is\n");
+        sb.append("`local_compensate` because every write here is a local row and revoking one really does\n");
+        sb.append("compensate: the target is soft-deleted. `conversationId` is **null** — an approval arrives\n");
+        sb.append("in a request of its own, so the record does not carry the conversation that proposed the\n");
+        sb.append("write; the runtime answers null here too rather than inventing a link.\n\n");
         sb.append("## Identity\n\n");
         sb.append("Callers prove who they are with a KeelBase delegation token — `Authorization: Bearer <jwt>` —\n");
         sb.append("verified against the frozen contract with `keelbase.delegation.secret` and\n");
@@ -853,6 +870,13 @@ public class JavaGenerator {
 
                     String riskLevel();
 
+                    /**
+                     * What this tool writes, as the business specification declared it ("follow_up"), or
+                     * {@code null} for a tool that writes nothing. It names the <em>result</em>, not the
+                     * tool: the console groups recorded effects by what they produced.
+                     */
+                    String resultType();
+
                     Map<String, Object> execute(Map<String, Object> args, String userId);
                 }
                 """.formatted(pkg);
@@ -984,24 +1008,42 @@ public class JavaGenerator {
         return """
                 package %s.ai;
 
+                import java.nio.charset.StandardCharsets;
+                import java.security.MessageDigest;
+                import java.time.Instant;
                 import java.util.ArrayList;
                 import java.util.List;
+                import java.util.Map;
                 import java.util.concurrent.atomic.AtomicLong;
                 import org.springframework.stereotype.Component;
 
-                /** Records AI write side effects so they can be revoked (local compensation). */
+                /**
+                 * Records AI write side effects so they can be revoked (local compensation).
+                 *
+                 * <p>The record carries what the console's own model requires of it — which tool ran,
+                 * what it produced, a hash of the arguments, when, and the revoke facts — so the effect
+                 * list is a row the console can render rather than a bare array of ids.
+                 */
                 @Component
                 public class SideEffectStore {
 
                     public record Effect(Long id, String userId, String toolName, String resultType,
-                                         Long resultId, String revokeStatus) {
+                                         Long resultId, String revokeClass, String revokeStatus,
+                                         String argsHash, Instant createdAt) {
                     }
 
                     private final AtomicLong seq = new AtomicLong();
                     private final List<Effect> effects = new ArrayList<>();
 
-                    public synchronized Effect record(String userId, String toolName, String resultType, Long resultId) {
-                        Effect e = new Effect(seq.incrementAndGet(), userId, toolName, resultType, resultId, "executed");
+                    public synchronized Effect record(String userId, String toolName, String resultType,
+                                                      Long resultId, Map<String, Object> args) {
+                        // Every write this application performs is on its own row, so the honest class is
+                        // local compensation — and the revoke path does perform it: the controller
+                        // soft-deletes the target. Never `governed_external` here: nothing outside this
+                        // application is being compensated, and claiming a compensation channel that does
+                        // not exist is how a console ends up offering a button that cannot work.
+                        Effect e = new Effect(seq.incrementAndGet(), userId, toolName, resultType, resultId,
+                                "local_compensate", "executed", argsHash(args), Instant.now());
                         effects.add(e);
                         return e;
                     }
@@ -1020,13 +1062,44 @@ public class JavaGenerator {
                             Effect e = effects.get(i);
                             if (e.id().equals(id)) {
                                 effects.set(i, new Effect(e.id(), e.userId(), e.toolName(), e.resultType(),
-                                        e.resultId(), "revoked"));
+                                        e.resultId(), e.revokeClass(), "revoked", e.argsHash(), e.createdAt()));
                             }
                         }
                     }
 
+                    /** Every effect, oldest first. Narrowing and paging it is the caller's business. */
                     public synchronized List<Effect> all() {
                         return List.copyOf(effects);
+                    }
+
+                    /**
+                     * A hash of the call's arguments and of nothing else — the console shows it and uses
+                     * it to tell one effect from another. Canonical (keys sorted), so two calls whose
+                     * arguments differ only in arrival order hash the same: it describes the call, not
+                     * the JSON it happened to be written in.
+                     */
+                    static String argsHash(Map<String, Object> args) {
+                        StringBuilder canonical = new StringBuilder();
+                        args.entrySet().stream()
+                                .sorted(Map.Entry.comparingByKey())
+                                .forEach(entry -> canonical.append(entry.getKey()).append('=')
+                                        .append(entry.getValue()).append('&'));
+                        return sha256Hex(canonical.toString());
+                    }
+
+                    private static String sha256Hex(String s) {
+                        try {
+                            byte[] digest = MessageDigest.getInstance("SHA-256")
+                                    .digest(s.getBytes(StandardCharsets.UTF_8));
+                            StringBuilder hex = new StringBuilder(digest.length * 2);
+                            for (byte b : digest) {
+                                hex.append(Character.forDigit((b >> 4) & 0xF, 16))
+                                        .append(Character.forDigit(b & 0xF, 16));
+                            }
+                            return hex.toString();
+                        } catch (Exception e) {
+                            throw new IllegalStateException("every JRE ships SHA-256", e);
+                        }
                     }
                 }
                 """.formatted(pkg);
@@ -1164,7 +1237,10 @@ public class JavaGenerator {
                         Long effectId = null;
                         if (Boolean.TRUE.equals(result.get("success")) && result.get("resultId") instanceof Number n) {
                             Long resultId = n.longValue();
-                            effectId = sideEffects.record(userId, tool.name(), tool.name(), resultId).id();
+                            // The tool's *declared* result type, not its name: the console groups effects
+                            // by what they produced. The arguments go in with it — the effect's argsHash
+                            // is what the console shows, and a record that dropped them could not carry one.
+                            effectId = sideEffects.record(userId, tool.name(), tool.resultType(), resultId, args).id();
                         }
                         audit.append("tool_call", userId, tool.name() + " -> ok");
                         Map<String, Object> out = status("executed");
@@ -1246,6 +1322,12 @@ public class JavaGenerator {
                         return "%s";
                     }
 
+                    /** What this tool writes, or null when it writes nothing. */
+                    @Override
+                    public String resultType() {
+                        return %s;
+                    }
+
                     @Override
                     public Map<String, Object> execute(Map<String, Object> args, String userId) {
                 %s    }
@@ -1253,7 +1335,8 @@ public class JavaGenerator {
                 """
                 .formatted(pkg, pkg, detail.name(), pkg, detail.name(), tool.description(), pascal(tool.name()),
                         detail.name(), decap(detail.name()), pascal(tool.name()), detail.name(), decap(detail.name()),
-                        decap(detail.name()), decap(detail.name()), tool.name(), tool.riskLevel(), body);
+                        decap(detail.name()), decap(detail.name()), tool.name(), tool.riskLevel(),
+                        tool.resultType() == null ? "null" : "\"" + tool.resultType() + "\"", body);
     }
 
     // ── AI seams: the planner and the replier (ADR-0013 D2/D3) ──────────────────
@@ -2656,51 +2739,110 @@ public class JavaGenerator {
                 """.formatted(pkg, pkg, pkg, moduleId, moduleLabel);
     }
 
-    private String governanceController(String pkg) {
+    private String governanceController(String pkg, BusinessSpec spec) {
+        // The row this application's write tool creates — the target an effect refers to. The generator
+        // has always named the detail entity (as `toolClass` does); what is new is that the effect
+        // surface looks that row up, so the console's `targetTitle` and `targetSoftDeleted` are read
+        // from the row rather than invented.
+        EntitySpec detail = spec.entities().size() > 1 ? spec.entities().get(1) : spec.entities().get(0);
+        String resultType = spec.tools().stream()
+                .map(tool -> tool.resultType())
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        // The only human-facing label a row of this shape has is its note; an entity without one has no
+        // title to show, and a made-up one would be worse than an empty column.
+        String titleLine = detail.fields().stream().anyMatch(f -> f.name().equals("note"))
+                ? "        view.put(\"targetTitle\", target.map(row -> row.getNote()).orElse(null));"
+                : "        view.put(\"targetTitle\", null);";
         return """
                 package %s.web;
 
                 import %s.ai.AuditChainStore;
                 import %s.ai.SideEffectStore;
+                import %s.domain.%s;
+                import %s.domain.%sRepository;
                 import %s.identity.IdentityEvidence;
                 import %s.identity.IdentityResolver;
                 import %s.identity.Principal;
+                import java.time.Instant;
+                import java.util.LinkedHashMap;
                 import java.util.List;
                 import java.util.Map;
+                import java.util.Optional;
                 import org.springframework.web.bind.annotation.DeleteMapping;
                 import org.springframework.web.bind.annotation.GetMapping;
                 import org.springframework.web.bind.annotation.PathVariable;
                 import org.springframework.web.bind.annotation.RequestHeader;
+                import org.springframework.web.bind.annotation.RequestParam;
                 import org.springframework.web.bind.annotation.RestController;
 
+                /**
+                 * The governance surface: the recorded side effects of AI writes, the revoke path, and
+                 * the audit chain.
+                 *
+                 * <p>The effect list answers the shape the runtime-neutral console reads — an envelope
+                 * ({@code total}, {@code page}, {@code limit}, {@code items}) whose items carry the
+                 * fields that console's model requires. A bare array is one it can neither page nor
+                 * render, which is why the console's own end-to-end spec is the thing that decides
+                 * whether this is right.
+                 */
                 @RestController
                 public class GovernanceController {
+
+                    /** The console pages through this list; it cannot ask for the whole table. */
+                    private static final int MAX_PAGE_SIZE = 100;
+
+                    /** The result type whose rows this application can look up — its write tool's. */
+                    private static final String RESULT_TYPE = %s;
 
                     private final SideEffectStore sideEffects;
                     private final AuditChainStore audit;
                     private final IdentityResolver identities;
+                    private final %sRepository %sRepository;
 
                     public GovernanceController(SideEffectStore sideEffects, AuditChainStore audit,
-                                                IdentityResolver identities) {
+                                                IdentityResolver identities,
+                                                %sRepository %sRepository) {
                         this.sideEffects = sideEffects;
                         this.audit = audit;
                         this.identities = identities;
+                        this.%sRepository = %sRepository;
                     }
 
                     @GetMapping("/ai/tool-effects")
-                    public List<SideEffectStore.Effect> effects(
+                    public Map<String, Object> effects(
+                            @RequestParam(required = false) String userId,
+                            @RequestParam(defaultValue = "1") int page,
+                            @RequestParam(defaultValue = "20") int limit,
                             @RequestHeader(value = "Authorization", required = false) String authorization,
-                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Id", required = false) String headerUserId,
                             @RequestHeader(value = "X-User-Role", required = false) String role,
                             @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
-                        Principal principal =
-                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
-                        if (principal.isManager()) {
-                            return sideEffects.all();
-                        }
-                        return sideEffects.all().stream()
-                                .filter(effect -> effect.userId().equals(principal.userId()))
+                        Principal principal = identities.resolve(IdentityEvidence.ofHeaders(
+                                authorization, headerUserId, role, oidcSubject));
+                        int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
+                        // A non-manager sees their own effects whatever they ask for — the filter is not
+                        // theirs to lift. A manager's own narrowing by `userId` rides on top of that.
+                        List<SideEffectStore.Effect> visible = sideEffects.all().stream()
+                                .filter(effect -> principal.isManager()
+                                        || effect.userId().equals(principal.userId()))
+                                .filter(effect -> userId == null || effect.userId().equals(userId))
                                 .toList();
+                        // Long arithmetic: `page` is a caller-supplied number, and an offset computed in
+                        // ints wraps negative at the top of the range, which would reach `subList` as a
+                        // negative index. Clamped, an out-of-range page is an empty page.
+                        int from = (int) Math.min((long) (Math.max(page, 1) - 1) * size, visible.size());
+                        int to = Math.min(from + size, visible.size());
+                        List<Map<String, Object>> items = visible.subList(from, to).stream()
+                                .map(this::view)
+                                .toList();
+                        Map<String, Object> body = new LinkedHashMap<>();
+                        body.put("total", visible.size());
+                        body.put("page", page);
+                        body.put("limit", size);
+                        body.put("items", items);
+                        return body;
                     }
 
                     @DeleteMapping("/ai/tool-effects/{id}")
@@ -2717,9 +2859,62 @@ public class JavaGenerator {
                         // string compared here.
                         SideEffectStore.Effect effect = sideEffects.requireOwned(
                                 id, principal.userId(), principal.isManager());
-                        // Local compensation: mark the effect revoked (the target stays for demo;
-                        // a real app soft-deletes the referenced row here).
-                        return Map.of("effectId", effect.id(), "revokeStatus", "revoked");
+                        // Local compensation, performed rather than announced: the row this effect
+                        // created is soft-deleted. That is what makes `local_compensate` an honest class
+                        // for it — an effect labelled compensable that compensates nothing would offer the
+                        // console a button that only flips a flag.
+                        target(effect).ifPresent(row -> {
+                            row.setDeletedAt(Instant.now());
+                            %sRepository.save(row);
+                        });
+                        sideEffects.setRevoked(id);
+                        // The console reads the outcome of a revoke off the effect, as the runtime's
+                        // answer does — not off a boolean of this application's own invention.
+                        Map<String, Object> out = new LinkedHashMap<>();
+                        out.put("effectId", effect.id());
+                        out.put("resultType", effect.resultType());
+                        out.put("revokeClass", effect.revokeClass());
+                        out.put("revokeStatus", "revoked");
+                        return out;
+                    }
+
+                    /** One effect, as the console's model requires it: every field present. */
+                    private Map<String, Object> view(SideEffectStore.Effect effect) {
+                        Map<String, Object> view = new LinkedHashMap<>();
+                        view.put("id", effect.id());
+                        view.put("toolName", effect.toolName());
+                        // Null rather than invented: an approval arrives in a request of its own, and the
+                        // effect record does not carry the conversation that proposed the write. The
+                        // runtime's own surface answers null here for the same reason.
+                        view.put("conversationId", null);
+                        view.put("resultType", effect.resultType());
+                        view.put("resultId", effect.resultId());
+                        view.put("argsHash", effect.argsHash());
+                        view.put("createdAt", effect.createdAt().toString());
+                        Optional<%s> target = target(effect);
+                        view.put("targetExists", target.isPresent());
+                        view.put("targetSoftDeleted", target.map(row -> row.getDeletedAt() != null).orElse(false));
+                %s
+                        view.put("revokeClass", effect.revokeClass());
+                        view.put("revokeStatus", effect.revokeStatus());
+                        view.put("status", effect.revokeStatus());
+                        // What the console renders the revoke button on, decided here rather than
+                        // re-derived there — the rule the runtime applies too.
+                        view.put("revocable",
+                                !"none".equals(effect.revokeClass()) && "executed".equals(effect.revokeStatus()));
+                        return view;
+                    }
+
+                    /**
+                     * The row this effect created, when it created one here and that row is still there.
+                     * A soft-deleted row is still found on purpose: `targetExists` and
+                     * `targetSoftDeleted` are two answers, not one.
+                     */
+                    private Optional<%s> target(SideEffectStore.Effect effect) {
+                        return java.util.Objects.equals(RESULT_TYPE, effect.resultType())
+                                        && effect.resultId() != null
+                                ? %sRepository.findById(effect.resultId())
+                                : Optional.empty();
                     }
 
                     @GetMapping("/audit/verify")
@@ -2727,7 +2922,11 @@ public class JavaGenerator {
                         return Map.of("valid", audit.verify(), "checked", audit.size());
                     }
                 }
-                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
+                """.formatted(pkg, pkg, pkg, pkg, detail.name(), pkg, detail.name(), pkg, pkg, pkg,
+                resultType == null ? "null" : "\"" + resultType + "\"",
+                detail.name(), decap(detail.name()), detail.name(), decap(detail.name()), decap(detail.name()),
+                decap(detail.name()), decap(detail.name()), detail.name(), titleLine, detail.name(),
+                decap(detail.name()));
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────

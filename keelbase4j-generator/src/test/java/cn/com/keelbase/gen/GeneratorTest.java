@@ -190,6 +190,36 @@ class GeneratorTest {
                 "the tool-name-in shape must be gone, not kept alongside");
         assertTrue(ai.contains("@GetMapping(\"/ai/tools\")"), "the tool list stays");
 
+        // The effects list is the console's, not this application's: the envelope and the fields the
+        // console's own model requires. A bare array compiles, runs and looks fine — it is only the
+        // console that can neither page nor render it, which is why this is asserted on the emission.
+        String governance = Files.readString(
+                out.resolve("src/main/java/com/example/crm/web/GovernanceController.java"));
+        for (String key : List.of("total", "page", "limit", "items")) {
+            assertTrue(governance.contains("body.put(\"" + key + "\""),
+                    "the effects list must answer the console's envelope field '" + key + "'");
+        }
+        for (String field : List.of("id", "toolName", "conversationId", "resultType", "resultId",
+                "argsHash", "createdAt", "targetExists", "targetSoftDeleted", "targetTitle")) {
+            assertTrue(governance.contains("view.put(\"" + field + "\""),
+                    "a console row requires '" + field + "'");
+        }
+        assertFalse(governance.contains("public List<SideEffectStore.Effect> effects"),
+                "the bare array is the shape that was replaced, not kept alongside it");
+        // The trailing `;` is the assertion, not decoration: `MAX_PAGE_SIZE = 100` is a substring of
+        // `= 1000`, so without it a cap raised to a thousand would still satisfy this check.
+        assertTrue(governance.contains("MAX_PAGE_SIZE = 100;"),
+                "the console cannot ask for the whole table by asking for a big limit");
+        // Revoking has to compensate, or `local_compensate` would be a class this application claims
+        // and does not honour — a console button that only flips a flag.
+        assertTrue(governance.contains("setDeletedAt(Instant.now())"),
+                "revoke soft-deletes the row the effect created");
+        // The tool's *declared* result type, not its name: the console groups effects by what they made.
+        String writeTool = Files.readString(
+                out.resolve("src/main/java/com/example/crm/ai/CreateFollowupTool.java"));
+        assertTrue(writeTool.contains("return \"follow_up\";"),
+                "the write tool answers the spec's result type here");
+
         // The README has to say what the answer is, or "deterministic fallback" reads as a model the
         // deployment forgot to configure.
         String readme = Files.readString(out.resolve("README.md"));
@@ -197,6 +227,9 @@ class GeneratorTest {
         assertTrue(readme.contains("`provider` is `deterministic`"),
                 "including that the default reply names itself as no model");
         assertTrue(readme.contains("routes on"), "and the words the fallback routes on");
+        assertTrue(readme.contains("## Side effects"), "the README documents the effects surface");
+        assertTrue(readme.contains("`conversationId` is **null**"),
+                "including the field left null, and why it is null rather than made up");
 
         // The generated project consumes a *published* coordinate, so the version in its pom has to be
         // the one this build publishes. It is filtered from the project version for that reason; this

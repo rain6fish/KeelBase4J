@@ -8,8 +8,9 @@
 #   1. install the modules (protocol + runtime + generator)
 #   2. generate the project (dev entry point)
 #   3. build the generated project into a runnable jar
-#   4. start it and exercise: read auto / write gated / approve / audit verify / revoke /
-#      capability list / no-identity 401 / own-scope row filtering
+#   4. start it and exercise: read auto / write gated / approve / the effects list in the console's
+#      own shape / revoke with local compensation / audit verify / capability list / no-identity 401 /
+#      own-scope row filtering
 #
 # Exits non-zero if any expected outcome is missing. No network beyond Maven's own resolution.
 set -euo pipefail
@@ -149,9 +150,33 @@ check "capabilities is served without a token (the shell reads it first)" '"pres
 check "the module block is the contract's three keys, labelled as the module" \
   '{"id":"crm","label":"客户管理","description":""}' "$CAPS"
 
-EFF=$(curl -s "$BASE/ai/tool-effects" -H "Authorization: Bearer $ALICE" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)
+# ── the effects list, in the console's own shape ───────────────────────────────────────────────────
+# The console pages through this list and renders a row from it: an envelope, and items carrying the
+# fields its own model requires. A bare array was the shape here before — it reads fine by eye and is
+# unusable in the console, which is why the envelope and the fields are what gets checked.
+EFFECTS=$(curl -s "$BASE/ai/tool-effects" -H "Authorization: Bearer $ALICE")
+check "the effects list is paginated" '"items":[' "$EFFECTS"
+check "and reports the total it paged over" '"total":' "$EFFECTS"
+check "and echoes the page it was asked for" '"page":1' "$EFFECTS"
+check "and the limit" '"limit":20' "$EFFECTS"
+for field in id toolName conversationId resultType resultId argsHash createdAt targetExists \
+             targetSoftDeleted targetTitle; do
+  check "a row carries '$field' for the console" "\"$field\":" "$EFFECTS"
+done
+CAPPED=$(curl -s "$BASE/ai/tool-effects?page=1&limit=100000" -H "Authorization: Bearer $ALICE")
+# The trailing comma is load-bearing: `"limit":100` is a substring of `"limit":1000`, so without it a
+# cap raised to a thousand would still pass. The envelope's key order puts `items` next.
+check "a caller cannot ask for the whole table" '"limit":100,' "$CAPPED"
+
+# Revoking compensates. The row the write created is soft-deleted, which is what makes
+# `local_compensate` a class this application honours rather than one it merely claims.
+EFF=$(printf '%s' "$EFFECTS" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)
+check "a live effect reports a target that is not deleted" '"targetSoftDeleted":false' "$EFFECTS"
 REVOKED=$(curl -s -X DELETE "$BASE/ai/tool-effects/$EFF" -H "Authorization: Bearer $ALICE")
 check "revoke marks the effect revoked" '"revokeStatus":"revoked"' "$REVOKED"
+AFTER_REVOKE=$(curl -s "$BASE/ai/tool-effects" -H "Authorization: Bearer $ALICE")
+check "and soft-deletes the row it created" '"targetSoftDeleted":true' "$AFTER_REVOKE"
+check "which is still there — deleted, not gone" '"targetExists":true' "$AFTER_REVOKE"
 
 # ── own scope, on its own ───────────────────────────────────────────────────────────────────────
 # The base spec carries no policy, so a plain user holds `update` — whatever produces the 403 below,
