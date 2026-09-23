@@ -264,6 +264,29 @@ The copy under `conformance/vectors/` is a snapshot; see
 - `KeelBase4J` — this repository; the second carrier of the same protocol
 - [`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter) — Spring Boot starter for the Java side of the bridge
 
+## Compatibility
+
+The protocol has its own version line, independent of any runtime's. This table says which **contract
+version a runtime answers for** — which objects it has committed to speaking.
+
+| Runtime | Runtime version | Contract version |
+|---|---|---|
+| [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `v1.0.11` | **v1.0.1** — carried in-tree; that release predates the contract repository |
+| [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `main`, **unreleased** | **v1.1.0** — bound as a submodule |
+| `KeelBase4J` (Java) | `v0.1.0` | **v1.0.1** — vendored snapshot |
+
+**This runtime is one contract version behind**, and the table says so rather than leaving it to be
+discovered. Two things follow from that, and neither is an accident:
+
+- The snapshot under `conformance/vectors/` is refreshed from the main repository, not from the
+  contract repository. Moving that source is a separate step, still to be taken — so this runtime
+  currently tracks a *copy of a copy*.
+- Until it is taken, re-syncing is routine work rather than something the build will fail on. Nothing
+  reports the drift.
+
+A runtime behind the current contract is not broken; it simply does not yet answer for the newer
+version's objects, and what moves it forward is a deliberate act.
+
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — subsystems, component versions, the trust loop, and

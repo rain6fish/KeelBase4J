@@ -199,6 +199,25 @@ bash scripts/demo-changeability.sh    # 手改在变更后存活
 - `KeelBase4J`——本仓，同一协议的第二载体
 - [`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter)——桥接的 Java 侧 Spring Boot Starter
 
+## 兼容矩阵
+
+协议有自己的一条版本线，独立于任何 runtime 的版本。下表说明**每个 runtime 对着哪一版契约应答**——
+也就是它已承诺会说哪些对象。
+
+| Runtime | Runtime 版本 | Contract 版本 |
+|---|---|---|
+| [`KeelBase`](https://github.com/rain6fish/KeelBase)（TypeScript） | `v1.0.11` | **v1.0.1**——树内携带；该发布早于契约仓的建立 |
+| [`KeelBase`](https://github.com/rain6fish/KeelBase)（TypeScript） | `main`，**未发布** | **v1.1.0**——以 submodule 绑定 |
+| `KeelBase4J`（Java） | `v0.1.0` | **v1.0.1**——vendor 快照 |
+
+**本 runtime 落后一个契约版本**，表里明写，而不是留给人自己去发现。由此有两件事，都不是意外：
+
+- `conformance/vectors/` 下的快照是从**主仓**刷新的，不是从契约仓。把那个来源换掉是另一步，尚未做——
+  所以本 runtime 目前跟的是**一份副本的副本**。
+- 在那一步做掉之前，重新同步是**例行工作**，而不是构建会失败的事。**漂移了没有任何东西会报**。
+
+落后于当前契约的 runtime 不是坏了，它只是还没对更新版本的对象应答；推动它前进是**自觉的动作**。
+
 ## 文档
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)——子系统、组件版本、信任闭环，以及授权/身份层的决策
