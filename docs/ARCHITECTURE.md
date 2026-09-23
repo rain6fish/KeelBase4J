@@ -285,7 +285,7 @@ provider, an identity provider) sit outside it.
 ## 6. Build & verification
 
 ```bash
-mvn test                              # protocol 59 + runtime 81 + generator 16 + springai 12 = 168
+mvn test                              # protocol 59 + runtime 85 + generator 16 + springai 12 = 172
 mvn -DskipTests install               # install every module into the local repo
 bash scripts/demo-generated-app.sh    # generate → build → run → exercise the generated app
 bash scripts/demo-changeability.sh    # change → regenerate → the hand edit survives

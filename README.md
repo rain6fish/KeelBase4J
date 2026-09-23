@@ -44,7 +44,7 @@ Requires JDK 17+ and Maven.
 mvn test
 ```
 
-**168 tests** green (protocol 59 · runtime 81 · generator 16 · springai 12). Then watch each claim
+**172 tests** green (protocol 59 · runtime 85 · generator 16 · springai 12). Then watch each claim
 in the next section actually happen — four scripts, no model required for the first three:
 
 ```bash
@@ -114,7 +114,7 @@ column is where to look; the last column is the honest boundary of the claim.
 | A write is not executed until a human approves | `TrustLoopTest` | — |
 | One confirmation token executes the tool exactly once | `ConfirmationConcurrencyTest` (written red first) · the eight-at-once check in `demo-generated-app.sh` | — |
 | The audit chain is tamper-evident and appended under a row lock | `AuditChainConcurrencyTest` · `GET /audit/verify` | the spike's datastore is in-memory, so it is per-process |
-| The generated application runs standalone | `demo-generated-app.sh` — 15 checks | the generator handles the CRM-shaped request it was built for |
+| The generated application runs standalone | `demo-generated-app.sh` — 19 checks | the generator handles the CRM-shaped request it was built for |
 | A change carries the data already in the database | `demo-migration.sh` — 11 checks | Flyway owns the schema; `ddl-auto=validate` |
 | Regeneration merges the developer's edits | `demo-changeability.sh` — 7 checks | a **line-level** merge: it merges text, not meaning |
 | A real model routes, and the runtime still holds the write | `demo-springai.sh` (DeepSeek, real key) | needs a key; it is a human-run demo, not a CI gate |

@@ -134,6 +134,21 @@ check_absent "own scope keeps other owners' rows out" '"name":"alice-co"' "$BOB_
 MGR_LIST=$(curl -s "$BASE/customers" -H 'X-User-Id: carol' -H 'X-User-Role: manager')
 check "the unrestricted scope sees every row" '"name":"alice-co"' "$MGR_LIST"
 
+# ── the second entity has a surface of its own ────────────────────────────────────────────────────
+# It always had a table, a repository and a rule in the authorization source; what it did not have was
+# a REST surface, so everything past the first entity was reachable only by hand. These checks fail if
+# that comes back — and they also pin that a second entity is governed the same way, not less.
+ALICE_FU=$(curl -s -X POST "$BASE/follow_ups" -H 'Content-Type: application/json' \
+  -H 'X-User-Id: alice' -d "{\"customerId\":$ALICE_CUST,\"note\":\"alice-fu\"}")
+check "the second entity accepts a write of its own" '"note":"alice-fu"' "$ALICE_FU"
+check "and stamps the caller as its owner" '"ownerUserId":"alice"' "$ALICE_FU"
+
+curl -s -o /dev/null -X POST "$BASE/follow_ups" -H 'Content-Type: application/json' \
+  -H 'X-User-Id: bob' -d "{\"customerId\":$BOB_CUST,\"note\":\"bob-fu\"}"
+BOB_FU_LIST=$(curl -s "$BASE/follow_ups" -H 'X-User-Id: bob')
+check "own scope narrows the second entity just the same" '"note":"bob-fu"' "$BOB_FU_LIST"
+check_absent "and keeps the other owner's rows out of it" '"note":"alice-fu"' "$BOB_FU_LIST"
+
 # ── one token, two deciders at once ───────────────────────────────────────────────────────────────
 # A token is one-shot (failure-semantics FP-2: "token 一次性，不二次执行"). Two approvals fired
 # together are the case that gives "one-shot" meaning: if the app reads the token, runs the tool and

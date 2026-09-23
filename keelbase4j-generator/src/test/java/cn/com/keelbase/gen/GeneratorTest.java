@@ -83,6 +83,13 @@ class GeneratorTest {
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("ai/AuditChainStore.java")), "audit");
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/AiController.java")), "ai controller");
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/GovernanceController.java")), "governance controller");
+        // Every entity gets its own REST surface, not just the first one. A two-entity spec used to
+        // generate a table, a repository and an authorization rule for both, and a controller for one —
+        // so the rest of the model was reachable only by hand.
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/CustomerController.java")),
+                "a controller for the first entity");
+        assertTrue(paths.stream().anyMatch(p -> p.endsWith("web/FollowUpController.java")),
+                "and one for the second");
         // The identity seam and the contract-derived authorization, not a bespoke role check.
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("identity/IdentityResolver.java")), "identity SPI");
         assertTrue(paths.stream().anyMatch(p -> p.endsWith("identity/HeaderIdentityResolver.java")), "adapter");

@@ -35,7 +35,7 @@ KeelBase4J 是**载体**，不是第二个产品：它的存在，是让 Java/Sp
 mvn test
 ```
 
-**168 条测试**全绿（协议 59 · 运行时 81 · 生成器 16 · springai 12）。下面每个主张都能真跑出来——四个脚本，前三个不需要模型：
+**172 条测试**全绿（协议 59 · 运行时 85 · 生成器 16 · springai 12）。下面每个主张都能真跑出来——四个脚本，前三个不需要模型：
 
 ```bash
 bash scripts/demo-generated-app.sh    # 生成 → 构建 → 运行 → 走一遍信任闭环
@@ -89,7 +89,7 @@ bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
 | 没有人批准，写操作不执行 | `TrustLoopTest` | — |
 | 一个确认令牌恰好执行一次工具 | `ConfirmationConcurrencyTest`（先写会红的测试）· `demo-generated-app.sh` 里的八并发检查 | — |
 | 审计链防篡改，且串行追加在行锁上 | `AuditChainConcurrencyTest` · `GET /audit/verify` | spike 的存储是内存库，故为进程内 |
-| 生成物可独立运行 | `demo-generated-app.sh`——15 项检查 | 生成器处理的是它所针对的 CRM 形状请求 |
+| 生成物可独立运行 | `demo-generated-app.sh`——19 项检查 | 生成器处理的是它所针对的 CRM 形状请求 |
 | 变更携带库中已有的数据 | `demo-migration.sh`——11 项检查 | Flyway 拥有 schema；`ddl-auto=validate` |
 | 再生成会合并开发者的手改 | `demo-changeability.sh`——7 项检查 | **行级**合并：合并的是文本，不是语义 |
 | 真模型能路由，且运行时照样扣住写操作 | `demo-springai.sh`（DeepSeek 真 key） | 需要 key；是人跑的 demo，不是 CI 门禁 |

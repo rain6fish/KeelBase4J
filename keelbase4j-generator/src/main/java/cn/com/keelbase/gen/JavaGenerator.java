@@ -109,10 +109,14 @@ public class JavaGenerator {
         project.write(javaDir.resolve("web/WireErrorController.java"), wireErrorController(pkg));
         project.write(javaDir.resolve("web/WireExceptionHandler.java"), wireExceptionHandler(pkg));
         project.write(javaDir.resolve("web/AppInfoController.java"), appInfoController(pkg, spec));
-        // One CRUD controller for the primary entity, enforcing the spec's policy rules.
-        EntitySpec primary = spec.entities().get(0);
-        project.write(javaDir.resolve("web/" + primary.name() + "Controller.java"),
-                entityController(pkg, primary, spec));
+        // One CRUD controller per entity, each enforcing the spec's policy rules. Everything else about
+        // a second entity was already generated — its table, its repository, and its rule in the
+        // authorization source — so leaving its REST surface out made half of the model reachable only
+        // by hand, which is not what a generated application means here.
+        for (EntitySpec entity : spec.entities()) {
+            project.write(javaDir.resolve("web/" + entity.name() + "Controller.java"),
+                    entityController(pkg, entity, spec));
+        }
         return project.done();
     }
 
@@ -1933,7 +1937,8 @@ public class JavaGenerator {
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     /**
-     * A CRUD controller for the primary entity. Which actions a caller may take, and whether the rows
+     * A CRUD controller for one entity — one of these is emitted per entity in the spec. Which actions
+     * a caller may take, and whether the rows
      * are narrowed to the ones they own, comes from the authorization contracts — the list and update
      * paths ask {@link OwnershipGuard} and act on the answer, rather than comparing a role string here.
      */
