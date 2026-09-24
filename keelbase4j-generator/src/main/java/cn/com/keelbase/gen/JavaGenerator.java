@@ -88,6 +88,10 @@ public class JavaGenerator {
         project.write(javaDir.resolve("ai/SideEffectStore.java"), sideEffectStore(pkg));
         project.write(javaDir.resolve("ai/AuditChainStore.java"), auditChainStore(pkg));
         project.write(javaDir.resolve("ai/GovernanceEngine.java"), governanceEngine(pkg));
+        // Who is waiting to hear how a confirmation was decided (ADR-0014 D2). A decision arrives on one
+        // request and has to reach a stream opened by another; this is the only place that connection
+        // lives. In-process, and stated as such.
+        project.write(javaDir.resolve("ai/ConfirmationWatchers.java"), confirmationWatchers(pkg));
 
         for (ToolSpec tool : spec.tools()) {
             project.write(javaDir.resolve("ai/" + pascal(tool.name()) + "Tool.java"), toolClass(pkg, tool, spec));
@@ -132,6 +136,12 @@ public class JavaGenerator {
         project.write(javaDir.resolve("authz/OwnershipGuard.java"), ownershipGuard(pkg));
 
         project.write(javaDir.resolve("web/AiController.java"), aiController(pkg));
+        // One turn, two ways of reporting it (ADR-0014 D7): the plain endpoint answers with a body, the
+        // streaming one reports the steps as they happen. The turn itself is one implementation — this
+        // repository has paid twice for a second one drifting (JV-21 / JV-22).
+        project.write(javaDir.resolve("web/ChatTurnService.java"), chatTurnService(pkg));
+        project.write(javaDir.resolve("web/ChatStreamController.java"), chatStreamController(pkg));
+        project.write(javaDir.resolve("web/ChatStreamConfiguration.java"), chatStreamConfiguration(pkg));
         project.write(javaDir.resolve("web/AuthController.java"), authController(pkg));
         project.write(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg, spec));
         // F4 + F5 of the frozen Full profile. Without them the artifact cannot serve the
@@ -411,6 +421,24 @@ public class JavaGenerator {
         sb.append("compensate: the target is soft-deleted. `conversationId` is **null** — an approval arrives\n");
         sb.append("in a request of its own, so the record does not carry the conversation that proposed the\n");
         sb.append("write; the runtime answers null here too rather than inventing a link.\n\n");
+        sb.append("## Streaming\n\n");
+        sb.append("`POST /ai/chat/stream` answers `text/event-stream` — the channel the web console's assistant\n");
+        sb.append("drawer uses. An administrator is sent to `/admin/ai/chat/stream`: same handler, gated by the\n");
+        sb.append("role. It runs the same turn as `POST /ai/chat`; only the reporting differs:\n\n");
+        sb.append("```\ntool_start -> text -> confirmation_request -> (wait) -> confirmation_decision");
+        sb.append(" -> tool_end -> done\n```\n\n");
+        sb.append("**Why it stays open.** The card that asks for a confirmation is built from the\n");
+        sb.append("`confirmation_request` event, and the token in it is the only way a client learns what to\n");
+        sb.append("approve. The stream then *waits*: a write approved while it is open — from this client or from\n");
+        sb.append("another surface — comes back as `confirmation_decision` on the same connection. A stream that\n");
+        sb.append("closed with the turn could not deliver that.\n\n");
+        sb.append("**Its boundaries, stated.** The wait is the contract's confirmation window\n");
+        sb.append("(`keelbase.chat.stream-wait-ms` shortens it; zero means the contract's). When the wait runs\n");
+        sb.append("out, the stream closes with `done` and **no** decision — nothing here expires a confirmation,\n");
+        sb.append("so the write is still yours to approve out of band, and the stream does not pretend\n");
+        sb.append("otherwise. The registry behind all this is **in-process**: a second instance cannot reach a\n");
+        sb.append("stream opened here, and there is **no replay** — a stream serves the view that is open now,\n");
+        sb.append("not a durable log.\n\n");
         sb.append("## Identity\n\n");
         sb.append("Callers prove who they are with a KeelBase delegation token — `Authorization: Bearer <jwt>` —\n");
         sb.append("verified against the frozen contract with `keelbase.delegation.secret` and\n");
@@ -1004,6 +1032,110 @@ public class JavaGenerator {
                 """.formatted(pkg);
     }
 
+    /**
+     * Who is waiting to hear how a confirmation was decided (ADR-0014 D2, mirroring ADR-0010 D2).
+     *
+     * <p>This is the one piece of server-side connection state this application has: a decision arrives
+     * on one request and has to reach a stream opened by another. It holds callbacks rather than a
+     * stream, so that whoever owns the stream decides how to finish it — a decision ends a stream
+     * differently from a wait that simply expired.
+     */
+    private String confirmationWatchers(String pkg) {
+        return """
+                package %s.ai;
+
+                import java.util.Map;
+                import java.util.concurrent.ConcurrentHashMap;
+                import java.util.function.Consumer;
+                import org.slf4j.Logger;
+                import org.slf4j.LoggerFactory;
+                import org.springframework.stereotype.Component;
+
+                /**
+                 * Who is waiting to hear how a confirmation was decided.
+                 *
+                 * <p>A decision arrives on one request and has to reach a stream opened by another, so this
+                 * application needs somewhere to keep the connection between them. That is all this is: a
+                 * token, and whatever asked to be told about it.
+                 *
+                 * <p><b>In-process, and it does not survive a second instance.</b> A stream opened against
+                 * one instance is invisible to the other, so a decision taken there reaches nobody. The
+                 * same limitation the audit chain's in-process store has: one instance, or a shared channel
+                 * this application does not have. Stated rather than assumed away.
+                 */
+                @Component
+                public class ConfirmationWatchers {
+
+                    private static final Logger log = LoggerFactory.getLogger(ConfirmationWatchers.class);
+
+                    /** What a stream asked to be told about: decided, or waited out. */
+                    private record Waiter(Consumer<Map<String, Object>> onDecision, Runnable onExpiry) {
+                    }
+
+                    private final Map<String, Waiter> waiting = new ConcurrentHashMap<>();
+
+                    /** Ask to be told when this confirmation is decided, or when its wait runs out. */
+                    public void watch(String token, Consumer<Map<String, Object>> onDecision, Runnable onExpiry) {
+                        waiting.put(token, new Waiter(onDecision, onExpiry));
+                    }
+
+                    /** Stop listening — the stream ended or its caller went away. Idempotent. */
+                    public void stop(String token) {
+                        waiting.remove(token);
+                    }
+
+                    /**
+                     * Tell whoever is waiting what was decided.
+                     *
+                     * @return whether anyone was waiting. {@code false} is not an error: a confirmation
+                     *         decided with no stream open is an ordinary outcome, and the decision stands
+                     *         regardless of who heard about it.
+                     */
+                    public boolean decided(String token, Map<String, Object> decision) {
+                        return deliver(token, waiter -> waiter.onDecision().accept(decision));
+                    }
+
+                    /**
+                     * The wait ran out with nothing decided — the stream should stop waiting and close on
+                     * its own terms rather than be cut off by a connection deadline.
+                     *
+                     * <p>This decides nothing. Nothing in this application expires a confirmation, so the
+                     * write is still the operator's to approve out of band.
+                     *
+                     * @return whether anyone was still waiting, by the same reckoning as {@link #decided}.
+                     */
+                    public boolean expired(String token) {
+                        // Not `Waiter::onExpiry`: as a Consumer that reference reads the Runnable and discards
+                        // it — a return value adapted to void is dropped, not invoked. The run() is explicit.
+                        return deliver(token, waiter -> waiter.onExpiry().run());
+                    }
+
+                    /**
+                     * Hand the token's waiter to {@code to}, once, and forget it.
+                     *
+                     * <p>Removing before delivering is what makes a decision and an expiry mutually
+                     * exclusive: both come through here, so whichever removes the entry delivers and the
+                     * other finds nothing.
+                     */
+                    private boolean deliver(String token, Consumer<Waiter> to) {
+                        Waiter waiter = waiting.remove(token);
+                        if (waiter == null) {
+                            return false;
+                        }
+                        try {
+                            to.accept(waiter);
+                        } catch (RuntimeException brokenStream) {
+                            // Delivering the news is best effort: a decision is already recorded and stands,
+                            // and an expiry was never a fact to lose. Letting this escape would turn a
+                            // successful approval into a failed request because a browser tab went away.
+                            log.warn("could not deliver the news about a confirmation to its stream", brokenStream);
+                        }
+                        return true;
+                    }
+                }
+                """.formatted(pkg);
+    }
+
     private String sideEffectStore(String pkg) {
         return """
                 package %s.ai;
@@ -1185,15 +1317,17 @@ public class JavaGenerator {
                     private final ConfirmationStore confirmations;
                     private final SideEffectStore sideEffects;
                     private final AuditChainStore audit;
+                    private final ConfirmationWatchers watchers;
 
                     public GovernanceEngine(ToolRegistry registry, GovernanceGate gate,
                                             ConfirmationStore confirmations, SideEffectStore sideEffects,
-                                            AuditChainStore audit) {
+                                            AuditChainStore audit, ConfirmationWatchers watchers) {
                         this.registry = registry;
                         this.gate = gate;
                         this.confirmations = confirmations;
                         this.sideEffects = sideEffects;
                         this.audit = audit;
+                        this.watchers = watchers;
                     }
 
                     public Map<String, Object> execute(String toolName, Map<String, Object> args, String userId) {
@@ -1222,14 +1356,41 @@ public class JavaGenerator {
                         ConfirmationStore.Pending pending = confirmations.claim(token, userId);
                         AiTool tool = registry.require(pending.toolName());
                         audit.append("tool_confirmation", userId, tool.name() + " approved");
-                        return run(tool, confirmations.args(pending), userId);
+                        Map<String, Object> outcome = run(tool, confirmations.args(pending), userId);
+                        // Last, and after the write is done: whoever is watching the stream hears about the
+                        // decision once it is a fact. Nothing is waiting when nobody opened a stream, and
+                        // that is an ordinary outcome rather than a failure.
+                        watchers.decided(token, decision("approve", pending.toolName(), outcome));
+                        return outcome;
                     }
 
                     /** Decline — the token is consumed and nothing is written. */
                     public Map<String, Object> decline(String token, String userId) {
                         ConfirmationStore.Pending pending = confirmations.claim(token, userId);
                         audit.append("tool_confirmation", userId, pending.toolName() + " declined");
+                        watchers.decided(token, decision("decline", pending.toolName(), null));
                         return Map.of("status", "declined");
+                    }
+
+                    /**
+                     * What to tell a waiting stream: the decision word, whether it approved, whether the
+                     * tool ran, and the result if it did — the fields the console's own decision model
+                     * reads, and the reason it reads {@code decision} rather than only {@code approved}.
+                     */
+                    private Map<String, Object> decision(String decision, String toolName,
+                                                         Map<String, Object> outcome) {
+                        Map<String, Object> told = new LinkedHashMap<>();
+                        told.put("toolName", toolName);
+                        told.put("decision", decision);
+                        told.put("approved", "approve".equals(decision));
+                        told.put("success", outcome != null && "executed".equals(outcome.get("status")));
+                        if (outcome != null && outcome.get("effectId") != null) {
+                            told.put("resultId", outcome.get("effectId"));
+                        }
+                        if (outcome != null && outcome.get("error") != null) {
+                            told.put("error", outcome.get("error"));
+                        }
+                        return told;
                     }
 
                     private Map<String, Object> run(AiTool tool, Map<String, Object> args, String userId) {
@@ -2201,7 +2362,14 @@ public class JavaGenerator {
                 : PermissionCapabilityList.ROLE_USER;
     }
 
-    private String aiController(String pkg) {
+    /**
+     * One turn, extracted so both endpoints run the same one (ADR-0014 D7).
+     *
+     * <p>The plain endpoint answers with a body built from the turn; the streaming one reports the turn
+     * step by step. What must not differ between them is the turn itself — the planner proposes, the
+     * engine disposes, and the reply is written afterwards from what the engine answered.
+     */
+    private String chatTurnService(String pkg) {
         return """
                 package %s.web;
 
@@ -2211,9 +2379,403 @@ public class JavaGenerator {
                 import %s.ai.Proposal;
                 import %s.ai.Reply;
                 import %s.ai.ToolCallPlanner;
-                import %s.ai.ToolRegistry;
                 import %s.conversation.ConversationMessage;
                 import %s.conversation.ConversationStore;
+                import %s.identity.Principal;
+                import java.util.LinkedHashMap;
+                import java.util.List;
+                import java.util.Map;
+                import java.util.regex.Matcher;
+                import java.util.regex.Pattern;
+                import org.springframework.stereotype.Service;
+
+                /**
+                 * One turn of a conversation, from the caller's words to what to say back.
+                 *
+                 * <p>Extracted because two endpoints run the same turn and differ only in how they report
+                 * it: the plain one answers with a body, the streaming one reports the steps as they
+                 * happen. Leaving the sequence in both would mean two places to keep in step, and a second
+                 * implementation of the same thing drifts.
+                 *
+                 * <p>The sequence itself is the load-bearing part and does not change between the two: the
+                 * planner proposes, the engine disposes, and the reply is written afterwards from what the
+                 * engine actually answered.
+                 */
+                @Service
+                public class ChatTurnService {
+
+                    /**
+                     * What the turn produced, in the order a caller wants to report it.
+                     *
+                     * @param plan    what the planner proposed, or {@code null} when nothing was routed
+                     * @param outcome what the engine did about it, or {@code null} when there was nothing
+                     *                to gate
+                     */
+                    public record Turn(String conversationId, Proposal plan, Map<String, Object> outcome,
+                                       Reply reply) {
+                    }
+
+                    /**
+                     * The customer the console is looking at, as it writes it into the message: 「Acme」（ID 1）.
+                     *
+                     * <p>One reader for this, here rather than in the planner: the reference is conversation
+                     * state, and this is where the transcript is. A planner receives the resolved id in its
+                     * context and routes on it.
+                     */
+                    private static final Pattern CUSTOMER_MARKER =
+                            Pattern.compile("[（(]\\\\s*ID\\\\s*(\\\\d+)\\\\s*[）)]", Pattern.CASE_INSENSITIVE);
+
+                    private final ToolCallPlanner planner;
+                    private final ChatReplier replier;
+                    private final ConversationStore conversations;
+                    private final GovernanceEngine engine;
+
+                    public ChatTurnService(ToolCallPlanner planner, ChatReplier replier,
+                                           ConversationStore conversations, GovernanceEngine engine) {
+                        this.planner = planner;
+                        this.replier = replier;
+                        this.conversations = conversations;
+                        this.engine = engine;
+                    }
+
+                    /**
+                     * Run one turn.
+                     *
+                     * @param customerId the caller's own id for the subject, or {@code null} — the
+                     *                   conversation's own naming is read when it is absent
+                     */
+                    public Turn run(String message, Object customerId, String conversationId,
+                                    Principal principal) {
+                        String id = conversations.openFor(conversationId, principal.userId());
+                        conversations.append(id, principal.userId(), ConversationMessage.USER, message);
+
+                        Map<String, Object> context = new LinkedHashMap<>();
+                        context.put("customerId", customerId != null ? customerId : mentionedCustomer(id));
+
+                        Proposal plan = planner.plan(message, context).orElse(null);
+                        // The planner proposes; the engine decides. Nothing the planner returns can skip
+                        // this — risk, confirmation and audit are applied by the engine, unconditionally.
+                        Map<String, Object> outcome = plan == null
+                                ? null
+                                : engine.execute(plan.tool(), plan.args(), principal.userId());
+
+                        Reply reply = replier.reply(message, turns(id), outcome);
+                        conversations.append(id, principal.userId(), ConversationMessage.ASSISTANT, reply.text());
+                        return new Turn(id, plan, outcome, reply);
+                    }
+
+                    /**
+                     * The recent turns, oldest first. The caller's own message is already among them by the
+                     * time a replier is asked, so a model reads the same conversation this application does.
+                     */
+                    public List<ChatTurn> turns(String conversationId) {
+                        return conversations.history(conversationId).stream()
+                                .map(turn -> new ChatTurn(turn.getRole(), turn.getContent()))
+                                .toList();
+                    }
+
+                    /**
+                     * Which customer this conversation is about, as named in its own transcript.
+                     *
+                     * <p>The console names it once — in the first message ("当前客户「Acme」（ID 1）。给客户
+                     * 建一条跟进记录"), because no client sends a customer id as a field. A model reads that
+                     * reference wherever it appears; an application without one has to as well, or the second
+                     * write in a conversation — "再建一条" — reaches a tool with nobody to act on. So the most
+                     * recent mention wins, and the caller's explicit id beats everything.
+                     *
+                     * <p>Reading the transcript is what the store is for: this is not embeddings, not
+                     * retrieval and not a memory policy (ADR-0013 D4 — a transcript, not memory).
+                     */
+                    private Long mentionedCustomer(String conversationId) {
+                        List<ConversationMessage> history = conversations.history(conversationId);
+                        for (int i = history.size() - 1; i >= 0; i--) {
+                            Matcher marker = CUSTOMER_MARKER.matcher(history.get(i).getContent());
+                            if (marker.find()) {
+                                return Long.valueOf(marker.group(1));
+                            }
+                        }
+                        return null;
+                    }
+                }
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg);
+    }
+
+    /**
+     * The streaming entry point (ADR-0014, mirroring ADR-0010).
+     *
+     * <p>It exists because the console's writes need it, not for a typing effect: the confirmation card
+     * is built from a {@code confirmation_request} event, and the drawer approves *while the stream is
+     * still open*, so a stream that closed with the turn could not deliver the decision back.
+     */
+    private String chatStreamController(String pkg) {
+        return """
+                package %s.web;
+
+                import %s.ai.AiTool;
+                import %s.ai.ConfirmationWatchers;
+                import %s.ai.ToolRegistry;
+                import %s.identity.IdentityEvidence;
+                import %s.identity.IdentityResolver;
+                import %s.identity.Principal;
+                import cn.com.keelbase.protocol.ConfirmationLifecycle;
+                import java.util.LinkedHashMap;
+                import java.util.Map;
+                import java.util.concurrent.ScheduledExecutorService;
+                import java.util.concurrent.ScheduledFuture;
+                import java.util.concurrent.TimeUnit;
+                import org.springframework.beans.factory.annotation.Value;
+                import org.springframework.http.HttpStatus;
+                import org.springframework.http.MediaType;
+                import org.springframework.web.bind.annotation.PostMapping;
+                import org.springframework.web.bind.annotation.RequestBody;
+                import org.springframework.web.bind.annotation.RequestHeader;
+                import org.springframework.web.bind.annotation.RestController;
+                import org.springframework.web.server.ResponseStatusException;
+                import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+                /**
+                 * The streaming entry point, in the shape the web console reads (ADR-0014).
+                 *
+                 * <p>The stream ends in one of two ways. A decision arrives — from anywhere — and the
+                 * stream reports it and closes. Or the wait runs out and nothing decided it, in which case
+                 * the stream closes <em>without</em> a decision: nothing here expires a confirmation, so the
+                 * write is still decidable out of band, and saying otherwise would be a lie the data does
+                 * not support.
+                 *
+                 * <p>Both paths — {@code /ai/chat/stream} and {@code /admin/ai/chat/stream} — land here,
+                 * because the console picks its endpoint by the caller's role. They are the same handler
+                 * rather than two assistants: this application has one set of tools, and inventing a second
+                 * set so that an endpoint name looks implemented is exactly the kind of thing not to do.
+                 *
+                 * <p><b>Why it stays open.</b> A confirmation decided on another surface has to reach an
+                 * open view; the drawer's own approve comes back on its own request, but a decision taken
+                 * elsewhere does not. This is the only reason this endpoint is a stream.
+                 */
+                @RestController
+                public class ChatStreamController {
+
+                    /**
+                     * Slack over the wait, so the emitter's own timeout does not fire first and cut off the
+                     * {@code done} event the caller is waiting for.
+                     */
+                    private static final long TIMEOUT_SLACK_MILLIS = 5_000L;
+
+                    private final IdentityResolver identities;
+                    private final ChatTurnService turns;
+                    private final ConfirmationWatchers watchers;
+                    private final ToolRegistry tools;
+                    private final ScheduledExecutorService scheduler;
+                    private final long waitMillis;
+
+                    public ChatStreamController(IdentityResolver identities, ChatTurnService turns,
+                                                ConfirmationWatchers watchers, ToolRegistry tools,
+                                                ScheduledExecutorService scheduler,
+                                                @Value("${keelbase.chat.stream-wait-ms:0}") long configuredWait) {
+                        this.identities = identities;
+                        this.turns = turns;
+                        this.watchers = watchers;
+                        this.tools = tools;
+                        this.scheduler = scheduler;
+                        // How long a stream waits for a decision. Zero means the contract's own window —
+                        // the same constant the confirmation vocabulary is built on, taken from the protocol
+                        // library rather than restated here.
+                        this.waitMillis = configuredWait > 0 ? configuredWait : ConfirmationLifecycle.DEFAULT_TTL_MILLIS;
+                    }
+
+                    @PostMapping("/ai/chat/stream")
+                    public SseEmitter stream(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject,
+                            @RequestBody Map<String, Object> body) {
+                        Principal principal =
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        return open(body, principal);
+                    }
+
+                    /**
+                     * The console's endpoint when its caller is an administrator. The gate is the whole
+                     * difference between the two paths — same turn, same tools, same governance — and it is
+                     * the reference's own arrangement: its admin route carries {@code manage all}, and this
+                     * application answers the same way rather than pretending to have a second assistant
+                     * behind the name.
+                     */
+                    @PostMapping("/admin/ai/chat/stream")
+                    public SseEmitter adminStream(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject,
+                            @RequestBody Map<String, Object> body) {
+                        Principal principal =
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        if (!principal.isManager()) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "the management conversation endpoint is for administrators");
+                        }
+                        return open(body, principal);
+                    }
+
+                    private SseEmitter open(Map<String, Object> body, Principal principal) {
+                        SseEmitter emitter = new SseEmitter(waitMillis + TIMEOUT_SLACK_MILLIS);
+                        try {
+                            String message = body.get("message") == null ? "" : String.valueOf(body.get("message"));
+                            ChatTurnService.Turn turn = turns.run(
+                                    message,
+                                    body.get("customerId"),
+                                    body.get("conversationId") == null
+                                            ? null : String.valueOf(body.get("conversationId")),
+                                    principal);
+
+                            if (turn.plan() != null) {
+                                send(emitter, "tool_start", Map.of("toolStart", toolStart(turn)));
+                            }
+                            send(emitter, "text", Map.of("content", turn.reply().text()));
+
+                            Map<String, Object> outcome = turn.outcome();
+                            if (outcome != null && "pending_confirmation".equals(outcome.get("status"))) {
+                                send(emitter, "confirmation_request", Map.of("confirmation", confirmation(turn)));
+                                awaitDecision(emitter, String.valueOf(outcome.get("token")), turn);
+                                return emitter;
+                            }
+                            finish(emitter, turn);
+                        } catch (RuntimeException e) {
+                            emitter.completeWithError(e);
+                        }
+                        return emitter;
+                    }
+
+                    /**
+                     * Hold the stream open until somebody decides, then report and close. Registered against
+                     * the token, so the decision can arrive on a different request — which is the point.
+                     */
+                    private void awaitDecision(SseEmitter emitter, String token, ChatTurnService.Turn turn) {
+                        watchers.watch(token,
+                                decision -> {
+                                    send(emitter, "confirmation_decision",
+                                            Map.of("confirmationDecision", decision));
+                                    send(emitter, "tool_end", Map.of("toolEnd", Map.of(
+                                            "name", turn.plan().tool(),
+                                            "success", Boolean.TRUE.equals(decision.get("success")))));
+                                    send(emitter, "done", Map.of("conversationId", turn.conversationId()));
+                                    emitter.complete();
+                                },
+                                () -> {
+                                    send(emitter, "done", Map.of("conversationId", turn.conversationId()));
+                                    emitter.complete();
+                                });
+
+                        // The wait's own deadline, a step ahead of the emitter's: the container's timeout
+                        // would end the response where it stands, with no closing event, and a caller
+                        // reading that cannot tell it from a dropped connection. Firing first is what lets
+                        // this stream say it is done.
+                        ScheduledFuture<?> expiry =
+                                scheduler.schedule(() -> watchers.expired(token), waitMillis, TimeUnit.MILLISECONDS);
+
+                        Runnable release = () -> {
+                            watchers.stop(token);
+                            expiry.cancel(false);
+                        };
+                        emitter.onCompletion(release);
+                        emitter.onError(disconnected -> release.run());
+                        emitter.onTimeout(release);
+                    }
+
+                    private void finish(SseEmitter emitter, ChatTurnService.Turn turn) {
+                        if (turn.outcome() != null) {
+                            send(emitter, "tool_end", Map.of("toolEnd", Map.of(
+                                    "name", turn.plan().tool(),
+                                    "success", "executed".equals(turn.outcome().get("status")))));
+                        }
+                        send(emitter, "done", Map.of("conversationId", turn.conversationId()));
+                        emitter.complete();
+                    }
+
+                    /** A write is a tool that produces a result; a read produces none. */
+                    private Map<String, Object> toolStart(ChatTurnService.Turn turn) {
+                        AiTool tool = tools.require(turn.plan().tool());
+                        Map<String, Object> start = new LinkedHashMap<>();
+                        start.put("name", tool.name());
+                        start.put("arguments", turn.plan().args());
+                        start.put("isWrite", tool.resultType() != null);
+                        // The risk level does belong on this channel: it goes to the user's own console,
+                        // not to a model. The rule about withholding it is about prompts.
+                        start.put("riskLevel", tool.riskLevel());
+                        return start;
+                    }
+
+                    private Map<String, Object> confirmation(ChatTurnService.Turn turn) {
+                        Map<String, Object> confirmation = new LinkedHashMap<>();
+                        // The token is the only way the console learns what to approve.
+                        confirmation.put("token", turn.outcome().get("token"));
+                        confirmation.put("toolName", turn.plan().tool());
+                        confirmation.put("arguments", turn.plan().args());
+                        // R3 — the operator confirms their own write. This application has no R4 approval
+                        // mode, and saying it did would put a claim on the wire that nothing backs.
+                        confirmation.put("mode", "confirmation");
+                        return confirmation;
+                    }
+
+                    /**
+                     * One event. The {@code type} travels inside the JSON as well as on the {@code event:}
+                     * line, because that is what the console parses; the name is there for anything reading
+                     * the stream directly.
+                     */
+                    private void send(SseEmitter emitter, String type, Map<String, Object> payload) {
+                        Map<String, Object> event = new LinkedHashMap<>();
+                        event.put("type", type);
+                        event.putAll(payload);
+                        try {
+                            emitter.send(SseEmitter.event().name(type).data(event, MediaType.APPLICATION_JSON));
+                        } catch (Exception e) {
+                            throw new IllegalStateException("could not send the '" + type + "' event", e);
+                        }
+                    }
+                }
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg, pkg);
+    }
+
+    /**
+     * The one piece of infrastructure the streaming endpoint needs: something that can fire a wait's
+     * deadline a step before the connection's own.
+     *
+     * <p>Explicit rather than auto-configured. This application ships no scheduling configuration, and
+     * leaning on framework defaults for a timer that has to beat a connection deadline is the kind of
+     * implicit dependency that breaks on an upgrade with no test noticing.
+     */
+    private String chatStreamConfiguration(String pkg) {
+        return """
+                package %s.web;
+
+                import java.util.concurrent.Executors;
+                import java.util.concurrent.ScheduledExecutorService;
+                import org.springframework.context.annotation.Bean;
+                import org.springframework.context.annotation.Configuration;
+
+                /** The scheduler behind a stream's wait deadline (ADR-0014 D6). */
+                @Configuration
+                public class ChatStreamConfiguration {
+
+                    /** A daemon thread: no wait outlives the application. */
+                    @Bean(destroyMethod = "shutdown")
+                    public ScheduledExecutorService chatStreamScheduler() {
+                        return Executors.newSingleThreadScheduledExecutor(runnable -> {
+                            Thread thread = new Thread(runnable, "chat-stream-wait");
+                            thread.setDaemon(true);
+                            return thread;
+                        });
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    private String aiController(String pkg) {
+        return """
+                package %s.web;
+
+                import %s.ai.GovernanceEngine;
+                import %s.ai.ToolRegistry;
                 import %s.identity.IdentityEvidence;
                 import %s.identity.IdentityResolver;
                 import %s.identity.Principal;
@@ -2230,7 +2792,7 @@ public class JavaGenerator {
                 import org.springframework.web.server.ResponseStatusException;
 
                 /**
-                 * The AI entry point.
+                 * The AI entry point, non-streaming.
                  *
                  * <p>{@code POST /ai/chat} takes a <b>message</b> and answers the conversation shape the
                  * reference implementation and the KeelBase4J runtime both answer, field for field, so a
@@ -2238,29 +2800,25 @@ public class JavaGenerator {
                  * {@code provider}, {@code model}, an optional {@code toolCalls}, and the governance facts
                  * {@code status}, {@code data}, {@code token}, {@code effectId}, {@code error}.
                  *
-                 * <p>A turn is planner -> engine -> replier. The planner proposes a tool (and nothing about
-                 * whether it may run), the engine applies the gate — a write waits on a human confirmation —
-                 * and the replier says what happened afterwards. A message that routes to nothing is not an
-                 * error here: it answers with a reply that says so, which is what a chat surface expects.
+                 * <p>The turn itself — planner, engine, replier — is {@link ChatTurnService}, because the
+                 * streaming endpoint runs the same one and must not grow a second copy of it (ADR-0014 D7).
+                 * This class only decides how to report it: as one body. A message that routes to nothing is
+                 * not an error here: it answers with a reply that says so, which is what a chat surface
+                 * expects.
                  */
                 @RestController
                 public class AiController {
 
                     private final ToolRegistry registry;
+                    private final ChatTurnService turns;
                     private final GovernanceEngine engine;
-                    private final ToolCallPlanner planner;
-                    private final ChatReplier replier;
-                    private final ConversationStore conversations;
                     private final IdentityResolver identities;
 
-                    public AiController(ToolRegistry registry, GovernanceEngine engine, ToolCallPlanner planner,
-                                        ChatReplier replier, ConversationStore conversations,
+                    public AiController(ToolRegistry registry, ChatTurnService turns, GovernanceEngine engine,
                                         IdentityResolver identities) {
                         this.registry = registry;
+                        this.turns = turns;
                         this.engine = engine;
-                        this.planner = planner;
-                        this.replier = replier;
-                        this.conversations = conversations;
                         this.identities = identities;
                     }
 
@@ -2284,37 +2842,26 @@ public class JavaGenerator {
                         Principal principal =
                                 identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
                         String message = body.get("message") == null ? "" : String.valueOf(body.get("message"));
-
                         // The id is this application's to issue. One it never issued starts a new
                         // conversation rather than being adopted, so a caller cannot reach into somebody
                         // else's by naming it (see ConversationStore).
-                        String conversationId = conversations.openFor(
+                        ChatTurnService.Turn turn = turns.run(
+                                message,
+                                body.get("customerId"),
                                 body.get("conversationId") == null
                                         ? null : String.valueOf(body.get("conversationId")),
-                                principal.userId());
-                        conversations.append(conversationId, principal.userId(), ConversationMessage.USER, message);
+                                principal);
 
-                        Map<String, Object> context = new LinkedHashMap<>();
-                        context.put("customerId", body.get("customerId"));
-                        Proposal proposal = planner.plan(message, context).orElse(null);
-                        // The planner proposes; the engine decides. Nothing the planner returns can skip
-                        // this — risk, confirmation and audit are applied here and unconditionally.
-                        Map<String, Object> outcome = proposal == null
-                                ? null : engine.execute(proposal.tool(), proposal.args(), principal.userId());
-
-                        Reply reply = replier.reply(message, turns(conversationId), outcome);
-                        conversations.append(conversationId, principal.userId(), ConversationMessage.ASSISTANT,
-                                reply.text());
-
+                        Map<String, Object> outcome = turn.outcome();
                         Map<String, Object> answer = new LinkedHashMap<>();
-                        answer.put("conversationId", conversationId);
-                        answer.put("reply", reply.text());
-                        answer.put("provider", reply.provider());
-                        answer.put("model", reply.model());
+                        answer.put("conversationId", turn.conversationId());
+                        answer.put("reply", turn.reply().text());
+                        answer.put("provider", turn.reply().provider());
+                        answer.put("model", turn.reply().model());
                         // The tool this turn actually used. Omitted rather than sent empty when nothing was
                         // routed — the field means "these were called".
-                        if (proposal != null) {
-                            answer.put("toolCalls", List.of(proposal.tool()));
+                        if (turn.plan() != null) {
+                            answer.put("toolCalls", List.of(turn.plan().tool()));
                         }
                         answer.put("status", outcome == null ? null : outcome.get("status"));
                         answer.put("data", outcome == null ? null : outcome.get("data"));
@@ -2322,13 +2869,6 @@ public class JavaGenerator {
                         answer.put("effectId", outcome == null ? null : outcome.get("effectId"));
                         answer.put("error", outcome == null ? null : outcome.get("error"));
                         return answer;
-                    }
-
-                    /** The conversation so far, oldest first — the context a replier reads. */
-                    private List<ChatTurn> turns(String conversationId) {
-                        return conversations.history(conversationId).stream()
-                                .map(turn -> new ChatTurn(turn.getRole(), turn.getContent()))
-                                .toList();
                     }
 
                     @PostMapping("/ai/confirmations/{token}")
@@ -2355,7 +2895,7 @@ public class JavaGenerator {
                                 "decision must be approve or decline");
                     }
                 }
-                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg);
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
     }
 
     private String authController(String pkg) {

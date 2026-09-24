@@ -5,12 +5,16 @@
 #
 # `demo-golden-path.sh` answers "can the frontend talk to this runtime". JV-13's own row names the other
 # half of the question: a generated application serving that same frontend is the complete shape of "one
-# frontend, a Java application". This script produces that verdict — it is expected to be **red**, and
-# the red is the deliverable: it says where, and the two axes are probed separately so that one gap does
-# not hide the others.
+# frontend, a Java application". This script produces that verdict — and the two axes are probed
+# separately, so that one gap does not hide the others.
 #
 #   identity — the frontend authenticates with a delegation token; does a generated app accept one?
 #   shape    — with identity supplied the way this app expects it, do the frontend's payloads hold?
+#
+# It was written when the answer was red, and the red was the deliverable; the four gaps it named are
+# closed one by one in the private record, and the spec now walks the whole path. What it is for has not
+# changed: it is the thing that says where, and it says it against the frontend's own spec rather than a
+# probe written to agree with this application.
 #
 # Exit code is the spec's, i.e. this is a verdict, not a gate. Run it when the question is asked.
 set -euo pipefail
@@ -73,6 +77,12 @@ TOKEN="$(mvn -q -B -pl keelbase4j-demo exec:java \
   -Dexec.mainClass=cn.com.keelbase.demo.DevToken \
   -Dexec.args="alice $SECRET" 2>/dev/null | tail -1)"
 [ -n "$TOKEN" ] || { echo "  FAIL could not mint a token"; exit 1; }
+# The administrator's own token, so the console's streaming leg runs instead of being skipped. It is a
+# separate identity because the endpoint is chosen by role: an administrator talks to /admin/... .
+ADMIN_TOKEN="$(mvn -q -B -pl keelbase4j-demo exec:java \
+  -Dexec.mainClass=cn.com.keelbase.demo.DevToken \
+  -Dexec.args="carol $SECRET" 2>/dev/null | tail -1)"
+[ -n "$ADMIN_TOKEN" ] || { echo "  FAIL could not mint an administrator token"; exit 1; }
 BEARER=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/auth/me/permissions" \
   -H "Authorization: Bearer $TOKEN")
 echo "  bearer token on /auth/me/permissions -> $BEARER"
@@ -103,12 +113,18 @@ echo "  GET  /app/capabilities -> ${CAPS:0:120}"
 CHATSTREAM=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/ai/chat/stream" \
   -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -d '{"message":"hi"}')
 echo "  POST /ai/chat/stream -> $CHATSTREAM"
+if [ "$CHATSTREAM" = "200" ]; then
+  echo "  => the streaming channel is served (the console's own path, hop 5 of the spec below)"
+else
+  echo "  => GAP: the streaming channel is missing (the console's path cannot land)"
+fi
 
 echo
 echo "-- axis 3: the frontend's own spec, pointed at this app"
 cd "$FRONTEND_DIR"
 set +e
 VITE_API_BASE="$BASE" KEELBASE_GOLDEN_PATH_TOKEN="$TOKEN" \
+  KEELBASE_GOLDEN_PATH_ADMIN_TOKEN="$ADMIN_TOKEN" \
   npx vitest run src/api/golden-path.e2e.spec.ts
 SPEC=$?
 set -e

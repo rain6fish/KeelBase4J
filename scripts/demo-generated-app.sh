@@ -9,7 +9,8 @@
 #   2. generate the project (dev entry point)
 #   3. build the generated project into a runnable jar
 #   4. start it and exercise: read auto / write gated / approve / the effects list in the console's
-#      own shape / revoke with local compensation / audit verify / capability list / no-identity 401 /
+#      own shape / revoke with local compensation / the streaming channel (long-lived, decided from
+#      another request, gate on the management path) / audit verify / capability list / no-identity 401 /
 #      own-scope row filtering
 #
 # Exits non-zero if any expected outcome is missing. No network beyond Maven's own resolution.
@@ -70,7 +71,9 @@ stop_app() {
 echo "== 4/4 run and exercise the trust loop =="
 stop_app
 # Run from inside the generated project: its database is file-backed and belongs to the project.
-( cd "$ROOT/$GEN_DIR" && exec java -jar "$JAR" --server.port="$PORT" ) > "$ROOT/$GEN_DIR/app.log" 2>&1 &
+# The wait a stream holds for a decision is shortened here: the demo walks the expiry path too, and the
+# contract's own window (60s) would make that check slow rather than wrong.
+( cd "$ROOT/$GEN_DIR" && exec java -jar "$JAR" --server.port="$PORT" --keelbase.chat.stream-wait-ms=3000 ) > "$ROOT/$GEN_DIR/app.log" 2>&1 &
 APP_PID=$!
 trap stop_app EXIT
 
@@ -177,6 +180,56 @@ check "revoke marks the effect revoked" '"revokeStatus":"revoked"' "$REVOKED"
 AFTER_REVOKE=$(curl -s "$BASE/ai/tool-effects" -H "Authorization: Bearer $ALICE")
 check "and soft-deletes the row it created" '"targetSoftDeleted":true' "$AFTER_REVOKE"
 check "which is still there — deleted, not gone" '"targetExists":true' "$AFTER_REVOKE"
+
+# ── the streaming channel, which is the console's own path ─────────────────────────────────────────
+# The drawer approves *while the stream is open* — that is what the long-lived connection is for, and it
+# is why a stream that closed with the turn would not do. So: open the stream in the background, read the
+# events as they arrive, approve from this request, and check the decision comes back on that same
+# connection. The management endpoint is the one an administrator is sent to; it is the same handler, and
+# the gate is the whole difference.
+STREAM_LOG="$GEN_DIR/stream.log"
+: > "$STREAM_LOG"
+printf '%s' '{"message":"当前客户「Golden Path」（ID 1）。给客户建一条跟进记录"}' \
+  | curl -sN -X POST "$BASE/admin/ai/chat/stream" -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer $CAROL" --data-binary @- > "$STREAM_LOG" 2>&1 &
+STREAM_PID=$!
+STOKEN=""
+for _ in $(seq 1 40); do
+  sleep 0.5
+  STOKEN=$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$STREAM_LOG" | head -1)
+  [ -n "$STOKEN" ] && break
+done
+check "the stream reports the tool it started" '"tool_start"' "$(cat "$STREAM_LOG")"
+check "and asks for the confirmation the write waits on" '"confirmation_request"' "$(cat "$STREAM_LOG")"
+# No client sends a customer id — the console names the customer in the message text. The turn reads that
+# reference out of the transcript, or the write lands attached to nobody.
+check "the write is attached to the customer the message named" '"customerId":1' "$(cat "$STREAM_LOG")"
+[ -n "$STOKEN" ] || { echo "  FAIL the stream never handed over a confirmation token"; fail=1; }
+curl -s -o /dev/null -X POST "$BASE/ai/confirmations/$STOKEN" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $CAROL" -d '{"decision":"approve"}'
+wait $STREAM_PID 2>/dev/null || true
+STREAM=$(cat "$STREAM_LOG")
+check "the decision arrives on the stream that was still open" '"confirmation_decision"' "$STREAM"
+check "and says the write it approved ran" '"success":true' "$STREAM"
+check "the stream then closes with the conversation" '"done"' "$STREAM"
+ECANARY="tool_start,text,confirmation_request,confirmation_decision,tool_end,done,"
+check "the events arrive in the order the console renders" "$ECANARY" \
+  "$(printf '%s' "$STREAM" | grep -o '"type":"[a-z_]*"' | sed 's/"type":"//;s/"//' | tr '\n' ',')"
+
+# A wait nothing decides must close on its own terms — `done`, and **no** decision: nothing here expires
+# a confirmation, so the write is still decidable out of band, and a stream saying otherwise would be
+# claiming something the data does not support.
+EXPIRY="$GEN_DIR/expiry.log"
+printf '%s' '{"message":"给客户建一条跟进记录","customerId":1}' \
+  | curl -sN -X POST "$BASE/ai/chat/stream" -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer $CAROL" --data-binary @- > "$EXPIRY" 2>&1 || true
+check "an undecided wait closes with done" '"done"' "$(cat "$EXPIRY")"
+check_absent "and carries no decision it cannot support" '"confirmation_decision"' "$(cat "$EXPIRY")"
+
+# The gate on the management endpoint, which is the only difference between the two paths.
+GATE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/admin/ai/chat/stream" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $ALICE" -d '{"message":"hi"}')
+check "the management stream is closed to a plain user (403)" "403" "$GATE"
 
 # ── own scope, on its own ───────────────────────────────────────────────────────────────────────
 # The base spec carries no policy, so a plain user holds `update` — whatever produces the 403 below,

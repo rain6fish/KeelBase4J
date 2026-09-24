@@ -184,8 +184,21 @@ class GeneratorTest {
             assertTrue(ai.contains("answer.put(\"" + field + "\""),
                     "/ai/chat must answer the reference field '" + field + "'");
         }
-        assertTrue(ai.contains("planner.plan(message, context)"), "a turn goes through the planner");
-        assertTrue(ai.contains("replier.reply("), "and is answered by the replier");
+        // The turn is one implementation shared by both endpoints (ADR-0014 D7): the plain controller
+        // delegates to it, and no second copy of the sequence exists anywhere in the generated sources.
+        String turnService = Files.readString(
+                out.resolve("src/main/java/com/example/crm/web/ChatTurnService.java"));
+        assertTrue(turnService.contains("planner.plan(message, context)"), "a turn goes through the planner");
+        assertTrue(turnService.contains("engine.execute(plan.tool(), plan.args()"), "and the engine disposes");
+        assertTrue(turnService.contains("replier.reply("), "and the replier answers");
+        assertTrue(ai.contains("turns.run("), "the plain endpoint delegates to that one turn");
+        int turnImplementations = 0;
+        for (File source : javaFiles(out.resolve("src/main/java"))) {
+            if (Files.readString(source.toPath()).contains("planner.plan(message, context)")) {
+                turnImplementations++;
+            }
+        }
+        assertEquals(1, turnImplementations, "the turn sequence exists once, not once per endpoint");
         assertFalse(ai.contains("getOrDefault(\"tool\""),
                 "the tool-name-in shape must be gone, not kept alongside");
         assertTrue(ai.contains("@GetMapping(\"/ai/tools\")"), "the tool list stays");
@@ -220,6 +233,30 @@ class GeneratorTest {
         assertTrue(writeTool.contains("return \"follow_up\";"),
                 "the write tool answers the spec's result type here");
 
+        // The streaming channel (ADR-0014): the console's own path — two endpoints, one handler, and the
+        // event names it renders in order. A generated app that answered 404 here is the gap this closes.
+        String stream = Files.readString(
+                out.resolve("src/main/java/com/example/crm/web/ChatStreamController.java"));
+        assertTrue(stream.contains("@PostMapping(\"/ai/chat/stream\")"), "the streaming endpoint");
+        assertTrue(stream.contains("@PostMapping(\"/admin/ai/chat/stream\")"),
+                "and the one an administrator is sent to");
+        assertTrue(stream.contains("principal.isManager()"),
+                "the management path is gated by the role, not by a second assistant");
+        for (String event : List.of("tool_start", "text", "confirmation_request",
+                "confirmation_decision", "tool_end", "done")) {
+            assertTrue(stream.contains("send(emitter, \"" + event + "\""),
+                    "the console renders '" + event + "'");
+        }
+        assertTrue(stream.contains("watchers.watch("), "the stream waits on the token a decision arrives by");
+        assertTrue(stream.contains("watchers.expired(token)"),
+                "and its wait has a deadline of its own, ahead of the connection's");
+        assertTrue(stream.contains("ConfirmationLifecycle.DEFAULT_TTL_MILLIS"),
+                "whose length is the contract's, not a number restated here");
+        String watchersFile = Files.readString(
+                out.resolve("src/main/java/com/example/crm/ai/ConfirmationWatchers.java"));
+        assertTrue(watchersFile.contains("waiting.remove(token)"),
+                "delivering removes the waiter first, so a decision and an expiry cannot both land");
+
         // The README has to say what the answer is, or "deterministic fallback" reads as a model the
         // deployment forgot to configure.
         String readme = Files.readString(out.resolve("README.md"));
@@ -230,6 +267,9 @@ class GeneratorTest {
         assertTrue(readme.contains("## Side effects"), "the README documents the effects surface");
         assertTrue(readme.contains("`conversationId` is **null**"),
                 "including the field left null, and why it is null rather than made up");
+        assertTrue(readme.contains("## Streaming"), "the README documents the streaming channel");
+        assertTrue(readme.contains("Why it stays open"), "including why the stream is long-lived");
+        assertTrue(readme.contains("in-process"), "and that the registry behind it is in-process");
 
         // The generated project consumes a *published* coordinate, so the version in its pom has to be
         // the one this build publishes. It is filtered from the project version for that reason; this
