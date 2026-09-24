@@ -44,7 +44,7 @@ jobs:
 
       # ci.yml gates this on main and on pull requests, but a tag can be cut from a commit that never
       # went through either — and publishing an implementation whose vendored vectors have drifted
-      # from the authoritative copy is exactly the divergence this repository exists not to produce.
+      # from the copies they come from is exactly the divergence this repository exists not to produce.
       - name: Check out the contract, at the version this repository answers for
         uses: actions/checkout@v5
         with:

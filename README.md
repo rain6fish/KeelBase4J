@@ -142,8 +142,8 @@ Read this section before quoting anything above.
    that adds governance to an existing system is a separate repository
    (`rain6fish/KeelBase-java-starter`).
 5. **Not a replacement for the main repository.** This repository only *consumes* the protocol.
-   Protocol changes land in the main repo first (vectors → implementation); a divergence is caught
-   by CI, not tolerated.
+   Protocol changes land in the contract repository first (vectors → implementation); a divergence is
+   caught by CI, not tolerated.
 6. **Not production-tier data or identity.** The runtime's datastore is in-memory H2, its
    authorization rules are declared in code, and there is no IdP, no `roles`/`permissions` table and
    no multi-tenancy. A real directory or IdP is an adapter behind the same seam — not built here.
@@ -273,15 +273,14 @@ version a runtime answers for** — which objects it has committed to speaking.
 |---|---|---|
 | [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `v1.0.11` | **v1.0.1** — carried in-tree; that release predates the contract repository |
 | [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `main`, **unreleased** | **v1.1.0** — bound as a submodule |
-| `KeelBase4J` (Java) | `v0.1.0` | **v1.1.0** — vendored snapshot, refreshed from the main repository |
+| `KeelBase4J` (Java) | `v0.1.0` | **v1.1.0** — vendored snapshot, taken from the contract repository |
 
-The snapshot under `conformance/vectors/` is a copy, and the chain it comes down is worth knowing: the
-contract lives in its own repository, the main repository binds it as a submodule, and this snapshot is
-refreshed from the main repository. So it is a **copy of a copy**, and the drift gate in CI checks the
-**last link only** — it catches this snapshot falling behind the main repository, and it does not catch
-the main repository falling behind the contract.
-
-Closing that gap is a separate step, still to be taken.
+The snapshot under `conformance/vectors/` has two sources, and CI checks both: the **protocol half**
+comes straight from the contract repository — at the version this repository answers for, not through a
+repository that consumes it — and the **scenario packs** come from the main repository, which is where
+they live. The chain that once made this a **copy of a copy** is therefore gone for the protocol: the
+drift gate compares the snapshot against the contract itself, so the main repository falling behind the
+contract can no longer hide here either.
 
 ## Documentation
 

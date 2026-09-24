@@ -3,8 +3,10 @@
 # The point of this repository is that a Java implementation reproduces the language-neutral
 # vectors of the KeelBase AI Governance Protocol. CI proves exactly that, on every push:
 #   1. conformance — the implementation still reproduces the vendored vectors;
-#   2. vector-drift — the vendored vectors still match the authoritative copy in the main repo
-#      (they must never be hand-edited here; a divergence means one side moved without the other).
+#   2. vector-drift — the vendored vectors still match the copies they are refreshed from: the
+#      contract repository, at the version this repository answers for, plus the main repo's scenario
+#      packs, which are not part of the contract. They must never be hand-edited here; a divergence
+#      means one side moved without the other.
 name: CI
 
 on:

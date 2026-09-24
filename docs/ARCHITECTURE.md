@@ -32,9 +32,9 @@ repository** (`rain6fish/keelbase-contract`), while the prose half stays in
 | Conformance evidence | this repo `mvn test` — the whole suite, green (the CI badge is the live count) | proves cross-runtime parity (CE-1 role ③) |
 
 The vendored vectors are a read-only snapshot and the contract repository is authoritative for them.
-CI job `vector-drift` diffs the snapshot against the copy it is refreshed from, so the last link cannot
-silently diverge; `conformance/vectors/README.md` states which source that is today, and what the gate
-does and does not cover.
+CI job `vector-drift` diffs the snapshot against the sources it is refreshed from — the contract, at a
+pinned version, and the main repo's scenario packs — so neither half can diverge unnoticed;
+`conformance/vectors/README.md` states the two sources and what the gate covers.
 
 ---
 
@@ -301,7 +301,7 @@ bash scripts/demo-springai.sh         # a real model on the planner seam (needs 
 ```
 
 CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-drift`
-(diff the vendored vectors against their refresh source). Publishing runs on a `v*` tag
+(diff the vendored vectors against the sources they are refreshed from). Publishing runs on a `v*` tag
 (`.github/workflows/release.yml`): the parent pom and `keelbase4j-protocol` are signed and uploaded to
 Maven Central, which is why a generated project can resolve its dependency without a local install.
 

@@ -11,7 +11,7 @@ import java.util.Map;
  * {@code JSON.stringify(payload, sortedKeys)} where {@code sortedKeys} is the array of top-level
  * keys (undefined dropped) sorted lexicographically.
  *
- * <p>Behaviour this deliberately reproduces (see {@code specs/protocol/canonical-json-v1-vector.json}):
+ * <p>Behaviour this deliberately reproduces (see the vendored {@code canonical-json-v1-vector.json}):
  * <ul>
  *   <li>the key list is the <em>top-level</em> object's keys, sorted with UTF-16 code-unit order
  *       (Java's {@link String#compareTo} is the same ordering);</li>

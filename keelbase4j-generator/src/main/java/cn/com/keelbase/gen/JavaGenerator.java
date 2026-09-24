@@ -2948,7 +2948,7 @@ public class JavaGenerator {
 
     /**
      * Builds the two frozen REST shapes — {@code api-response} for success, {@code error-body} for
-     * failure (main repo {@code specs/protocol/schemas/v1}).
+     * failure (the frozen contract's {@code schemas/v1}).
      *
      * <p>Both carry the same four keys deliberately: a client reads {@code code} / {@code message} /
      * {@code data} / {@code timestamp} whichever way the request went, and only {@code data} differs

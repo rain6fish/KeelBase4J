@@ -9,7 +9,7 @@ import java.util.Map;
 
 /**
  * Builds the two frozen REST shapes — {@code api-response} for success and {@code error-body} for
- * failure (main repo {@code specs/protocol/schemas/v1}).
+ * failure (the frozen contract's {@code schemas/v1}).
  *
  * <p>They are the same four keys deliberately: a client reads {@code code} / {@code message} /
  * {@code data} / {@code timestamp} whichever way the request went, and only {@code data} differs in

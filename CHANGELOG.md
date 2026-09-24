@@ -5,8 +5,8 @@ All notable changes to this project are documented in this file. The format foll
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 This repository is a conformance implementation, so its version describes *this implementation* — not
-the protocol. The protocol is frozen in the main repository and is cited by contract version there;
-a number in this file never renames or re-versions a contract.
+the protocol. The protocol is frozen in its own repository (`rain6fish/keelbase-contract`) and is cited
+by contract version; a number in this file never renames or re-versions a contract.
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
@@ -25,7 +25,8 @@ application depends on.
   Protocol in pure Java, with **no third-party runtime dependency**: canonical JSON, the audit hash
   chain, the delegation token, risk levels, the governance binding, the confirmation lifecycle, and
   the permission/authorization wire contracts. The vendored vectors reproduce on every build, and CI
-  diffs that snapshot against the main repository so neither side can move alone.
+  diffs that snapshot against the sources it comes from — the contract, at the version this repository
+  answers for, plus the main repository's scenario packs — so neither side can move alone.
 - **The runtime** (`keelbase4j-runtime`) — a Spring Boot application whose AI operations run only
   inside the trust loop: Identity → Permission → Governance → Confirmation → Audit → Revoke.
   Delegation-token authentication at the request entry; authorization decided by the frozen contracts

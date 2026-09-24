@@ -16,8 +16,9 @@ import org.junit.jupiter.api.DynamicTest;
  * Loads the frozen language-neutral vectors.
  *
  * <p>The vector directory is the {@code keelbase.vectors.dir} system property (set by surefire to
- * the vendored {@code conformance/vectors}). The vendored copy is a snapshot of
- * {@code KeelBase/Server-NestJS/specs/protocol} — the authoritative source stays in the main repo.
+ * the vendored {@code conformance/vectors}). That copy is a snapshot of the contract repository
+ * ({@code rain6fish/keelbase-contract}), which is authoritative for it; {@code scripts/sync-vectors.sh}
+ * refreshes it and CI gates it, so nothing here is hand-edited.
  */
 public final class Vectors {
 

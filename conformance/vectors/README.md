@@ -3,11 +3,11 @@
 This directory is a **read-only snapshot** of the protocol contract — the vectors, the wire schemas
 they belong to, and the behaviour-level scenario packs whose `replay` is the neutral-replay corpus.
 The machine-readable contract itself lives in the **contract repository**
-(`rain6fish/keelbase-contract`); this snapshot is refreshed from the main repository's protocol
-directory today (see the provenance note below). The copy mapping:
+(`rain6fish/keelbase-contract`), and the protocol half of this snapshot is taken from there; the
+scenario packs come from the main repository, which is where they live. The copy mapping:
 
 ```
-KeelBase/Server-NestJS/specs/protocol/          → this directory
+rain6fish/keelbase-contract/                    → this directory
 ├── canonical-json-v1-vector.json
 ├── audit-hash-v1-vector.json
 ├── delegation-token-v1-vector.json
@@ -56,7 +56,7 @@ Whether scenario packs belong in the contract is an open question, and this snap
 it by pretending they already do. The drift gate checks both sources, so neither half can rot
 unnoticed.
 
-> **Coverage note**: the snapshot mirrors the main repo's protocol directory, so it can hold a
+> **Coverage note**: the snapshot mirrors the contract's own directory, so it can hold a
 > vector or schema that no Java test consumes. `confirmation-lifecycle-v1` is one: the lifecycle is
 > consumed at **v2** now, and v1 is kept here as protocol history.
 >
