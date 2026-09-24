@@ -45,18 +45,22 @@ jobs:
       # ci.yml gates this on main and on pull requests, but a tag can be cut from a commit that never
       # went through either — and publishing an implementation whose vendored vectors have drifted
       # from the authoritative copy is exactly the divergence this repository exists not to produce.
-      - name: Check out the main repo's vectors
+      - name: Check out the contract, at the version this repository answers for
+        uses: actions/checkout@v5
+        with:
+          repository: rain6fish/keelbase-contract
+          ref: v1.1.0
+          path: contract-repo
+
+      - name: Check out the main repo's scenario packs
         uses: actions/checkout@v5
         with:
           repository: rain6fish/KeelBase
           ref: main
           path: main-repo
-          # See ci.yml: the main repo binds the contract as a submodule, so without this the
-          # upstream vector directory is empty and the drift gate fails for the wrong reason.
-          submodules: true
 
-      - name: Vendored vectors must match the main repo
-        run: scripts/sync-vectors.sh main-repo --check
+      - name: Vendored snapshot must match its sources
+        run: scripts/sync-vectors.sh --check --contract contract-repo --main main-repo
 
       # A tag release cannot be taken back, so what it publishes is checked rather than assumed. The
       # set is the *reactor*, not a per-module deploy flag: the first attempt at this shipped every

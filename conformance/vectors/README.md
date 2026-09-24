@@ -34,22 +34,27 @@ This copy exists so the Java project is self-contained and buildable offline.
 
 ## Rules
 
-- **Do not hand-edit.** To refresh, run `scripts/sync-vectors.sh [SOURCE_DIR]` — it copies every
-  `*-vector.json`, `wire-schema-registry.json` and `schemas/**/*.json`, plus every `*.json` under the
-  scenarios directory, and normalises line endings to LF.
+- **Do not hand-edit.** To refresh, run `scripts/sync-vectors.sh` — it copies every
+  `*-vector.json`, `wire-schema-registry.json` and `schemas/**/*.json` from the contract repository,
+  plus every `*.json` under the scenarios directory, and normalises line endings to LF.
 - A protocol change is made in the contract repository first (vector → then implementations), never
   here. Scenario packs and the semantic-change checklist still live in the main repo.
 - The vector files intentionally contain **no timestamps** — deterministic and diff-able.
 
-**Corresponds to `keelbase-contract` `v1.0.0`** — every vendored file verified byte-identical against
-the contract repository (2026-09-21; `sync-vectors.sh --check` prints the current file count, which is
-why this line does not carry one). This is the version to cite; the contract is the source from here on.
+**Corresponds to `keelbase-contract` `v1.1.0`** — every vendored file verified byte-identical against
+that tag, which is the version CI checks out and compares against (`sync-vectors.sh --check` prints
+the current file count, which is why this line does not carry one).
 
-Copied: 2026-09-20 from `Server-NestJS/specs/protocol/` (main repo `79f32a49`) via
-`scripts/sync-vectors.sh`. That main-repo directory is **still the refresh source**: pointing it at the
-contract repository is a step in progress, which is why `--check` prints the source it compared
-against. Until it moves, the drift gate covers the last link of the chain — this snapshot versus the
-main repo — and not the main repo versus the contract.
+## The two sources
+
+| Vendored set | Source | Why there |
+|---|---|---|
+| `protocol/` — vectors, registry, schemas | the **contract repository**, at `v1.1.0` | it is the contract; this repository consumes it, and a version — not `main` — is what a consumer can be pinned to |
+| `scenarios/` — scenario packs | the **main repository** (`Server-NestJS/specs/scenarios/`) | scenario packs are not contract content, so they are still taken from where they live |
+
+Whether scenario packs belong in the contract is an open question, and this snapshot does not answer
+it by pretending they already do. The drift gate checks both sources, so neither half can rot
+unnoticed.
 
 > **Coverage note**: the snapshot mirrors the main repo's protocol directory, so it can hold a
 > vector or schema that no Java test consumes. `confirmation-lifecycle-v1` is one: the lifecycle is

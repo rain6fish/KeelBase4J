@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# Refresh — or verify — the vendored contract snapshot against the authoritative main repo.
+# Refresh — or verify — the vendored contract snapshot against its two sources.
 #
 # conformance/vectors/ is a READ-ONLY snapshot of
-#   <main-repo>/Server-NestJS/specs/protocol/     → conformance/vectors/
+#   <contract-repo>/                              → conformance/vectors/
 #   <main-repo>/Server-NestJS/specs/scenarios/    → conformance/vectors/scenarios/
-# The source of truth stays in the main repo (its CI keeps the gold samples evergreen).
+# The protocol half comes from the contract repository — that is where the contract lives, and it is
+# what this repository is a consumer of. The scenario half comes from the main repository: scenario
+# packs are not part of the contract, so they are still taken from where they live.
 # Never hand-edit the vendored copies — run this instead.
 #
-#   scripts/sync-vectors.sh [MAIN_REPO_DIR]            # refresh the snapshot (copy)
-#   scripts/sync-vectors.sh [--check] [MAIN_REPO_DIR]  # verify only; write nothing; exit 1 on drift
-#   MAIN_REPO_DIR=/path/to/KeelBase scripts/sync-vectors.sh
+#   scripts/sync-vectors.sh [--check] [--contract DIR] [--main DIR]   # refresh (copy)
+#   scripts/sync-vectors.sh --check [--contract DIR] [--main DIR]     # verify only; exit 1 on drift
+#   CONTRACT_DIR=/path/to/keelbase-contract MAIN_REPO_DIR=/path/to/KeelBase scripts/sync-vectors.sh
 #
 # The vendored set is the contract the Java tests read, not just the vectors:
 #   *-vector.json                    the language-neutral conformance vectors
@@ -29,31 +31,51 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/conformance/vectors"
 
 CHECK=0
-MAIN_REPO_DIR=""
-for arg in "$@"; do
-  case "$arg" in
+CONTRACT_DIR="${CONTRACT_DIR:-}"
+MAIN_REPO_DIR="${MAIN_REPO_DIR:-}"
+while [ $# -gt 0 ]; do
+  case "$1" in
     --check) CHECK=1 ;;
+    --contract) CONTRACT_DIR="$2"; shift ;;
+    --main) MAIN_REPO_DIR="$2"; shift ;;
     -h | --help)
-      sed -n '3,24p' "$0"
+      sed -n '3,22p' "$0"
       exit 0
       ;;
-    *) MAIN_REPO_DIR="$arg" ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
+  shift
 done
-if [ -z "$MAIN_REPO_DIR" ]; then
-  MAIN_REPO_DIR="$(cd "$ROOT/../KeelBase" 2>/dev/null && pwd || true)"
-fi
+[ -n "$CONTRACT_DIR" ] || CONTRACT_DIR="$(cd "$ROOT/../keelbase-contract" 2>/dev/null && pwd || true)"
+[ -n "$MAIN_REPO_DIR" ] || MAIN_REPO_DIR="$(cd "$ROOT/../KeelBase" 2>/dev/null && pwd || true)"
 
-SRC_SPECS="$MAIN_REPO_DIR/Server-NestJS/specs"
-if [ -z "$MAIN_REPO_DIR" ] || [ ! -d "$SRC_SPECS/protocol" ]; then
-  echo "cannot locate the main repo's specs directory." >&2
-  echo "pass it as an argument or set MAIN_REPO_DIR; expected: <main-repo>/Server-NestJS/specs" >&2
+# Where each vendored set comes from. `protocol` is the contract repository itself — it is the
+# authority this repository consumes. `scenarios` are behaviour-level replay packs which are NOT part
+# of the contract, so they still come from the main repository; whether they belong in the contract is
+# an open question, and this script deliberately does not answer it by pretending they do.
+src_dir_for() { # $1 = spec subdir
+  case "$1" in
+    protocol) printf '%s' "$CONTRACT_DIR" ;;
+    *) printf '%s/%s' "$MAIN_REPO_DIR/Server-NestJS/specs" "$1" ;;
+  esac
+}
+
+if [ -z "$CONTRACT_DIR" ] || [ ! -d "$CONTRACT_DIR/schemas" ]; then
+  echo "cannot locate the contract repository (expected its root, containing schemas/)." >&2
+  echo "pass --contract DIR or set CONTRACT_DIR" >&2
   exit 2
 fi
-if [ "$SRC_SPECS" = "$(dirname "$DEST")" ]; then
-  echo "refusing to operate on the same directory: $SRC_SPECS" >&2
+if [ -z "$MAIN_REPO_DIR" ] || [ ! -d "$MAIN_REPO_DIR/Server-NestJS/specs/scenarios" ]; then
+  echo "cannot locate the main repo's scenarios directory." >&2
+  echo "pass --main DIR or set MAIN_REPO_DIR; expected: <main-repo>/Server-NestJS/specs/scenarios" >&2
   exit 2
 fi
+for d in "$CONTRACT_DIR" "$MAIN_REPO_DIR/Server-NestJS/specs"; do
+  if [ "$d" = "$(dirname "$DEST")" ]; then
+    echo "refusing to operate on the same directory: $d" >&2
+    exit 2
+  fi
+done
 
 # The vendored spec subdirectories, and where each lands. `protocol` keeps the snapshot root (the
 # layout readers and the schemas' relative $refs already depend on); anything else gets its own
@@ -67,11 +89,13 @@ dest_for() { # $1 = spec subdir, $2 = path relative to it
 }
 
 if [ "$CHECK" -eq 1 ]; then
-  echo "check: vendored snapshot vs $SRC_SPECS"
+  echo "check: vendored snapshot vs the contract ($CONTRACT_DIR) + scenarios ($MAIN_REPO_DIR/Server-NestJS/specs)"
 else
-  echo "source: $SRC_SPECS"
+  echo "source: contract $CONTRACT_DIR"
+  echo "        scenarios $MAIN_REPO_DIR/Server-NestJS/specs"
   if git -C "$MAIN_REPO_DIR" rev-parse --short HEAD >/dev/null 2>&1; then
-    echo "        @ $(git -C "$MAIN_REPO_DIR" rev-parse --short HEAD) ($(git -C "$MAIN_REPO_DIR" log -1 --format=%ad --date=format:'%Y-%m-%d %H:%M'))"
+    echo "        contract @ $(git -C "$CONTRACT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
+    echo "        main     @ $(git -C "$MAIN_REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   fi
   echo "dest:   $DEST"
 fi
@@ -83,7 +107,7 @@ norm() { tr -d '\r' < "$1"; }
 list_files() { # $1 = spec subdir
   local sub="$1"
   (
-    cd "$SRC_SPECS/$sub" 2>/dev/null || return 0
+    cd "$(src_dir_for "$sub")" 2>/dev/null || return 0
     case "$sub" in
       protocol)
         find . -type f \( -name '*-vector.json' -o -name 'wire-schema-registry.json' \) -print
@@ -105,7 +129,7 @@ sync_one() { # $1 = spec subdir
   # 1) everything upstream must be present here, byte-identical (after LF normalisation).
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
-    src="$SRC_SPECS/$sub/$rel"
+    src="$(src_dir_for "$sub")/$rel"
     dst="$(dest_for "$sub" "$rel")"
     if [ ! -e "$dst" ]; then
       missing=$((missing + 1))
@@ -136,9 +160,9 @@ sync_one() { # $1 = spec subdir
   # 2) nothing here may be absent upstream (a stale or renamed vector/schema/pack).
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
-    if [ ! -e "$SRC_SPECS/$sub/$rel" ]; then
+    if [ ! -e "$(src_dir_for "$sub")/$rel" ]; then
       extra=$((extra + 1))
-      echo "  extra    $sub/$rel (not in the main repo)"
+      echo "  extra    $sub/$rel (not in its source)"
     fi
   done < <(list_vendored "$sub")
 }
@@ -170,10 +194,10 @@ done
 drift=$((missing + changed + extra))
 if [ "$CHECK" -eq 1 ]; then
   if [ "$drift" -ne 0 ]; then
-    echo "::error::vendored contract drifted from the main repo ($drift file(s)) — run scripts/sync-vectors.sh to refresh" >&2
+    echo "::error::vendored snapshot drifted from its sources ($drift file(s)) — run scripts/sync-vectors.sh to refresh" >&2
     exit 1
   fi
-  echo "vendored contract matches the main repo ($same files, no drift)."
+  echo "vendored snapshot matches its sources ($same files, no drift)."
 else
   echo "synced: $same unchanged, $changed changed, $missing missing, $extra extra."
   if [ "$drift" -eq 0 ]; then echo "snapshot already up to date."; fi

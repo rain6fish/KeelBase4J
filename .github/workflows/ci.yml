@@ -28,23 +28,27 @@ jobs:
         run: mvn -B -ntp verify
 
   vector-drift:
-    name: Vendored vectors match the main repo
+    name: Vendored snapshot matches its sources
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      # The authoritative vectors live in the main repo. It is checked out (rather than fetched
-      # file-by-file against a hard-coded list) so the same script that refreshes the snapshot
-      # also gates it: one implementation, and it catches vectors that are missing here or stale,
-      # not just ones whose content changed.
-      - name: Check out the main repo's vectors
+      # The snapshot has two sources, and the gate checks both by checking out both: the same script
+      # that refreshes it also gates it, so it catches files that are missing here or stale, not just
+      # ones whose content changed.
+      - name: Check out the contract, at the version this repository answers for
+        uses: actions/checkout@v5
+        with:
+          repository: rain6fish/keelbase-contract
+          # Pinned to a version, deliberately not `main`: a consumer that tracks `main` is not pinned
+          # to anything, and this repository's compatibility claim is a version, not a moving target.
+          ref: v1.1.0
+          path: contract-repo
+      # Scenario packs are not part of the contract, so they are still taken from where they live.
+      - name: Check out the main repo's scenario packs
         uses: actions/checkout@v5
         with:
           repository: rain6fish/KeelBase
           ref: main
           path: main-repo
-          # The contract now lives in its own repository and the main repo binds it as a submodule.
-          # Without this, `specs/protocol/` arrives as an empty directory and every vendored file is
-          # reported "not in the main repo" — a red that says nothing about the snapshot.
-          submodules: true
-      - name: Vendored vectors must match the main repo
-        run: scripts/sync-vectors.sh main-repo --check
+      - name: Vendored snapshot must match its sources
+        run: scripts/sync-vectors.sh --check --contract contract-repo --main main-repo
