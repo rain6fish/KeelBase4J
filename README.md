@@ -273,19 +273,15 @@ version a runtime answers for** — which objects it has committed to speaking.
 |---|---|---|
 | [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `v1.0.11` | **v1.0.1** — carried in-tree; that release predates the contract repository |
 | [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `main`, **unreleased** | **v1.1.0** — bound as a submodule |
-| `KeelBase4J` (Java) | `v0.1.0` | **v1.0.1** — vendored snapshot |
+| `KeelBase4J` (Java) | `v0.1.0` | **v1.1.0** — vendored snapshot, refreshed from the main repository |
 
-**This runtime is one contract version behind**, and the table says so rather than leaving it to be
-discovered. Two things follow from that, and neither is an accident:
+The snapshot under `conformance/vectors/` is a copy, and the chain it comes down is worth knowing: the
+contract lives in its own repository, the main repository binds it as a submodule, and this snapshot is
+refreshed from the main repository. So it is a **copy of a copy**, and the drift gate in CI checks the
+**last link only** — it catches this snapshot falling behind the main repository, and it does not catch
+the main repository falling behind the contract.
 
-- The snapshot under `conformance/vectors/` is refreshed from the main repository, not from the
-  contract repository. Moving that source is a separate step, still to be taken — so this runtime
-  currently tracks a *copy of a copy*.
-- Until it is taken, re-syncing is routine work rather than something the build will fail on. Nothing
-  reports the drift.
-
-A runtime behind the current contract is not broken; it simply does not yet answer for the newer
-version's objects, and what moves it forward is a deliberate act.
+Closing that gap is a separate step, still to be taken.
 
 ## Documentation
 
