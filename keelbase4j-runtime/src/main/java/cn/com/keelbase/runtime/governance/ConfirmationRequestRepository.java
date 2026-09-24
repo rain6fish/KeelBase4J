@@ -46,4 +46,22 @@ public interface ConfirmationRequestRepository extends JpaRepository<Confirmatio
             + "where r.token = :token and r.operatorId = :operatorId and r.status = :from")
     int claim(@Param("token") String token, @Param("operatorId") String operatorId,
               @Param("from") String from, @Param("to") String to, @Param("at") Instant at);
+
+    /**
+     * Claim a still-{@code pending} row for this operator <em>outside the conversation</em> — the
+     * offline window is part of the condition, so a row whose window has closed cannot be moved here
+     * at all.
+     *
+     * <p>The window belongs in the condition for the same reason the status does: read the row, check
+     * the clock, then update, and a window closing in between still lets the decision through. The
+     * frozen lifecycle says an expired decision is rejected with no transition, and a condition is the
+     * only way to say that and mean it.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("update ConfirmationRequest r set r.status = :to, r.decidedAt = :at "
+            + "where r.token = :token and r.operatorId = :operatorId and r.status = :from "
+            + "and r.createdAt >= :cutoff")
+    int decideOutOfBand(@Param("token") String token, @Param("operatorId") String operatorId,
+                        @Param("from") String from, @Param("to") String to, @Param("at") Instant at,
+                        @Param("cutoff") Instant cutoff);
 }

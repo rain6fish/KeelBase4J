@@ -15,6 +15,7 @@ import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.tool.AiTool;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import cn.com.keelbase.runtime.tool.ToolResult;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -88,25 +89,67 @@ public class GovernedExecutionEngine {
      * either records.
      */
     public ExecutionOutcome approve(String token, Principal principal) {
-        ConfirmationRequest req = confirmations.claim(token, principal, ConfirmationLifecycle.APPROVED);
-        AiTool tool = registry.require(req.getToolName());
-        audit.append("tool_confirmation", principal.userId(), tool.name() + " approved");
-        ExecutionOutcome outcome = run(tool, parseArgs(req.getArgsJson()), principal);
-        req.setResultId(outcome.effectId());
-        confirmations.save(req);
-        // Last, and after the row is durable: whoever is watching the stream is told once the decision
-        // is a fact, not before.
-        watchers.decided(token, decision("approve", req.getToolName(), outcome));
-        return outcome;
+        return performApproval(confirmations.claim(token, principal, ConfirmationLifecycle.APPROVED),
+                principal, ConfirmationLifecycle.IN_BAND);
     }
 
     /** Decline a pending confirmation — nothing is written. */
     public ExecutionOutcome decline(String token, Principal principal) {
-        ConfirmationRequest req = confirmations.claim(token, principal, ConfirmationLifecycle.DECLINED);
-        audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined");
+        return performDecline(confirmations.claim(token, principal, ConfirmationLifecycle.DECLINED),
+                principal, ConfirmationLifecycle.IN_BAND);
+    }
+
+    /**
+     * Decide this operator's confirmation from outside the conversation — the Action Center, after the
+     * dialogue has been left (ADR-0015).
+     *
+     * <p>Same transitions as the in-band path and the same single execution, because the claim still
+     * comes first; what differs is the guards, which are the frozen lifecycle's out-of-band ones, and
+     * the fact that a lost claim is reported as a no-op instead of raised as a conflict.
+     */
+    public OutOfBandDecision decideOutOfBand(String token, Principal principal, String decision) {
+        ConfirmationStore.OutOfBandResult result = confirmations.decideOutOfBand(token, principal, decision,
+                Instant.now(), ConfirmationLifecycle.DEFAULT_OFFLINE_TTL_MILLIS);
+        return switch (result.outcome()) {
+            case NOT_FOUND -> new OutOfBandDecision(false, null, null, "not found");
+            case ALREADY_DECIDED -> new OutOfBandDecision(false, null, null, "already decided");
+            case EXPIRED -> new OutOfBandDecision(false, null, null, "the offline window has closed");
+            case DECIDED -> {
+                ExecutionOutcome outcome = ConfirmationLifecycle.APPROVE.equals(decision)
+                        ? performApproval(result.request(), principal, ConfirmationLifecycle.OUT_OF_BAND)
+                        : performDecline(result.request(), principal, ConfirmationLifecycle.OUT_OF_BAND);
+                yield new OutOfBandDecision(true, "executed".equals(outcome.status()), outcome.effectId(),
+                        outcome.error());
+            }
+        };
+    }
+
+    /**
+     * The approval tail, shared by both decision paths: audit, execute, record the effect, then tell
+     * whoever is watching.
+     *
+     * <p>{@code via} is recorded in the audit because the frozen lifecycle says a decision carries
+     * where it was taken; the state machine does not fork on it, and neither does the wire.
+     */
+    private ExecutionOutcome performApproval(ConfirmationRequest req, Principal principal, String via) {
+        AiTool tool = registry.require(req.getToolName());
+        audit.append("tool_confirmation", principal.userId(), tool.name() + " approved (" + via + ")");
+        ExecutionOutcome outcome = run(tool, parseArgs(req.getArgsJson()), principal);
+        req.setResultId(outcome.effectId());
+        confirmations.save(req);
+        // Last, and after the row is durable: whoever is watching the stream is told once the decision
+        // is a fact, not before. An out-of-band decision reaches an open stream the same way — the
+        // stream reports events, it does not execute, so telling it cannot run the tool twice.
+        watchers.decided(req.getToken(), decision(ConfirmationLifecycle.APPROVE, req.getToolName(), outcome));
+        return outcome;
+    }
+
+    /** The decline tail. Nothing is written, and whoever is watching is told the same way. */
+    private ExecutionOutcome performDecline(ConfirmationRequest req, Principal principal, String via) {
+        audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined (" + via + ")");
         ExecutionOutcome outcome =
                 new ExecutionOutcome(ConfirmationLifecycle.DECLINED, null, null, null, null);
-        watchers.decided(token, decision("decline", req.getToolName(), outcome));
+        watchers.decided(req.getToken(), decision(ConfirmationLifecycle.DECLINE, req.getToolName(), outcome));
         return outcome;
     }
 
