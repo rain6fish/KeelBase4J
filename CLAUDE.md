@@ -1,15 +1,17 @@
 # CLAUDE.md — KeelBase4J
 
 Java runtime for **KeelBase**, a conformance implementation of the KeelBase AI Governance Protocol.
-Authoritative protocol + vectors live in the main repository (`rain6fish/KeelBase`); this repository
-only **consumes** them.
+The **machine-readable contract** — the frozen vectors, the wire schemas and the registry that indexes
+them — lives in the **contract repository** (`rain6fish/keelbase-contract`); the **prose protocol**
+stays in `docs/protocols/ai-governance-protocol.md` in the main repository (`rain6fish/KeelBase`).
+This repository only **consumes** both.
 
 ## 硬规则（红线，Day 1 钉死）
 
 1. **实现冻结契约，不翻译参照实现。** 协议是唯一真源，不是 TypeScript 代码。兼容性由复现
    语言无关向量证明——同一批文件，任何其他实现都该用。
 2. **`conformance/vectors/` 是只读快照，禁止手改。** 刷新一律跑 `scripts/sync-vectors.sh`。
-   协议变更**先在主仓**落地（向量 → 实现），本仓只消费；两仓漂移由 CI 的 `vector-drift` 拦。
+   协议变更**先在契约仓**落地（向量 → 实现），本仓只消费；快照与上游的漂移由 CI 的 `vector-drift` 拦。
 3. **生成物 = 真实、可独立运行的 Java/Spring 源码。** 不是运行期读 JSON 解释的低代码：
    文件是能打开、读懂、手改的 `.java`；生成器退场后应用自持。
 4. **产物基线 Java 17**（`--release 17`）。
@@ -70,5 +72,6 @@ CI（`.github/workflows/ci.yml`）门禁两件事：`conformance`（`mvn verify`
 
 ## 关联
 
-- 主仓（协议真源）：`docs/protocols/ai-governance-protocol.md` · `Server-NestJS/specs/protocol/`
+- 契约仓（向量 / wire schema / registry 真源）：`rain6fish/keelbase-contract`
+- 主仓（散文协议）：`docs/protocols/ai-governance-protocol.md`（`rain6fish/KeelBase`）
 - 本仓：`README.md` · `docs/ARCHITECTURE.md` · `conformance/vectors/README.md`

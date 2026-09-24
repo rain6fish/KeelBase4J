@@ -1,8 +1,10 @@
 # Frozen contract (vendored snapshot)
 
-This directory is a **read-only snapshot** of the protocol contract from the main KeelBase
-repository — the vectors, the wire schemas they belong to, and the behaviour-level scenario packs
-whose `replay` is the neutral-replay corpus:
+This directory is a **read-only snapshot** of the protocol contract — the vectors, the wire schemas
+they belong to, and the behaviour-level scenario packs whose `replay` is the neutral-replay corpus.
+The machine-readable contract itself lives in the **contract repository**
+(`rain6fish/keelbase-contract`); this snapshot is refreshed from the main repository's protocol
+directory today (see the provenance note below). The copy mapping:
 
 ```
 KeelBase/Server-NestJS/specs/protocol/          → this directory
@@ -27,17 +29,16 @@ KeelBase/Server-NestJS/specs/scenarios/         → scenarios/
 └── replay.schema.json                  ← the replay grammar (opt-in per pack)
 ```
 
-**Source of truth stays in the main repo.** The main repo's CI keeps these evergreen (gold-sample
-regeneration diff + conformance). This copy exists so the Java project is self-contained and
-buildable offline.
+**The contract repository is the source of truth** for these files (`rain6fish/keelbase-contract`).
+This copy exists so the Java project is self-contained and buildable offline.
 
 ## Rules
 
-- **Do not hand-edit.** To refresh, run `scripts/sync-vectors.sh [MAIN_REPO_DIR]` — it copies every
-  `*-vector.json`, `wire-schema-registry.json` and `schemas/**/*.json` from the main repo, plus every
-  `*.json` under `specs/scenarios/`, and normalises line endings to LF.
-- A protocol change is made in the main repo first (vector → then implementations), never here.
-  See `docs/manual/semantic-change-checklist.md` in the main repo.
+- **Do not hand-edit.** To refresh, run `scripts/sync-vectors.sh [SOURCE_DIR]` — it copies every
+  `*-vector.json`, `wire-schema-registry.json` and `schemas/**/*.json`, plus every `*.json` under the
+  scenarios directory, and normalises line endings to LF.
+- A protocol change is made in the contract repository first (vector → then implementations), never
+  here. Scenario packs and the semantic-change checklist still live in the main repo.
 - The vector files intentionally contain **no timestamps** — deterministic and diff-able.
 
 **Corresponds to `keelbase-contract` `v1.0.0`** — every vendored file verified byte-identical against
@@ -45,8 +46,10 @@ the contract repository (2026-09-21; `sync-vectors.sh --check` prints the curren
 why this line does not carry one). This is the version to cite; the contract is the source from here on.
 
 Copied: 2026-09-20 from `Server-NestJS/specs/protocol/` (main repo `79f32a49`) via
-`scripts/sync-vectors.sh`. The main repo is **still the refresh source** — the contract repository has
-no remote yet; phase 3 of ADR-0007 repoints this at the contract.
+`scripts/sync-vectors.sh`. That main-repo directory is **still the refresh source**: pointing it at the
+contract repository is a step in progress, which is why `--check` prints the source it compared
+against. Until it moves, the drift gate covers the last link of the chain — this snapshot versus the
+main repo — and not the main repo versus the contract.
 
 > **Coverage note**: the snapshot mirrors the main repo's protocol directory, so it can hold a
 > vector or schema that no Java test consumes. `confirmation-lifecycle-v1` is one: the lifecycle is

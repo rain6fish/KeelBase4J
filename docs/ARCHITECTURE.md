@@ -15,22 +15,26 @@ Java/Spring application can live inside the same governance boundary and be prov
 reproducing the same frozen vectors.
 
 **The design rule**: implement the frozen contract; do not translate the reference implementation.
-The protocol (`docs/protocols/ai-governance-protocol.md` in the main repo) and its machine-readable
-vectors (`Server-NestJS/specs/protocol/`) are the source of truth.
+The protocol has two halves, and they do not live in the same place: its machine-readable half — the
+frozen vectors, the wire schemas and the registry that indexes them — lives in the **contract
+repository** (`rain6fish/keelbase-contract`), while the prose half stays in
+`docs/protocols/ai-governance-protocol.md` in the main repo. Both are the source of truth.
 
 ---
 
-## 2. Relationship to the KeelBase main repository
+## 2. Relationship to the upstream repositories
 
 | Concern | Lives in | Consumed by this repo as |
 |---|---|---|
 | Protocol semantics | main repo `docs/protocols/ai-governance-protocol.md` | the specification to implement |
-| Frozen vectors + wire schemas | main repo `Server-NestJS/specs/protocol/` | vendored read-only snapshot in `conformance/vectors/` |
+| Frozen vectors + wire schemas | contract repo `rain6fish/keelbase-contract` | vendored read-only snapshot in `conformance/vectors/` |
 | Behaviour-level scenario packs (their `replay`) | main repo `Server-NestJS/specs/scenarios/` | vendored read-only snapshot in `conformance/vectors/scenarios/`, replayed over HTTP by `ScenarioReplayTest` (conformance-profile §2.4, Extended layer) |
 | Conformance evidence | this repo `mvn test` — the whole suite, green (the CI badge is the live count) | proves cross-runtime parity (CE-1 role ③) |
 
-The vendored vectors are a snapshot; the main repo stays authoritative. CI job `vector-drift` diffs
-them so the snapshot cannot silently diverge.
+The vendored vectors are a read-only snapshot and the contract repository is authoritative for them.
+CI job `vector-drift` diffs the snapshot against the copy it is refreshed from, so the last link cannot
+silently diverge; `conformance/vectors/README.md` states which source that is today, and what the gate
+does and does not cover.
 
 ---
 
@@ -247,7 +251,7 @@ provider, an identity provider) sit outside it.
   validated OIDC/LDAP claims later) to a wire-shaped `Principal`. Swapping the adapter touches nothing
   else; exactly one implementation must be a bean.
 - **No new "identity contract".** Authorization semantics map onto the wire contracts already frozen
-  in the KeelBase main repo — `authorization`, `permission-decision`, `permission-capability-list`,
+  in the contract repository — `authorization`, `permission-decision`, `permission-capability-list`,
   `org-member-item`, `org-membership-scope`, `delegation-token-claims`. Each is carried in
   `cn.com.keelbase.protocol` as an explicit `toWire()` shape, and `Principal` projects onto it
   (`subject()` = the `delegation-token-claims` `sub`; `org()` = `org-membership-scope`).
@@ -297,7 +301,7 @@ bash scripts/demo-springai.sh         # a real model on the planner seam (needs 
 ```
 
 CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-drift`
-(diff the vendored vectors against the main repo). Publishing runs on a `v*` tag
+(diff the vendored vectors against their refresh source). Publishing runs on a `v*` tag
 (`.github/workflows/release.yml`): the parent pom and `keelbase4j-protocol` are signed and uploaded to
 Maven Central, which is why a generated project can resolve its dependency without a local install.
 

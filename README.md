@@ -236,9 +236,9 @@ language and still be the *same* protocol, rather than a similar-looking one:
 - **The wire contracts are reproduced, not reinvented.** `permission-decision`,
   `permission-capability-list`, `org-membership-scope` and `authorization` are carried in
   `cn.com.keelbase.protocol` and served in the frozen shape.
-- **The vectors are a read-only snapshot.** CI's `vector-drift` job diffs them against the
-  authoritative copy in the main repository on every push, so neither side can move alone. They are
-  never hand-edited here.
+- **The vectors are a read-only snapshot.** CI's `vector-drift` job diffs them against the copy they
+  are refreshed from on every push, so the snapshot cannot silently drift. They are never hand-edited
+  here; the contract repository is authoritative for what they contain.
 
 ---
 
