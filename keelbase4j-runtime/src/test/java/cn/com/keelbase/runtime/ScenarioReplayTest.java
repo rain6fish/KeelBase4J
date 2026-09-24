@@ -52,9 +52,11 @@ import org.springframework.test.context.ActiveProfiles;
  *       assumed.</li>
  *   <li>{@code call.read} — wire object id → endpoint: {@code audit-chain-verification} →
  *       {@code GET /audit/verify}.</li>
- *   <li>{@code call.write} — {@code confirmation-decision#approve} →
- *       {@code POST /ai/confirmations/{token}}; {@code side-effect-revoke#revoke} →
- *       {@code DELETE /ai/tool-effects/{id}}.</li>
+ *   <li>{@code call.write} — {@code side-effect-revoke#revoke} → {@code DELETE /ai/tool-effects/{id}}.
+ *       The corpus no longer carries a {@code confirmation-decision#approve} entry: that object is on
+ *       neither implementation's response (this runtime answers its own {@code ExecutionOutcome}, the
+ *       reference sends it on the stream), so the corpus moved it out and recorded it — see the pack's
+ *       {@code note}. The mapping stays here for the day a carrier is defined.</li>
  *   <li>a tool call's {@code expect} is relative to {@code tool-invocation.response}: this runtime
  *       answers an {@code ExecutionOutcome} whose {@code status} carries the same facts
  *       ({@code executed} ⇔ {@code status=executed}; {@code requiresConfirmation} ⇔
@@ -107,11 +109,11 @@ class ScenarioReplayTest {
             "admin", "carol");
 
     private static final Set<String> GOLDEN_REPLAYED = Set.of(
-            "risk_analysis", "create_followup_task_confirmation", "confirmed_write",
+            "risk_analysis", "create_followup_task_confirmation",
             "audit_verifiable", "revoke_effect", "ownership_check");
     private static final Set<String> GOLDEN_UNSERVABLE = Set.of("governance_view");
 
-    private static final Set<String> TRUST_REPLAYED = Set.of("r3_confirmation", "revoke_effect");
+    private static final Set<String> TRUST_REPLAYED = Set.of("revoke_effect");
     private static final Set<String> TRUST_UNSERVABLE = Set.of("cross_user_denied", "r5_blocked", "evidence_root");
 
     private static final Set<String> CROSS_ENTRY_UNSERVABLE = Set.of(
@@ -143,6 +145,7 @@ class ScenarioReplayTest {
         // Step 1 `customer` is its fixtures: this runtime has no customer-create endpoint, so the row
         // is seeded the way the acceptance test seeds one.
         run.customerId = customers.save(new Customer("瀚宇制造", "high", "alice")).getId();
+        seedEffect(run);
 
         for (String key : keysInDocumentOrder(steps, GOLDEN_REPLAYED, GOLDEN_UNSERVABLE)) {
             replayStep(steps, key, run);
@@ -158,13 +161,7 @@ class ScenarioReplayTest {
         Run run = new Run();
         List<Object> scenarios = steps(pack("trust-proof-v1.json"));
         run.customerId = customers.save(new Customer("瀚宇制造", "high", "alice")).getId();
-
-        // S4 decides a pending confirmation. The corpus's step is the decision alone: the pending write
-        // it decides is produced here, because a step cannot yet name a previous step's product
-        // (JV-15 Slice 0's ambiguity 5 — preconditions are not expressible).
-        Map<String, Object> pending = chat(run, "创建跟进任务", run.customerId);
-        run.token = (String) pending.get("token");
-        assertNotNull(run.token, "the write must be gated, or there is nothing for S4 to approve");
+        seedEffect(run);
 
         for (String key : keysInDocumentOrder(scenarios, TRUST_REPLAYED, TRUST_UNSERVABLE)) {
             replayStep(scenarios, key, run);
@@ -226,17 +223,15 @@ class ScenarioReplayTest {
         }
 
         long replayed = entries.stream().filter(e -> e.contains("[")).count();
-        assertEquals(16, replayed, "the corpus's replay entries changed — re-classify before trusting this runner");
+        assertEquals(14, replayed, "the corpus's replay entries changed — re-classify before trusting this runner");
 
         Set<String> classified = new LinkedHashSet<>();
         for (String id : Set.of(
                 "golden-application-v1.json#risk_analysis[0]",
                 "golden-application-v1.json#create_followup_task_confirmation[0]",
-                "golden-application-v1.json#confirmed_write[0]",
                 "golden-application-v1.json#audit_verifiable[0]",
                 "golden-application-v1.json#revoke_effect[0]",
                 "golden-application-v1.json#ownership_check[0]",
-                "trust-proof-v1.json#r3_confirmation[0]",
                 "trust-proof-v1.json#revoke_effect[0]",
                 "golden-application-v1.json#governance_view[0]",
                 "trust-proof-v1.json#cross_user_denied[0]",
@@ -276,6 +271,22 @@ class ScenarioReplayTest {
         if (!list(step.get("replay")).isEmpty()) {
             run.replayed.add(key);
         }
+    }
+
+    /**
+     * The write the revoke steps act on.
+     *
+     * <p>A step cannot yet name a previous step's product (Slice 0's ambiguity 5), and the corpus no
+     * longer carries the approve entry that used to produce it — that object is on neither
+     * implementation's response. So the runner establishes the effect the way a caller can: a gated
+     * write over the wire, then the decision. The corpus says nothing about it, and cannot.
+     */
+    private void seedEffect(Run run) {
+        Map<String, Object> pending = chat(run, "创建跟进任务", run.customerId);
+        assertNotNull(pending.get("token"), "a write tool must be gated, or there is nothing to decide");
+        run.token = (String) pending.get("token");
+        confirm(run);
+        assertNotNull(run.effectId, "the approved write must record a side effect");
     }
 
     /** {@code given.actor} — the corpus makes identity explicit; the runner honours it per step. */
