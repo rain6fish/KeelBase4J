@@ -53,10 +53,10 @@ import org.springframework.test.context.ActiveProfiles;
  *   <li>{@code call.read} — wire object id → endpoint: {@code audit-chain-verification} →
  *       {@code GET /audit/verify}.</li>
  *   <li>{@code call.write} — {@code side-effect-revoke#revoke} → {@code DELETE /ai/tool-effects/{id}}.
- *       The corpus no longer carries a {@code confirmation-decision#approve} entry: that object is on
- *       neither implementation's response (this runtime answers its own {@code ExecutionOutcome}, the
- *       reference sends it on the stream), so the corpus moved it out and recorded it — see the pack's
- *       {@code note}. The mapping stays here for the day a carrier is defined.</li>
+ *       The confirmation flow is <b>not in replay scope</b> (ruled, N6-b): its token and its decision
+ *       object are transport / implementation freedom — a stream on one side, a JSON response on the
+ *       other — so the corpus does not carry them and this runner needs no mapping for them. See the
+ *       pack's {@code note} and {@code conformance-profile.md} §2.4.</li>
  *   <li>a tool call's {@code expect} is relative to {@code tool-invocation.response}: this runtime
  *       answers an {@code ExecutionOutcome} whose {@code status} carries the same facts
  *       ({@code executed} ⇔ {@code status=executed}; {@code requiresConfirmation} ⇔
@@ -359,14 +359,6 @@ class ScenarioReplayTest {
 
     private Map<String, Object> write(String object, String op, Run run) {
         return switch (object + "#" + op) {
-            case "confirmation-decision#approve" -> {
-                if (run.token == null) {
-                    throw new UnservableException("no pending confirmation for this step to decide");
-                }
-                Map<String, Object> body = confirm(run);
-                String status = String.valueOf(body.get("status"));
-                yield Map.of("decision", "executed".equals(status) ? "approve" : status);
-            }
             case "side-effect-revoke#revoke" -> revoke(run);
             default -> throw new UnservableException("this runtime exposes no `" + op + "` on `" + object + "`");
         };
