@@ -96,6 +96,16 @@ class ScenarioReplayTest {
             "analyze_customer_risk", "analyze_customer_risk",
             "create_followup_task", "create_followup");
 
+    /**
+     * The corpus names an actor; this deployment maps it to a local identity. Tier A declares
+     * `alice` / `bob` / `carol` — there is no one called `admin` here, and the corpus's `admin`
+     * means "whoever may do this", so it lands on this deployment's manager.
+     */
+    private static final Map<String, String> ACTOR_DIRECTORY = Map.of(
+            "alice", "alice",
+            "bob", "bob",
+            "admin", "carol");
+
     private static final Set<String> GOLDEN_REPLAYED = Set.of(
             "risk_analysis", "create_followup_task_confirmation", "confirmed_write",
             "audit_verifiable", "revoke_effect", "ownership_check");
@@ -423,7 +433,7 @@ class ScenarioReplayTest {
     private HttpEntity<Object> entity(String actor, Object body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(TestTokens.forUser(actor, delegationSecret));
+        headers.setBearerAuth(TestTokens.forUser(ACTOR_DIRECTORY.getOrDefault(actor, actor), delegationSecret));
         return new HttpEntity<>(body, headers);
     }
 
