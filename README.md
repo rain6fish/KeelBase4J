@@ -272,7 +272,7 @@ version a runtime answers for** — which objects it has committed to speaking.
 | Runtime | Runtime version | Contract version |
 |---|---|---|
 | [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `v1.0.11` | **v1.0.1** — carried in-tree; that release predates the contract repository |
-| [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `main`, **unreleased** | **v1.1.0** — bound as a submodule |
+| [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `main`, **unreleased** | **v1.2.0** — bound as a submodule |
 | `KeelBase4J` (Java) | `v0.1.0` | **v1.1.0** — vendored snapshot, taken from the contract repository |
 
 The snapshot under `conformance/vectors/` has two sources, and CI checks both: the **protocol half**

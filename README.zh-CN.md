@@ -207,14 +207,13 @@ bash scripts/demo-changeability.sh    # 手改在变更后存活
 | Runtime | Runtime 版本 | Contract 版本 |
 |---|---|---|
 | [`KeelBase`](https://github.com/rain6fish/KeelBase)（TypeScript） | `v1.0.11` | **v1.0.1**——树内携带；该发布早于契约仓的建立 |
-| [`KeelBase`](https://github.com/rain6fish/KeelBase)（TypeScript） | `main`，**未发布** | **v1.1.0**——以 submodule 绑定 |
-| `KeelBase4J`（Java） | `v0.1.0` | **v1.1.0**——vendor 快照，从主仓刷新 |
+| [`KeelBase`](https://github.com/rain6fish/KeelBase)（TypeScript） | `main`，**未发布** | **v1.2.0**——以 submodule 绑定 |
+| `KeelBase4J`（Java） | `v0.1.0` | **v1.1.0**——vendor 快照，取自契约仓 |
 
-`conformance/vectors/` 下的快照是一份副本，而它下来的那条链值得知道：契约住在自己的仓，主仓把它绑成
-submodule，而这份快照是**从主仓**刷新的。所以它是**一份副本的副本**，而 CI 里的漂移门只查**最后一环**——
-它能抓到这份快照落后于主仓，**抓不到主仓落后于契约**。
-
-补上这一环是另一步，尚未做。
+`conformance/vectors/` 下的快照有**两个来源**，CI 两个都查：**协议那一半**直接来自契约仓——是**本仓应答的
+那一版**，而不是经由某个消费方仓转发——**场景包**来自主仓，它们本就住在那里。所以那个曾让它成为
+**「副本的副本」**的链条，在协议这一半上**已经不存在**：漂移门拿快照对契约本身比，于是主仓落后于契约
+这件事也没法再藏在这里。
 
 ## 文档
 
