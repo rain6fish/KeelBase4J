@@ -51,6 +51,9 @@ jobs:
           repository: rain6fish/KeelBase
           ref: main
           path: main-repo
+          # See ci.yml: the main repo binds the contract as a submodule, so without this the
+          # upstream vector directory is empty and the drift gate fails for the wrong reason.
+          submodules: true
 
       - name: Vendored vectors must match the main repo
         run: scripts/sync-vectors.sh main-repo --check
