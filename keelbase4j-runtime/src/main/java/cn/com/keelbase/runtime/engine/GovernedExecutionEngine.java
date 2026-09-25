@@ -134,7 +134,28 @@ public class GovernedExecutionEngine {
     private ExecutionOutcome performApproval(ConfirmationRequest req, Principal principal, String via) {
         AiTool tool = registry.require(req.getToolName());
         audit.append("tool_confirmation", principal.userId(), tool.name() + " approved (" + via + ")");
-        ExecutionOutcome outcome = run(tool, parseArgs(req.getArgsJson()), principal);
+        // Claim the execution before running it (ADR-0016): the row then records that an attempt took
+        // it, so an attempt that never reports back reads as such instead of as "approved, nothing
+        // happened". The claim is the lease — an attempt older than it derives `failed`.
+        req.setExecutionClaimedAt(Instant.now());
+        confirmations.save(req);
+        ExecutionOutcome outcome;
+        try {
+            outcome = run(tool, parseArgs(req.getArgsJson()), principal);
+        } catch (RuntimeException failed) {
+            // The tool threw instead of answering. The attempt is recorded as failed and keeps its
+            // claim on purpose: clearing it would say the attempt never happened, and a claim with no
+            // result is exactly what the lease turns into `failed`.
+            req.setExecutionError(message(failed));
+            confirmations.save(req);
+            throw failed;
+        }
+        if ("executed".equals(outcome.status())) {
+            req.setExecutedAt(Instant.now());
+            req.setExecutionError(null);
+        } else {
+            req.setExecutionError(outcome.error() == null ? "execution failed" : outcome.error());
+        }
         req.setResultId(outcome.effectId());
         confirmations.save(req);
         // Last, and after the row is durable: whoever is watching the stream is told once the decision
@@ -142,6 +163,10 @@ public class GovernedExecutionEngine {
         // stream reports events, it does not execute, so telling it cannot run the tool twice.
         watchers.decided(req.getToken(), decision(ConfirmationLifecycle.APPROVE, req.getToolName(), outcome));
         return outcome;
+    }
+
+    private static String message(RuntimeException failed) {
+        return failed.getMessage() == null ? failed.getClass().getSimpleName() : failed.getMessage();
     }
 
     /** The decline tail. Nothing is written, and whoever is watching is told the same way. */

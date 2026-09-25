@@ -4,6 +4,7 @@ package cn.com.keelbase.runtime.governance;
 import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -62,6 +63,41 @@ public class ConfirmationStore {
     /** Persist a resolved request (status / decidedAt / resultId). */
     public ConfirmationRequest save(ConfirmationRequest request) {
         return repository.save(request);
+    }
+
+    /** The list is capped: the Action Center shows what is recent, not the whole table (ADR-0016). */
+    private static final int MAX_ITEMS = 50;
+
+    /**
+     * This operator's own confirmation records, newest first, capped — the Action Center's discovery
+     * face (ADR-0016).
+     *
+     * <p>A still-{@code pending} row whose offline window has closed is left out: the window is the one
+     * {@link #expireStale} closes, and listing a row that can no longer be decided would offer a button
+     * bound to fail. The sweeper moves it to {@code timeout} on its next pass; until then this list
+     * already tells the truth about it.
+     */
+    public List<ConfirmationRequest> mine(String userId, String status, Instant now, long offlineTtlMillis) {
+        Instant cutoff = windowCutoff(now, offlineTtlMillis);
+        return repository.findByOperatorIdOrderByCreatedAtDesc(userId).stream()
+                .filter(row -> status == null || status.equals(row.getStatus()))
+                .filter(row -> !windowHasClosed(row, cutoff))
+                .limit(MAX_ITEMS)
+                .toList();
+    }
+
+    /**
+     * The cutoff an offline window has reached at {@code now}: a row created before it is past its
+     * window. {@link #expireStale} asks the database with this number and {@link #mine} asks the same
+     * question in memory with it — one arithmetic, so the two cannot disagree about the same row.
+     */
+    private static Instant windowCutoff(Instant now, long offlineTtlMillis) {
+        return now.minusMillis(offlineTtlMillis);
+    }
+
+    private static boolean windowHasClosed(ConfirmationRequest row, Instant cutoff) {
+        return ConfirmationLifecycle.PENDING.equals(row.getStatus())
+                && row.getCreatedAt().isBefore(cutoff);
     }
 
     /** What an out-of-band decision did, or why it did nothing (ADR-0015). */
@@ -138,7 +174,7 @@ public class ConfirmationStore {
         return repository.expireStale(
                 ConfirmationLifecycle.PENDING,
                 ConfirmationLifecycle.TIMEOUT,
-                now.minusMillis(offlineTtlMillis),
+                windowCutoff(now, offlineTtlMillis),
                 now);
     }
 }

@@ -2,6 +2,7 @@
 package cn.com.keelbase.runtime.governance;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -11,6 +12,13 @@ import org.springframework.data.repository.query.Param;
 public interface ConfirmationRequestRepository extends JpaRepository<ConfirmationRequest, Long> {
 
     Optional<ConfirmationRequest> findByToken(String token);
+
+    /**
+     * This operator's own confirmation records, newest first — the Action Center's discovery face
+     * (ADR-0016). Narrowed to the operator here rather than in a caller: whose rows these are is part
+     * of the question, not a filter applied afterwards.
+     */
+    List<ConfirmationRequest> findByOperatorIdOrderByCreatedAtDesc(String operatorId);
 
     /**
      * The offline window's arbitration: every still-{@code pending} row whose window has closed
