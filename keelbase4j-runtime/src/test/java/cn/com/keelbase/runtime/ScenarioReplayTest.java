@@ -74,7 +74,8 @@ import org.springframework.test.context.ActiveProfiles;
  * {@code delete_customer} / {@code create_event} / {@code query_events} (this runtime registers two
  * tools — {@code analyze_customer_risk}, {@code create_followup}; those three belong to the
  * <em>reference application's</em> inventory, and an inventory is an application's face, not the
- * contract's) · {@code read: permission-decision} (this runtime computes the frozen decision but
+ * contract's. The packs now <b>declare</b> the tools they assume — {@code tools}, ruled N7-a — so a
+ * consumer can read "not applicable" off the corpus instead of off this runner's classification) · {@code read: permission-decision} (this runtime computes the frozen decision but
  * exposes only the capability list, never a decision over HTTP) · {@code read: evidence-package}
  * (no evidence-root export here) · the governance view over {@code side-effect-revoke} (no such
  * endpoint, and this runtime's only local target is {@code follow_up}, so {@code resultType: crm_task}
