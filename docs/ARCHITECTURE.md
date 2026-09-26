@@ -93,6 +93,10 @@ What is **not** in that table is as deliberate as what is: `DELETE /ai/tool-effe
 frozen `revokeResult`'s required `revoked` alongside `revokeStatus`, because the object requires it and
 a consumer should not have to derive a required field from another.
 
+The mapping from a wire object to this runtime's surface — and the objects it does **not** expose — is
+written down in [`docs/wire-object-endpoints.md`](wire-object-endpoints.md), so a third party can run
+the replay corpus without reverse-engineering it out of the test that carries it.
+
 ### 3.3 `keelbase4j-generator` — the generator (G2 ✅)
 
 | Class | Responsibility |

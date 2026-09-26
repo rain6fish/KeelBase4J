@@ -70,6 +70,10 @@ import org.springframework.test.context.ActiveProfiles;
  *   <li>{@code {"$ref":"customer.id"}} — resolved to the fixture the previous step seeded.</li>
  * </ul>
  *
+ * <p>The mapping below is written down for third parties in {@code docs/wire-object-endpoints.md} —
+ * together with the objects this runtime does <em>not</em> expose — so that a runtime's answer can be
+ * checked rather than inferred from this file.
+ *
  * <p><b>Not replayable here, with the reason</b> (asserted by the inventory test): the tools
  * {@code delete_customer} / {@code create_event} / {@code query_events} (this runtime registers two
  * tools — {@code analyze_customer_risk}, {@code create_followup}; those three belong to the
