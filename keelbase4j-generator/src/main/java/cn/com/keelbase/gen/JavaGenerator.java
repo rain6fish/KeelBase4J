@@ -410,7 +410,7 @@ public class JavaGenerator {
         sb.append("->  { total, page, limit, items: [ { id, toolName, conversationId, resultType, resultId,\n");
         sb.append("      argsHash, createdAt, targetExists, targetSoftDeleted, targetTitle,\n");
         sb.append("      revokeClass, revokeStatus, status, revocable } ] }\n");
-        sb.append("DELETE /ai/tool-effects/{id}   ->  { effectId, resultType, revokeClass, revokeStatus }\n```\n\n");
+        sb.append("DELETE /ai/tool-effects/{id}   ->  { effectId, resultType, revokeClass, revokeStatus, revoked }\n```\n\n");
         sb.append("The envelope and the item's fields are the shape the runtime-neutral console reads — the\n");
         sb.append("same one the KeelBase4J runtime answers, so the console pages and renders both. `limit` is\n");
         sb.append("capped at 100; a non-manager sees their own effects whatever id they pass, and a manager\n");
@@ -3408,13 +3408,16 @@ public class JavaGenerator {
                             %sRepository.save(row);
                         });
                         sideEffects.setRevoked(id);
-                        // The console reads the outcome of a revoke off the effect, as the runtime's
-                        // answer does — not off a boolean of this application's own invention.
+                        // The console reads the outcome off `revokeStatus`, as the runtime's answer
+                        // does, and that stays. `revoked` is added because the frozen `revokeResult`
+                        // requires it — a consumer holding that object should not have to derive a
+                        // required field from another.
                         Map<String, Object> out = new LinkedHashMap<>();
                         out.put("effectId", effect.id());
                         out.put("resultType", effect.resultType());
                         out.put("revokeClass", effect.revokeClass());
                         out.put("revokeStatus", "revoked");
+                        out.put("revoked", true);
                         return out;
                     }
 

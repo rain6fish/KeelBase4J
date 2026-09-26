@@ -93,11 +93,15 @@ public class EffectController {
     public Map<String, Object> revoke(@PathVariable Long id) {
         Principal principal = principals.current();
         SideEffect effect = sideEffects.revoke(id, principal);
+        // `revoked` is the frozen `revokeResult`'s required field, and `revokeStatus` says the same
+        // thing in the contract's own vocabulary (the console reads that one). Both, because a
+        // consumer holding the frozen object should not have to derive a required field from another.
         return Map.of(
                 "effectId", effect.getId(),
                 "resultType", effect.getResultType(),
                 "revokeClass", effect.getRevokeClass(),
-                "revokeStatus", effect.getRevokeStatus());
+                "revokeStatus", effect.getRevokeStatus(),
+                "revoked", "revoked".equals(effect.getRevokeStatus()));
     }
 
     /** A {@link LinkedHashMap}, not {@code Map.of}: several of these fields are legitimately null. */

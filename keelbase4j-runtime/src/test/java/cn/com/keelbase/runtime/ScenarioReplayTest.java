@@ -53,10 +53,10 @@ import org.springframework.test.context.ActiveProfiles;
  *   <li>{@code call.read} — wire object id → endpoint: {@code audit-chain-verification} →
  *       {@code GET /audit/verify}.</li>
  *   <li>{@code call.write} — {@code side-effect-revoke#revoke} → {@code DELETE /ai/tool-effects/{id}}.
- *       The confirmation flow is <b>not in replay scope</b> (ruled, N6-b): its token and its decision
- *       object are transport / implementation freedom — a stream on one side, a JSON response on the
- *       other — so the corpus does not carry them and this runner needs no mapping for them. See the
- *       pack's {@code note} and {@code conformance-profile.md} §2.4.</li>
+ *       The confirmation flow is <b>not in replay scope</b>: its token and its decision object are
+ *       transport / implementation freedom — a stream on one side, a JSON response on the other — so the
+ *       corpus does not carry them and this runner needs no mapping for them. See the pack's {@code note}
+ *       and {@code conformance-profile.md} §2.4.</li>
  *   <li>a tool call's {@code expect} is relative to {@code tool-invocation.response}: this runtime
  *       answers an {@code ExecutionOutcome} whose {@code status} carries the same facts
  *       ({@code executed} ⇔ {@code status=executed}; {@code requiresConfirmation} ⇔
@@ -74,7 +74,7 @@ import org.springframework.test.context.ActiveProfiles;
  * {@code delete_customer} / {@code create_event} / {@code query_events} (this runtime registers two
  * tools — {@code analyze_customer_risk}, {@code create_followup}; those three belong to the
  * <em>reference application's</em> inventory, and an inventory is an application's face, not the
- * contract's. The packs now <b>declare</b> the tools they assume — {@code tools}, ruled N7-a — so a
+ * contract's. The packs <b>declare</b> the tools they assume — the pack's {@code tools} — so a
  * consumer can read "not applicable" off the corpus instead of off this runner's classification) · {@code read: permission-decision} (this runtime computes the frozen decision but
  * exposes only the capability list, never a decision over HTTP) · {@code read: evidence-package}
  * (no evidence-root export here) · the governance view over {@code side-effect-revoke} (no such
@@ -378,7 +378,9 @@ class ScenarioReplayTest {
         }
         assertEquals(200, status, "DELETE /ai/tool-effects/" + run.effectId);
         Map<String, Object> body = Envelopes.data(res.getBody());
-        return Map.of("revoked", "revoked".equals(body.get("revokeStatus")));
+        // Read straight off the frozen `revokeResult`'s field — not derived from `revokeStatus`:
+        // a test that derives the value cannot tell whether the object actually carries it.
+        return Map.of("revoked", Boolean.TRUE.equals(body.get("revoked")));
     }
 
     /** {@code expect} is checked key by key against what the entry's target object reports. */

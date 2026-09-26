@@ -79,6 +79,20 @@ boundary.
 | `conversation` | The transcript behind `conversationId`: `ConversationStore` + `ConversationMessage` — turns and nothing more (no embeddings, no retrieval, no memory policy) |
 | `web` | REST: chat in both shapes (`/ai/chat`, `/ai/chat/stream` with `/admin/ai/chat/stream` behind the admin role), confirmations, tool-effects, `/audit/verify`, the identity surface (`/auth/me`, `/auth/me/permissions`, `/auth/oauth/providers`, `/auth/login-stats`), `/customers`, `/app/capabilities`, `/app/provenance`. Mapped at the root but mounted under `/api/v1` (`server.servlet.context-path`) — the reference's prefix, which is what lets one runtime-neutral frontend talk to this runtime without rebasing |
 
+#### 3.2.1 Two answers that are this runtime's own
+
+The wire corpus asserts claims about **frozen wire objects**. Two of this runtime's answers are its
+**own objects**, not those — stated here so no consumer reads them as the frozen shapes:
+
+| Where | This runtime answers | The frozen object it is *not* |
+|---|---|---|
+| a tool call's result (both chat shapes, and the MCP exit) | `ExecutionOutcome{status, data, token, effectId, error}` | `tool-invocation` — its `status` carries the same facts (`executed` ⇔ `status=executed`; `requiresConfirmation` ⇔ `status=pending_confirmation`) |
+| `POST /ai/confirmations/{token}` | `ExecutionOutcome` | `confirmation-decision` — the decision data travels on this runtime's stream, and the replay corpus does not assert it (see `conformance-profile.md` §2.4) |
+
+What is **not** in that table is as deliberate as what is: `DELETE /ai/tool-effects/{id}` answers the
+frozen `revokeResult`'s required `revoked` alongside `revokeStatus`, because the object requires it and
+a consumer should not have to derive a required field from another.
+
 ### 3.3 `keelbase4j-generator` — the generator (G2 ✅)
 
 | Class | Responsibility |
