@@ -4,7 +4,6 @@ package cn.com.keelbase.runtime.identity;
 import cn.com.keelbase.protocol.OrgMembershipScope;
 import cn.com.keelbase.runtime.scope.Departments;
 import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -20,10 +19,15 @@ import org.springframework.web.server.ResponseStatusException;
  * {@code runtime.scope}. Until this existed, {@link Principal#org()} was always {@code null} and the
  * frozen {@code org-membership-scope} contract had nothing behind it.
  *
- * <p>An adapter for a real directory (OIDC, LDAP, Sa-Token) implements this same seam and maps its
- * verified claims onto the same frozen contracts; nothing downstream changes.
+ * <p>An adapter for a real directory (OIDC, LDAP, Sa-Token, or a host's own user tables) implements this
+ * same seam and maps its verified claims onto the same frozen contracts; nothing downstream changes.
+ *
+ * <p>It is registered as a default bean with {@code @ConditionalOnMissingBean} rather than as a
+ * component, because the deployment has to be able to replace it: a host that already knows its users'
+ * roles and departments has no business being described a second time in {@code LocalIdentities}, and
+ * two beans of this type would be a startup failure rather than a choice
+ * ({@code KeelBaseIdentityAutoConfiguration}).
  */
-@Component
 public class SecurityIdentityResolver implements IdentityResolver {
 
     /** The contract's membership vocabulary — a different axis from the runtime's user/admin role. */

@@ -30,8 +30,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain governedEndpoints(HttpSecurity http,
-                                          DelegationTokenAuthenticationFilter tokens) throws Exception {
+    SecurityFilterChain governedEndpoints(HttpSecurity http, CallerAuthenticator callers) throws Exception {
         http
                 // A stateless token API: no session to fix, no browser to forge a request from.
                 .csrf(AbstractHttpConfigurer::disable)
@@ -72,7 +71,8 @@ public class SecurityConfig {
                         // a request that already cleared this chain — so it opens no way in.
                         .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .anyRequest().authenticated())
-                .addFilterBefore(tokens, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new CallerAuthenticationFilter(callers),
+                        UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling.authenticationEntryPoint(
                         (request, response, denied) -> response.sendError(
                                 HttpServletResponse.SC_UNAUTHORIZED, "authentication required")));
