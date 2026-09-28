@@ -48,6 +48,19 @@
       <artifactId>spring-boot-starter-security</artifactId>
     </dependency>
 
+    <!--
+      The core's own schema, and the runner that applies it. The core is handed a database by whoever
+      deploys it (ADR-0017 D4), so it cannot leave its tables to a ddl-auto it does not control — a host
+      validating its schema refuses to start when a mapped entity has no table, which is the failure the
+      migrations exist to prevent. Carrying the runner rather than the SQL files alone is deliberate: an
+      application that adds this jar should not also have to be told to apply what is inside it. Boot 4
+      has a starter for this; flyway-core alone is no longer enough.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-flyway</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
