@@ -1,2 +1,3 @@
 cn.com.keelbase.runtime.pipeline.RuleBasedPlannerAutoConfiguration
 cn.com.keelbase.runtime.pipeline.ChatReplierAutoConfiguration
+cn.com.keelbase.runtime.autoconfigure.KeelBaseRuntimeAutoConfiguration

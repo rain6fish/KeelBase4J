@@ -21,10 +21,14 @@
   </description>
 
   <dependencies>
-    <!-- The runtime must not depend on this module; the edge only ever points this way. -->
+    <!--
+      The seam this adapter plugs into is the core's, so that is what it depends on: an adapter has no
+      business dragging an application's boot class onto anyone's classpath (ADR-0017 D2). The edge only
+      ever points this way — the core must not depend on this module.
+    -->
     <dependency>
       <groupId>cn.com.keelbase</groupId>
-      <artifactId>keelbase4j-runtime</artifactId>
+      <artifactId>keelbase4j-core</artifactId>
       <version>${project.version}</version>
     </dependency>
 
@@ -53,6 +57,17 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-restclient</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      Test only: the seam test boots a real application to show the model-driven planner taking over,
+      and the application it boots is this repository's own (the runtime). The adapter itself depends on
+      the core — an application is not something it needs at compile time (ADR-0017 D2).
+    -->
+    <dependency>
+      <groupId>cn.com.keelbase</groupId>
+      <artifactId>keelbase4j-runtime</artifactId>
+      <version>${project.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

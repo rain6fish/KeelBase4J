@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>cn.com.keelbase</groupId>
+    <artifactId>keelbase4j</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>keelbase4j-core</artifactId>
+  <packaging>jar</packaging>
+
+  <name>KeelBase4J Core</name>
+  <description>
+    The embeddable runtime core: everything the runtime is, except the decision to be an application.
+    An application that already exists — a host platform, say — puts this jar on its classpath and gets
+    the trust loop, the governance surface and the security filter chain through one auto-configuration;
+    keelbase4j-runtime is the thin application that does the same thing for a standalone deployment.
+    What is deliberately absent here is the application's half: no server configuration, no datasource
+    of its own, no context path (ADR-0017 D4/D5).
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>cn.com.keelbase</groupId>
+      <artifactId>keelbase4j-protocol</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <!--
+      Authentication lives at the request entry (ADR-0004 D3). The protocol library must stay free
+      of this: see the protocol module's pom.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      Test scope only, and that is the point of the split: the core is given a database by whoever
+      deploys it, so the embedded one is not a dependency of what this module ships (ADR-0017 D4).
+    -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

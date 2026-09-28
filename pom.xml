@@ -80,6 +80,9 @@
   -->
   <modules>
     <module>keelbase4j-protocol</module>
+    <!-- The embeddable core precedes the application built on it: being an application is one thing
+         you can do with the core, and being embedded in someone else's host is another (ADR-0017). -->
+    <module>keelbase4j-core</module>
     <module>keelbase4j-runtime</module>
     <module>keelbase4j-generator</module>
     <module>keelbase4j-springai</module>

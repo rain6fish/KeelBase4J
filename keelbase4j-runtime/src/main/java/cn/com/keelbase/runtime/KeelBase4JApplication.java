@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime;
 
+import cn.com.keelbase.runtime.autoconfigure.KeelBaseRuntimeAutoConfiguration;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
@@ -22,8 +23,19 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * <p>Scheduling is enabled because the confirmation offline window is only meaningful with a
  * periodic sweep behind it — see {@code runtime.governance.ConfirmationSweeper} for why a
  * confirmation would otherwise stay decidable forever.
+ *
+ * <p><b>The core's auto-configuration is excluded here, and that is not a contradiction.</b> This
+ * application's own component scan covers the core already — its package <em>is</em> the core's — so
+ * letting the auto-configuration assemble the same beans a second time registers two definitions for
+ * one repository interface and the transactional proxy silently becomes the one you did not intend
+ * (ADR-0017 D3). An application that scans the core opts out of the auto-configuration; an application
+ * that has never heard of the core, which is what a host is, is the case the auto-configuration exists
+ * for. {@code CoreAssemblyTest} is where that second case is exercised.
  */
-@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
+@SpringBootApplication(exclude = {
+        UserDetailsServiceAutoConfiguration.class,
+        KeelBaseRuntimeAutoConfiguration.class
+})
 @ConfigurationPropertiesScan
 @EnableScheduling
 public class KeelBase4JApplication {
