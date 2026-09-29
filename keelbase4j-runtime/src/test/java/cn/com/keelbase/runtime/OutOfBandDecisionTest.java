@@ -150,9 +150,18 @@ class OutOfBandDecisionTest {
         ConfirmationRequest req = store.create(
                 new Principal("alice", "user"), "create_followup", "{}", "R3", ConfirmationMode.IMMEDIATE);
 
+        // One millisecond past the row, not the wall clock: with a zero window the cutoff lands on the
+        // row's `createdAt`, and that boundary is half-open (`createdAt >= cutoff` stays decidable), so
+        // a row stamped in the same microsecond as `Instant.now()` has not closed its window — asking
+        // the clock makes this a race decided by luck, asking for `createdAt + 1ms` makes the premise
+        // true by construction.
+        //
+        // 用该行之后一毫秒，而不是墙上时钟：零窗口下 cutoff 落在那行的 `createdAt` 上，而该边界是半开的
+        // （`createdAt >= cutoff` 仍可裁决），故与 `Instant.now()` 同一微秒的行**尚未关窗** —— 向时钟要
+        // 「现在」等于让这条断言由运气裁决；要 `createdAt + 1ms` 则让前提按构造成立。
         ConfirmationStore.OutOfBandResult result = store.decideOutOfBand(
                 req.getToken(), new Principal("alice", "user"), ConfirmationLifecycle.APPROVE,
-                Instant.now(), ALREADY_CLOSED);
+                req.getCreatedAt().plusMillis(1), ALREADY_CLOSED);
 
         assertEquals(ConfirmationStore.OutOfBand.EXPIRED, result.outcome(),
                 "a closed window refuses the decision");

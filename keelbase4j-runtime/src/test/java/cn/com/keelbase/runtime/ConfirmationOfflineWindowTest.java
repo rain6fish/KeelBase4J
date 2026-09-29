@@ -70,7 +70,18 @@ class ConfirmationOfflineWindowTest {
     void aWindowThatHasClosedEndsTheConfirmation() {
         ConfirmationRequest req = pending();
 
-        int closed = confirmations.expireStale(Instant.now(), ALREADY_CLOSED);
+        // A `now` strictly after the row, not the wall clock. The window is zero, so the cutoff lands
+        // exactly on the row's `createdAt` — and that boundary is half-open (`createdAt < cutoff`
+        // expires, `createdAt >= cutoff` stays decidable), so a row stamped in the *same* microsecond
+        // as `Instant.now()` has not closed its window yet. Asking the clock for "now" turns this
+        // assertion into a race it wins almost always and loses occasionally; asking for one
+        // millisecond past the row makes the premise true by construction.
+        //
+        // 用严格晚于该行的 `now`，而不是墙上时钟。零窗口下 cutoff 正好落在那行的 `createdAt` 上 —— 而
+        // 该边界是**半开**的（`createdAt < cutoff` 过期、`createdAt >= cutoff` 仍可裁决），故与
+        // `Instant.now()` 落在**同一微秒**的行尚未关窗。向时钟要「现在」会把这条断言变成一场几乎总赢、
+        // 偶尔输的竞态；要「该行之后一毫秒」则让前提**按构造**成立。
+        int closed = confirmations.expireStale(req.getCreatedAt().plusMillis(1), ALREADY_CLOSED);
 
         assertEquals(1, closed);
         assertEquals(ConfirmationLifecycle.TIMEOUT, statusOf(req),
@@ -92,6 +103,45 @@ class ConfirmationOfflineWindowTest {
                 "status is part of the where clause, so a decided row is never selected");
         assertEquals(ConfirmationLifecycle.APPROVED, statusOf(req),
                 "the sweep must never overwrite a decision");
+    }
+
+    /**
+     * The boundary is half-open, and both halves have to keep agreeing about it: {@code createdAt <
+     * cutoff} expires, {@code createdAt >= cutoff} stays decidable. A row whose {@code createdAt} lands
+     * exactly on the cutoff is therefore still inside its window — the sweeper leaves it and a decision
+     * may still land. Pinned because the two halves live in different places (a JPQL {@code where}
+     * clause and an in-memory filter), so "make the expiry side inclusive" reads like a one-word
+     * improvement while putting the same row into both halves at once.
+     *
+     * <p>边界是半开的，且两半必须**继续一致**：`createdAt < cutoff` 过期、`createdAt >= cutoff` 仍可
+     * 裁决。故 `createdAt` 正落在 cutoff 上的行**仍在窗口内** —— 清扫器放过它、裁决仍可落地。之所以钉住
+     * 它，是因为两半住在**不同的地方**（一句 JPQL 的 `where` 与一处内存过滤），于是「让过期那侧含边界」
+     * 读起来像一字改进，却会把同一行**同时**放进两半。
+     */
+    @Test
+    void aRowExactlyOnTheCutoffIsStillInsideItsWindow() {
+        ConfirmationRequest req = pending();
+
+        // The value to ask about is the one the row was *stored* with, not the one the Java object was
+        // built with: the column truncates, so the stored instant is the earlier of the two, by up to a
+        // microsecond. Asking with the object's value lands the cutoff just past the stored row and
+        // would pass for the wrong reason — the boundary would look exclusive on both halves — which is
+        // exactly the mistake this test exists to keep out.
+        //
+        // 该问的是这一行**被存下来**的那个值，而不是 Java 对象构造时的那个：列精度更粗，会**截断**，
+        // 存储的瞬间因此比对象里的早（最多一微秒）。拿对象的值去问，cutoff 会落在那行**之后** —— 于是
+        // 两半看起来都像排他，测试**因为错的原因**通过，而这正是本测试要挡住的错。
+        Instant stored = repository.findByToken(req.getToken()).orElseThrow().getCreatedAt();
+
+        assertEquals(0, confirmations.expireStale(stored, ALREADY_CLOSED),
+                "the sweep's `createdAt < cutoff` leaves the row on the boundary alone");
+
+        ConfirmationStore.OutOfBandResult decision = confirmations.decideOutOfBand(
+                req.getToken(), new Principal("alice", "user"), ConfirmationLifecycle.DECLINE,
+                stored, ALREADY_CLOSED);
+
+        assertEquals(ConfirmationStore.OutOfBand.DECIDED, decision.outcome(),
+                "and the decide guard's `createdAt >= cutoff` still lets the decision land");
     }
 
     /** Dead wiring is the failure mode this guards: a sweeper nothing schedules closes nothing. */
