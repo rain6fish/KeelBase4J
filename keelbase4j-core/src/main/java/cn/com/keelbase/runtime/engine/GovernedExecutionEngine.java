@@ -197,8 +197,50 @@ public class GovernedExecutionEngine {
         return d;
     }
 
+    /**
+     * Execute an allowed tool, and audit it — including the case where it refuses.
+     *
+     * <p><b>The refusal is an event, so it gets a line.</b> The audit below is composed from the
+     * outcome, which means it can only be written once an outcome exists. A refusal arrives as an
+     * exception — the row scope rejecting a row that is not the caller's, for instance — and control
+     * leaves before that line is reached. The effect is that the audit reports what succeeded and
+     * never what was attempted and refused, which is the half an operator asks about first: not "what
+     * did the AI do" but "did anything reach for what it should not". Measured before it was reasoned
+     * about: an out-of-scope read left no audit row at all.
+     *
+     * <p>The catch is deliberately narrow in what it changes and broad in what it catches. It adds a
+     * line and rethrows — the call is still refused, it is only no longer silent — and it catches
+     * every {@code RuntimeException} rather than filtering for the type that happens to be thrown
+     * today, because a filter would leave the next kind of refusal silently unrecorded, which is the
+     * defect it exists to fix. A crash inside a tool is also an attempt worth seeing.
+     *
+     * <p>Nothing here can roll the line back: no transaction surrounds the engine call, so the audit
+     * service's own transaction commits on its own.
+     *
+     * 执行一个被允许的工具，并审计它——**包括它拒绝的时候**。
+     *
+     * <p><b>拒绝本身就是一个事件，所以它要有一行。</b>下面那次审计是**由结果拼出来的**，也就是说只有
+     * 结果存在时才写得出来。拒绝以异常到来——比如行范围驳回了一行不属于调用方的数据——控制流在到达那
+     * 一行之前就离开了。后果是：审计报告「**做成了什么**」，而不报告「**尝试了什么、被拒了**」，而后者
+     * 恰恰是运维第一个会问的那一半：不是「AI 做了什么」，而是「**有没有什么东西伸手去够了它不该够的**」。
+     * **先测到、后推理**：一次越界读没有留下任何审计行。
+     *
+     * <p>这个 catch 在「改什么」上有意收窄、在「捕什么」上有意放宽。它**只加一行、再原样抛出**——调用
+     * 仍然被拒，只是不再无声——并且捕**所有** {@code RuntimeException}，而不是按今天恰好抛出的那个类型
+     * 过滤；因为过滤会让**下一种**拒绝继续被静默漏记，而那正是它要修的缺陷。工具内部的崩溃同样是一次
+     * 值得被看见的尝试。
+     *
+     * <p>这里写下的行**不可能被回滚**：引擎调用外面没有事务，审计服务自己的事务独立提交。
+     */
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal) {
-        ToolResult result = tool.execute(args, principal); // may throw 403 — before any write
+        ToolResult result;
+        try {
+            result = tool.execute(args, principal); // may throw 403 — before any write
+        } catch (RuntimeException refused) {
+            audit.append("tool_call", principal.userId(),
+                    tool.name() + " refused: " + refused.getMessage());
+            throw refused;
+        }
         Long effectId = null;
         if (result.success() && tool.resultType() != null) {
             Long resultId = resultId(result.data());
