@@ -61,6 +61,27 @@
       <artifactId>spring-boot-starter-flyway</artifactId>
     </dependency>
 
+    <!--
+      MySQL support for Flyway, which is a separate artefact since Flyway 10 and is *not* optional in
+      practice: `flyway-core` alone recognises H2 and refuses every other database, and the refusal
+      arrives as `FlywayException: Unsupported Database: MySQL 8.0` while the row that owns the
+      migration is being created — so a host on MySQL does not start at all, at a point that reads
+      like a schema problem and is not. Measured, not anticipated: the first real host run died
+      exactly there.
+
+      It sits beside the migrations rather than in the host because this module already ships
+      dialect-specific migration files: a jar that carries `db/keelbase-migration/mysql/` and cannot
+      apply it is half a feature, and leaving the dialect to the deployment turns a startup
+      prerequisite into an easy-to-miss step that fails with a message that names neither the missing
+      artefact nor the fix. The cost is that every deployment now carries MySQL support whether or
+      not it is a MySQL deployment — a dialect module is inert unless Flyway meets that database, so
+      the cost is classpath weight, and a PostgreSQL host would add its own alongside.
+    -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-mysql</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>

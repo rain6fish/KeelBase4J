@@ -2,11 +2,15 @@
 package cn.com.keelbase.runtime.autoconfigure;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 /**
  * Assembles the runtime core for an application that is not this repository's (ADR-0017).
@@ -41,6 +45,29 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * <p>What is <em>not</em> here is as deliberate: no {@code application.properties}, no
  * {@code @SpringBootApplication}, no server or datasource opinion. Those belong to whoever deploys the
  * application — see ADR-0017 D4/D5.
+ *
+ * <p><b>The scheduler is here because {@code @EnableScheduling} alone is not enough.</b> Boot's
+ * {@code TaskSchedulingAutoConfiguration} supplies a {@code TaskScheduler}, but only once a
+ * {@code internalScheduledAnnotationProcessor} bean exists — and this class's own
+ * {@code @EnableScheduling} is evaluated too late in the auto-configuration ordering to be what
+ * satisfies that. The reference application, {@code KeelBase4JApplication}, declares
+ * {@code @EnableScheduling} on the application class itself, early enough to win the race; that is a
+ * property of the reference application, not of this core, and a host inherits none of it. Measured:
+ * the first host to embed the core failed to start on
+ * {@code ChatStreamController} requiring a {@code TaskScheduler} that could not be found. So the core
+ * supplies one, with {@code @ConditionalOnMissingBean} — the same arrangement as the identity
+ * defaults: this runtime needs it, so it brings a default, and a deployment that has its own keeps
+ * it.
+ *
+ * <p><b>调度器放在这里，是因为光有 {@code @EnableScheduling} 不够。</b> Boot 的
+ * {@code TaskSchedulingAutoConfiguration} 会提供 {@code TaskScheduler}，但只在
+ * {@code internalScheduledAnnotationProcessor} 这个 bean 存在之后——而本类自己的
+ * {@code @EnableScheduling} 在自动配置排序里**评估得太晚**，满足不了那个条件。参照应用
+ * {@code KeelBase4JApplication} 把 {@code @EnableScheduling} 声明在应用类上，早得足以赢得这场竞争；
+ * 那是**参照应用的**性质，不是本 core 的，宿主一点都继承不到。**实测**：第一个嵌入本 core 的宿主
+ * 起不来，报 {@code ChatStreamController} 需要一个找不到的 {@code TaskScheduler}。于是 core 自带一个，
+ * 带 {@code @ConditionalOnMissingBean}——与身份默认值同一套安排：本运行时需要它，就带一个默认，
+ * 有自己那套的部署方保留自己的。
  */
 @AutoConfiguration
 @ComponentScan("cn.com.keelbase.runtime")
@@ -49,4 +76,17 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ConfigurationPropertiesScan("cn.com.keelbase.runtime")
 @EnableScheduling
 public class KeelBaseRuntimeAutoConfiguration {
+
+    /**
+     * The scheduler this runtime's streaming endpoints need, supplied here rather than assumed from the
+     * hosting application's auto-configuration. A deployment that already has one keeps it.
+     */
+    @Bean
+    @ConditionalOnMissingBean(TaskScheduler.class)
+    TaskScheduler keelBaseTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setThreadNamePrefix("keelbase-sched-");
+        scheduler.setDaemon(true);
+        return scheduler;
+    }
 }
