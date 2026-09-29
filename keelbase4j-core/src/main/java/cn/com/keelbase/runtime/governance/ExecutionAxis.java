@@ -60,4 +60,22 @@ public final class ExecutionAxis {
         }
         return now.toEpochMilli() - claimedAt.toEpochMilli() < LEASE_MILLIS ? RUNNING : FAILED;
     }
+
+    /**
+     * Whether a new attempt may take this row: it has not succeeded, and any existing claim is older
+     * than the lease — because a fresh claim means an attempt may be running right now.
+     *
+     * <p>This asks the same question the claim's SQL condition asks in the database, and the boundary
+     * is the same one {@link #derive} uses to say {@code running}: exactly one of the two answers.
+     *
+     * <p>The retry entry consults it to refuse with a reason, but the condition is what decides —
+     * between asking and acting, another attempt could take the row.
+     */
+    public static boolean isClaimable(ConfirmationRequest row, Instant now) {
+        if (row.getExecutedAt() != null) {
+            return false;
+        }
+        Instant claimedAt = row.getExecutionClaimedAt();
+        return claimedAt == null || now.toEpochMilli() - claimedAt.toEpochMilli() >= LEASE_MILLIS;
+    }
 }

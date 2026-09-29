@@ -41,6 +41,9 @@ public class RuleBasedPlanner implements ToolCallPlanner {
         if (text.contains("风险") || text.contains("分析")) {
             return Optional.of(new IntentPlan("analyze_customer_risk", args));
         }
+        if (text.contains("升级") || text.contains("上报")) {
+            return Optional.of(new IntentPlan("escalate_customer", args));
+        }
         if (text.contains("跟进") || text.contains("创建")) {
             args.put("note", text);
             return Optional.of(new IntentPlan("create_followup", args));

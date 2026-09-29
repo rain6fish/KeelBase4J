@@ -11,6 +11,7 @@ import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
+import cn.com.keelbase.runtime.governance.ConfirmationMode;
 import cn.com.keelbase.runtime.governance.ConfirmationRequest;
 import cn.com.keelbase.runtime.governance.ConfirmationRequestRepository;
 import cn.com.keelbase.runtime.governance.ConfirmationStore;
@@ -107,7 +108,8 @@ class MyConfirmationsListTest {
         assertEquals(token, item.get("token"));
         assertEquals("create_followup", item.get("toolName"));
         assertEquals("immediate", item.get("mode"),
-                "this runtime produces one mode, and saying so is the honest answer");
+                "the operator's own list holds immediate rows only — an approval row waits on somebody"
+                        + " else and is not collected here at all");
         assertEquals("R3", item.get("riskLevel"));
         assertEquals(ConfirmationLifecycle.PENDING, item.get("status"));
         assertEquals("local_compensate", item.get("revokeClass"),
@@ -156,7 +158,8 @@ class MyConfirmationsListTest {
 
     @Test
     void aPendingRowWhoseWindowClosedIsLeftOut() {
-        ConfirmationRequest fresh = store.create(new Principal("alice", "user"), "create_followup", "{}", "R3");
+        ConfirmationRequest fresh = store.create(
+                new Principal("alice", "user"), "create_followup", "{}", "R3", ConfirmationMode.IMMEDIATE);
 
         assertEquals(1, store.mine("alice", null, Instant.now(),
                 ConfirmationLifecycle.DEFAULT_OFFLINE_TTL_MILLIS).size(), "inside its window, it is listed");
@@ -169,7 +172,8 @@ class MyConfirmationsListTest {
     @Test
     void theListIsCappedAndNewestFirst() {
         for (int i = 0; i < 51; i++) {
-            store.create(new Principal("alice", "user"), "create_followup", "{\"i\":" + i + "}", "R3");
+            store.create(new Principal("alice", "user"), "create_followup", "{\"i\":" + i + "}", "R3",
+                    ConfirmationMode.IMMEDIATE);
         }
 
         List<ConfirmationRequest> mine = store.mine("alice", null, Instant.now(),

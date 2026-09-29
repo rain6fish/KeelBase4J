@@ -6,11 +6,14 @@ import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectService;
+import cn.com.keelbase.runtime.governance.ConfirmationMode;
 import cn.com.keelbase.runtime.governance.ConfirmationRequest;
 import cn.com.keelbase.runtime.governance.ConfirmationStore;
 import cn.com.keelbase.runtime.governance.ConfirmationWatchers;
+import cn.com.keelbase.runtime.governance.ExecutionAxis;
 import cn.com.keelbase.runtime.governance.GateDecision;
 import cn.com.keelbase.runtime.governance.GovernanceService;
+import cn.com.keelbase.runtime.identity.OperatorIdentity;
 import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.tool.AiTool;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
@@ -18,7 +21,10 @@ import cn.com.keelbase.runtime.tool.ToolResult;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * The trust loop. Every AI tool call goes through here — there is no path that executes a tool
@@ -26,8 +32,8 @@ import org.springframework.stereotype.Service;
  *
  * <pre>
  *   gate(risk) ─┬─ BLOCK             → audit, never execute
- *               ├─ REQUIRE_APPROVAL  → audit, wait for a second party
- *               ├─ CONFIRM           → audit, issue a token, wait for the operator
+ *               ├─ REQUIRE_APPROVAL  → issue a token, wait for a *second person* (R4)
+ *               ├─ CONFIRM           → issue a token, wait for the operator (R3)
  *               └─ ALLOW             → audit, execute, record side effect
  * </pre>
  */
@@ -65,12 +71,21 @@ public class GovernedExecutionEngine {
                 audit.append("tool_call", principal.userId(), toolName + " blocked (risk policy)");
                 return new ExecutionOutcome("blocked", governance.reasons(tool).toWire(), null, null,
                         "blocked by risk policy");
-            case REQUIRE_APPROVAL:
-                audit.append("tool_call", principal.userId(), toolName + " requires approval");
-                return new ExecutionOutcome("requires_approval", null, null, null, null);
+            case REQUIRE_APPROVAL: {
+                // A high-impact action waits for a second person, so the row is written and its token
+                // returned; nothing runs until somebody else answers it (ADR-0018). Until this branch
+                // wrote a row it stopped at an audit line, and a token nobody held could not be
+                // answered by anyone.
+                ConfirmationRequest req = confirmations.create(
+                        principal, toolName, CanonicalJson.json(args), tool.riskLevel(),
+                        ConfirmationMode.APPROVAL);
+                audit.append("tool_call", principal.userId(), toolName + " awaiting a second person");
+                return new ExecutionOutcome("requires_approval", null, req.getToken(), null, null);
+            }
             case CONFIRM: {
                 ConfirmationRequest req = confirmations.create(
-                        principal, toolName, CanonicalJson.json(args), tool.riskLevel());
+                        principal, toolName, CanonicalJson.json(args), tool.riskLevel(),
+                        ConfirmationMode.IMMEDIATE);
                 audit.append("tool_call", principal.userId(), toolName + " pending confirmation");
                 return new ExecutionOutcome("pending_confirmation", null, req.getToken(), null, null);
             }
@@ -112,6 +127,8 @@ public class GovernedExecutionEngine {
                 Instant.now(), ConfirmationLifecycle.DEFAULT_OFFLINE_TTL_MILLIS);
         return switch (result.outcome()) {
             case NOT_FOUND -> new OutOfBandDecision(false, null, null, "not found");
+            case NOT_THIS_PATHS_ROW -> new OutOfBandDecision(false, null, null,
+                    "only the operator's own immediate confirmations can be decided here");
             case ALREADY_DECIDED -> new OutOfBandDecision(false, null, null, "already decided");
             case EXPIRED -> new OutOfBandDecision(false, null, null, "the offline window has closed");
             case DECIDED -> {
@@ -125,23 +142,101 @@ public class GovernedExecutionEngine {
     }
 
     /**
-     * The approval tail, shared by both decision paths: audit, execute, record the effect, then tell
+     * Answer an approval-mode confirmation — a <em>second person</em> deciding a high-impact action
+     * (ADR-0018).
+     *
+     * <p>Both guards live in the store, next to the conditional update that makes an answer single:
+     * the row has to be an approval row, and the caller may not be its initiator. The write then runs
+     * as the initiator, not as the approver.
+     */
+    public ExecutionOutcome decideApproval(String token, Principal approver, String decision) {
+        String toStatus = ConfirmationLifecycle.APPROVE.equals(decision)
+                ? ConfirmationLifecycle.APPROVED
+                : ConfirmationLifecycle.DECLINED;
+        ConfirmationRequest req = confirmations.claimApproval(token, approver, toStatus);
+        return ConfirmationLifecycle.APPROVED.equals(toStatus)
+                ? performApproval(req, approver, ConfirmationLifecycle.OUT_OF_BAND)
+                : performDecline(req, approver, ConfirmationLifecycle.OUT_OF_BAND);
+    }
+
+    /**
+     * Run an approved-but-not-succeeded confirmation again (ADR-0018).
+     *
+     * <p>What it is for: an attempt that died without recording a result — the process was killed, the
+     * container restarted, an external call hung. The row is left {@code approved} with a stale claim
+     * and the tool never ran, and until now there was no way to ask for it a second time at all.
+     *
+     * <p>Refused when the token is unknown or is not an approval row, when the row is not
+     * {@code approved}, when it already succeeded, and when its claim is still fresh — that last one
+     * is what keeps a retry from racing a live attempt. Running it twice over is safe because the
+     * write pipeline is idempotent: a retry does not produce a second side effect.
+     */
+    public ExecutionOutcome retryExecution(String token, Principal retriedBy) {
+        ConfirmationRequest req = confirmations.find(token);
+        if (req == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown confirmation token");
+        }
+        if (!ConfirmationMode.APPROVAL.equals(req.getMode())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "only an approval confirmation has an execution that can be retried");
+        }
+        if (req.getExecutedAt() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "this confirmation already executed");
+        }
+        if (!ConfirmationLifecycle.APPROVED.equals(req.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "cannot retry a " + req.getStatus() + " confirmation");
+        }
+        if (!ExecutionAxis.isClaimable(req, Instant.now())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "an execution attempt is still running");
+        }
+        audit.append("tool_confirmation", retriedBy.userId(), req.getToolName() + " execution retried");
+        return executeApproved(req, initiator(req, retriedBy));
+    }
+
+    /**
+     * The approval tail, shared by every decision path: audit, execute, record the effect, then tell
      * whoever is watching.
      *
      * <p>{@code via} is recorded in the audit because the frozen lifecycle says a decision carries
-     * where it was taken; the state machine does not fork on it, and neither does the wire.
+     * where it was taken; the state machine does not fork on it, and neither does the wire. The frozen
+     * vocabulary is {@code in_band} / {@code out_of_band} and its transitions are all taken by the
+     * owner, so a second person's decision reuses {@code out_of_band} rather than inventing a word: it
+     * genuinely is a decision taken outside the dialogue, and who took it is recorded as the audit's
+     * subject and the row's {@code approver_id}.
      */
-    private ExecutionOutcome performApproval(ConfirmationRequest req, Principal principal, String via) {
+    private ExecutionOutcome performApproval(ConfirmationRequest req, Principal decider, String via) {
         AiTool tool = registry.require(req.getToolName());
-        audit.append("tool_confirmation", principal.userId(), tool.name() + " approved (" + via + ")");
-        // Claim the execution before running it (ADR-0016): the row then records that an attempt took
-        // it, so an attempt that never reports back reads as such instead of as "approved, nothing
-        // happened". The claim is the lease — an attempt older than it derives `failed`.
-        req.setExecutionClaimedAt(Instant.now());
-        confirmations.save(req);
+        audit.append("tool_confirmation", decider.userId(), tool.name() + " approved (" + via + ")");
+        return executeApproved(req, initiator(req, decider));
+    }
+
+    /**
+     * The execution tail: claim the attempt, run the tool, settle the row, then tell whoever is
+     * watching.
+     *
+     * <p><b>The claim is a conditional update</b> (ADR-0018). On the ordinary approval path only one
+     * caller can be here — the row was already taken out of {@code pending} — but a retry is a second
+     * entry into this tail, and a claim that is read and then written lets a retry and a live attempt
+     * both pass. The condition is what makes "at most one attempt" hold, and it is also what refuses
+     * a row that has already succeeded.
+     */
+    private ExecutionOutcome executeApproved(ConfirmationRequest req, Principal initiator) {
+        AiTool tool = registry.require(req.getToolName());
+        // The row then records that an attempt took it, so an attempt that never reports back reads as
+        // such instead of as "approved, nothing happened". The claim is the lease — an attempt the
+        // lease has run out on derives `failed`, and may be taken again.
+        Instant claimedAt = Instant.now();
+        if (!confirmations.claimExecution(req.getToken(), claimedAt, ExecutionAxis.LEASE_MILLIS)) {
+            return new ExecutionOutcome("error", null, null, null,
+                    "execution already in progress or already completed");
+        }
+        // The row now carries the claim; this copy has to as well, or the save below writes the
+        // pre-claim null back over it and an attempt in flight becomes invisible.
+        req.setExecutionClaimedAt(claimedAt);
         ExecutionOutcome outcome;
         try {
-            outcome = run(tool, parseArgs(req.getArgsJson()), principal);
+            outcome = run(tool, parseArgs(req.getArgsJson()), initiator);
         } catch (RuntimeException failed) {
             // The tool threw instead of answering. The attempt is recorded as failed and keeps its
             // claim on purpose: clearing it would say the attempt never happened, and a claim with no
@@ -163,6 +258,20 @@ public class GovernedExecutionEngine {
         // stream reports events, it does not execute, so telling it cannot run the tool twice.
         watchers.decided(req.getToken(), decision(ConfirmationLifecycle.APPROVE, req.getToolName(), outcome));
         return outcome;
+    }
+
+    /**
+     * Who the write belongs to: the identity the row was raised under, falling back to the decider for
+     * a row written before the column existed.
+     *
+     * <p>Reading it off the row is what lets a second person approve at all — the approver is not the
+     * person whose business action this is. It also means the write runs under the identity the request
+     * was raised with, rather than whatever role that person happens to hold by the time it is answered
+     * (ADR-0018).
+     */
+    private static Principal initiator(ConfirmationRequest req, Principal fallback) {
+        Principal stored = OperatorIdentity.fromWireJson(req.getOperatorIdentity());
+        return stored != null ? stored : fallback;
     }
 
     private static String message(RuntimeException failed) {
@@ -233,6 +342,21 @@ public class GovernedExecutionEngine {
      * <p>这里写下的行**不可能被回滚**：引擎调用外面没有事务，审计服务自己的事务独立提交。
      */
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal) {
+        String argsJson = CanonicalJson.json(args);
+        // Ask the ledger *before* acting (ADR-0018). A write can be replayed — a retried execution, a
+        // second decision on the same confirmation, a restart — and answering from the record keeps the
+        // action single. Recording first and asking afterwards deduplicates the ledger while the write
+        // itself has already happened twice, which is the failure this probe exists to prevent.
+        if (tool.resultType() != null) {
+            Optional<SideEffect> alreadyDone = sideEffects.find(principal, tool.name(), argsJson);
+            if (alreadyDone.isPresent()) {
+                audit.append("tool_call", principal.userId(),
+                        tool.name() + " -> ok (already done; not run again)");
+                // The tool did not run, so there is no fresh payload to report. The effect is what the
+                // caller gets, and saying that beats fashioning a result that never happened.
+                return ExecutionOutcome.executed(null, alreadyDone.get().getId());
+            }
+        }
         ToolResult result;
         try {
             result = tool.execute(args, principal); // may throw 403 — before any write
@@ -245,8 +369,7 @@ public class GovernedExecutionEngine {
         if (result.success() && tool.resultType() != null) {
             Long resultId = resultId(result.data());
             SideEffect effect = sideEffects.record(
-                    principal, tool.name(), tool.resultType(), resultId,
-                    CanonicalJson.json(args), tool.revokeClass());
+                    principal, tool.name(), tool.resultType(), resultId, argsJson, tool.revokeClass());
             effectId = effect.getId();
         }
         audit.append("tool_call", principal.userId(),

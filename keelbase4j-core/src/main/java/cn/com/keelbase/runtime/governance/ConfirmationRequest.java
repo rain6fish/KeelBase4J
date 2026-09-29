@@ -34,6 +34,26 @@ public class ConfirmationRequest {
     @Column(name = "risk_level", nullable = false)
     private String riskLevel;
 
+    /**
+     * Which confirmation this row is — see {@link ConfirmationMode}. Not derived from the risk level:
+     * the two are not synonyms (a policy may promote a tool to approval), and the mode is what decides
+     * who may answer the row.
+     */
+    @Column(nullable = false)
+    private String mode = ConfirmationMode.IMMEDIATE;
+
+    /** Who answered an {@code approval} row. Null for an immediate row — there the decider is the operator. */
+    @Column(name = "approver_id")
+    private String approverId;
+
+    /**
+     * The initiator's identity in its wire form, so the write can be performed as them when somebody
+     * else answers the row (ADR-0018). An approval row outlives the request that created it, so the
+     * identity it was created under has to travel with it.
+     */
+    @Column(name = "operator_identity", length = 4000)
+    private String operatorIdentity;
+
     /** pending | approved | declined | timeout — see {@link ConfirmationLifecycle}. */
     @Column(nullable = false)
     private String status = ConfirmationLifecycle.PENDING;
@@ -97,6 +117,30 @@ public class ConfirmationRequest {
 
     public String getRiskLevel() {
         return riskLevel;
+    }
+
+    public String getMode() {
+        return mode;
+    }
+
+    public void setMode(String mode) {
+        this.mode = mode;
+    }
+
+    public String getApproverId() {
+        return approverId;
+    }
+
+    public void setApproverId(String approverId) {
+        this.approverId = approverId;
+    }
+
+    public String getOperatorIdentity() {
+        return operatorIdentity;
+    }
+
+    public void setOperatorIdentity(String operatorIdentity) {
+        this.operatorIdentity = operatorIdentity;
     }
 
     public String getStatus() {

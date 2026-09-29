@@ -40,6 +40,18 @@ public class SideEffectService {
     }
 
     /**
+     * The effect this exact call already produced, if it did — asked <em>before</em> the tool runs, so
+     * a replay can be answered without performing the action a second time (ADR-0018).
+     *
+     * <p>{@link #record} answers the same question after the fact, which deduplicates the ledger while
+     * the action has already happened twice. Anything that can replay a write therefore has to ask
+     * this one first: a retried execution, a second decision on the same confirmation, a restart.
+     */
+    public Optional<SideEffect> find(Principal principal, String toolName, String argsJson) {
+        return repository.findByIdempotencyKey(idempotencyKey(principal.userId(), toolName, argsJson));
+    }
+
+    /**
      * Record the effect for this call, or reuse the one this content already produced.
      *
      * <p>Deliberately not {@code @Transactional}: the insert must be able to fail and roll back
