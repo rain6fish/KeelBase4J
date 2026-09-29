@@ -9,7 +9,10 @@ import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
 import cn.com.keelbase.runtime.governance.ConfirmationSweeper;
 import cn.com.keelbase.runtime.web.ChatController;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
 import org.junit.jupiter.api.Test;
@@ -17,7 +20,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.mvc.condition.PathPatternsRequestCondition;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
  * The core assembles in an application that never heard of it (ADR-0017 D3, = the seam record's F2).
@@ -86,6 +96,68 @@ class CoreAssemblyTest {
     @Test
     void theSweepIsEnabledHere() {
         assertEquals(1, context.getBeansOfType(ConfirmationSweeper.class).size());
+    }
+
+    /**
+     * Every route this runtime serves is inside the chain's scope, and the scope is not empty
+     * (JV-35 F1).
+     *
+     * <p>The scope is derived from the controllers ({@code OwnedRoutes}), so this is not the guard
+     * against a list drifting — there is no list. It is the guard against the derivation quietly
+     * failing: if it resolved nothing, the chain would govern nothing, every route below would be
+     * outside, and — without this — the suite would read green over a runtime that authenticates
+     * nobody. That failure mode is why the derived routes are pinned first and compared second.
+     *
+     * <p>本运行时提供的每条路由都在链的范围之内，且范围**非空**（JV-35 F1）。
+     *
+     * <p>范围是从控制器推导的（{@code OwnedRoutes}），所以这不是「防清单漂移」的闸 —— 根本没有清单。它防
+     * 的是**推导悄悄失效**：万一它解析出空集，链就会什么都不治理，下面每条路由都会落在范围之外 —— 而没有
+     * 这条测试，套件会在「一个谁都不认证的运行时」上读起来是绿的。故先钉住推导出的路由、再比对。
+     */
+    @Test
+    void everyRouteThisRuntimeServesIsInsideTheChainsScope() {
+        RequestMatcher scope =
+                ((DefaultSecurityFilterChain) context.getBean("governedEndpoints", SecurityFilterChain.class))
+                        .getRequestMatcher();
+
+        Set<String> served = new LinkedHashSet<>();
+        for (RequestMappingHandlerMapping mapping :
+                context.getBeansOfType(RequestMappingHandlerMapping.class).values()) {
+            for (Map.Entry<RequestMappingInfo, HandlerMethod> entry : mapping.getHandlerMethods().entrySet()) {
+                if (!entry.getValue().getBeanType().getPackageName().startsWith(RUNTIME_PACKAGE)) {
+                    continue;
+                }
+                served.addAll(patternsOf(entry.getKey()));
+            }
+        }
+
+        // A vacuous pass is the failure mode this guard exists to prevent, so the derivation is pinned
+        // before its result is trusted: if the handler lookup ever stops finding routes, this goes red
+        // rather than the comparison below going quietly green over an empty set.
+        assertTrue(served.containsAll(Set.of("/auth/me", "/ai/tool-effects/{id}", "/customers", "/error")),
+                "the derivation found the routes this runtime serves: " + served);
+
+        Set<String> outside = new LinkedHashSet<>();
+        for (String pattern : served) {
+            if (!scope.matches(new MockHttpServletRequest("GET", concrete(pattern)))) {
+                outside.add(pattern);
+            }
+        }
+
+        assertEquals(Set.of(), outside,
+                "these routes are served but not governed — widen SecurityConfig.OWNED_PATHS: " + outside);
+    }
+
+    private static final String RUNTIME_PACKAGE = "cn.com.keelbase.runtime";
+
+    private static List<String> patternsOf(RequestMappingInfo info) {
+        PathPatternsRequestCondition condition = info.getPathPatternsCondition();
+        return condition == null ? List.of() : List.copyOf(condition.getPatternValues());
+    }
+
+    /** A pattern with its variables filled, so the matcher can be asked about a concrete request. */
+    private static String concrete(String pattern) {
+        return pattern.replaceAll("\\{[^/}]*}", "x");
     }
 
     /**
