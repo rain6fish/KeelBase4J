@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Declaring an {@link ErrorController} bean makes Boot's own back off, so this is the single place
  * container errors are shaped — including the 401 that
- * {@link cn.com.keelbase.runtime.security.SecurityConfig} raises and the 404 for a path no
+ * {@link cn.com.keelbase.runtime.security.RuntimeSecurityConfig} raises and the 404 for a path no
  * controller claims. Failures the application raises on purpose are shaped by
  * {@link WireExceptionAdvice} instead; both take their wording from {@link WireFailure}, so a 403
  * reads the same however it was produced.

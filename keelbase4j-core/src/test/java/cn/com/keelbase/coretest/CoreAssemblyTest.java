@@ -145,7 +145,7 @@ class CoreAssemblyTest {
         }
 
         assertEquals(Set.of(), outside,
-                "these routes are served but not governed — widen SecurityConfig.OWNED_PATHS: " + outside);
+                "these routes are served but not governed — the owned-route scope will not cover them: " + outside);
     }
 
     private static final String RUNTIME_PACKAGE = "cn.com.keelbase.runtime";

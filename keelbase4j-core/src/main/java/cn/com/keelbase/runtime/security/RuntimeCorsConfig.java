@@ -14,7 +14,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * CORS, so a browser-hosted frontend can reach this runtime.
  *
  * <p>Without it the runtime is only callable from a server: a browser sends a preflight
- * {@code OPTIONS} first, and {@link SecurityConfig} refuses every unauthenticated request — so the
+ * {@code OPTIONS} first, and {@link RuntimeSecurityConfig} refuses every unauthenticated request — so the
  * preflight is answered 401 and the real request never happens. A frontend that works from Node (as
  * the golden-path judge does) therefore still fails on its first hop from a browser, which is the
  * only place it is meant to run.
@@ -28,10 +28,20 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * <p>Preflight itself needs no exclusion from authentication: Spring Security's CORS support
  * answers and short-circuits the preflight before the authorization rules are consulted, but only
  * when the filter chain is told to use this bean — see
- * {@link SecurityConfig#governedEndpoints}.
+ * {@link RuntimeSecurityConfig#governedEndpoints}.
+ *
+ * <p>The name carries the prefix because this class is found by a component scan rooted in a
+ * <em>library's</em> package rather than the application's, and a bean name is derived from the
+ * simple class name: a class called {@code CorsConfig} collides with any host that has one of its
+ * own, and the host then fails to start. {@link RuntimeSecurityConfig} carries it for the same
+ * reason — do not shorten either name.
+ *
+ * <p>名字带前缀，是因为这个类由**根在库包里的**组件扫描发现、而非应用自己的，而 bean 名取自简单类名：
+ * 一个叫 {@code CorsConfig} 的类会和任何有同名类的宿主相撞，宿主随即起不来。{@link RuntimeSecurityConfig}
+ * 出于同一原因——**两个名字都不要简写回去**。
  */
 @Configuration
-public class CorsConfig {
+public class RuntimeCorsConfig {
 
     private static final List<String> METHODS =
             List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");

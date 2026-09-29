@@ -67,7 +67,7 @@ boundary.
 |---|---|
 | `domain` | `Customer` / `FollowUp` entities + repositories (own-scope, soft-deletable) |
 | `identity` | `Principal` (wire-shaped identity) + `IdentityResolver` SPI + `IdentityEvidence` + `AuthenticatedSubject` + `SecurityIdentityResolver` (the default adapter) + `LocalIdentities` (subject → local user/role, tier A) + `CurrentPrincipal` (what the web layer asks) |
-| `security` | What answers *who is this request*: `DelegationTokenAuthenticationFilter` (verifies the frozen token) + `SecurityConfig`. **No authorization lives here** — no `hasRole`, no `@PreAuthorize`, no URL rules |
+| `security` | What answers *who is this request*: `CallerAuthenticationFilter` (the mechanics, once per request) + `CallerAuthenticator` (the deployment's answer — a delegation token standalone, the host's own authentication when embedded) + `RuntimeSecurityConfig` (the chain, scoped to the paths this runtime's controllers serve). **No authorization lives here** — no `hasRole`, no `@PreAuthorize`, no URL rules |
 | `authz` | `AuthorizationRules` (declared role → capability) · `PermissionAuthorizer` (self-built decision function → frozen `permission-decision` / `permission-capability-list`) · `OwnershipGuard` (the single enforcement point: coarse gate, then row gate) |
 | `scope` | The row range: `ScopeLevel` / `ScopeDescriptor` (internal, never on the wire) · `ScopeFilter` (descriptor → typed predicate, and the object-level check) · `DataScopeRules` (declared level per role) · `Departments` (declared tree) |
 | `tool` | `AiTool` contract, `ToolRegistry`, the two AI tools (R1 read / R3 write) |
@@ -250,7 +250,7 @@ provider, an identity provider) sit outside it.
   `Authorization: Bearer <jwt>`; `DelegationTokenAuthenticationFilter` verifies it with the frozen
   protocol's own `DelegationToken.verify` — deliberately not a second JWT implementation, since two
   verifiers are two things to keep in step. A request that fails that check never reaches a
-  controller. `SecurityConfig` then contains **no authorization at all** (ADR-0004 D3): putting role
+  controller. `RuntimeSecurityConfig` then contains **no authorization at all** (ADR-0004 D3): putting role
   rules there would not merely duplicate KeelBase's decision, it would be a second, silently
   diverging answer to the same question. One consequence worth knowing: error dispatches are
   permitted, because the container re-renders a handled failure (a 403 from a controller) on a fresh

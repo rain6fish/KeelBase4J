@@ -52,10 +52,20 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * ⇒ **嵌入后的应用起不来**。故有 {@link OwnedRoutes} 这个范围 —— 它治理的是**本运行时自己的控制器**所
  * 服务的路径，从控制器推导而来、而非手写清单 —— 以及 {@code @Order(1)}：它排在**未声明 order 的宿主链**
  * 之前（宿主不声明 order 是它的正当默认）。
+ *
+ * <p>The prefix on this class name is load-bearing, not decoration. The class is found by a
+ * component scan rooted in a library's package, and a bean name is derived from the simple class
+ * name — so a class called {@code SecurityConfig} collides with any host that has one of its own,
+ * and the host fails to start before any of the above can matter. Measured, not theorised: the first
+ * host run died on exactly that. Do not shorten it.
+ *
+ * <p>类名上的前缀是**承重的**，不是装饰。本类由**根在库包里的**组件扫描发现，而 bean 名取自简单类名
+ * ——所以一个叫 {@code SecurityConfig} 的类会和任何有同名类的宿主相撞，宿主在以上任何一条成为问题
+ * 之前就起不来。**实测**而非推想：宿主首次运行正是死在这里。**不要简写它。**
  */
 @Configuration
 @EnableWebSecurity
-public class SecurityConfig {
+public class RuntimeSecurityConfig {
 
     @Order(1)
     @Bean
