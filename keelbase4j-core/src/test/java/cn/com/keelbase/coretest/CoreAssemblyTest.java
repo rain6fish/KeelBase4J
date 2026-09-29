@@ -47,17 +47,27 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * Hibernate's embedded default instead, Hibernate would build the schema itself and the migrations would
  * never be read, so a broken one would pass here and fail only in a host.
  *
+ * <p>The properties supplied are the three settings the core requires and deliberately does not default:
+ * the audit chain's HMAC key, the delegation secret and the audience it answers for. Supplying them is the
+ * point rather than an inconvenience — a secret with a built-in default is a secret the deployment did not
+ * choose. What the core refuses to carry is <em>deployment opinion</em> — a port, a context path, a
+ * datasource — not the requirement that whoever deploys it provides these (ADR-0017 D5).
+ *
+ * <p>核心能在一个**从未听说过它**的应用里装配起来（ADR-0017 D3，即缝记录的 F2）。
+ *
+ * <p>这里断言的每一个 bean，都由核心自己的自动配置注册，而它来自一个组件扫描根**完全在别处**的应用。那正是
+ * 宿主需要的那条性质，也是运行时自己的测试**证明不了**的：它们启动的是 `KeelBase4JApplication`，其扫描覆盖了
+ * 运行时的包，所以**即使把那条自动配置删掉**，它们照旧会绿。
+ *
  * <p>除了**一项设置**，这里同样不配置数据库。核心的 datasource 由部署方交给它；H2 在测试 classpath 上，
  * 于是 Boot 自己的嵌入式数据库那条路提供了它，而宿主就是用自己那个替换掉这个形状（ADR-0017 D4）。**真正
  * 被设上的**是 `ddl-auto=validate`——宿主的姿态，也是「核心的迁移必须是对的」的理由：Hibernate 被告知去
  * 比对实体与 schema，不一致就**拒绝启动**。若用 Hibernate 的嵌入式默认值，Hibernate 会自己建 schema，
  * 迁移**根本不会被读到**，于是一条坏迁移会在这里通过、只在宿主里失败。
  *
- * <p>The properties supplied are the three settings the core requires and deliberately does not default:
- * the audit chain's HMAC key, the delegation secret and the audience it answers for. Supplying them is the
- * point rather than an inconvenience — a secret with a built-in default is a secret the deployment did not
- * choose. What the core refuses to carry is <em>deployment opinion</em> — a port, a context path, a
- * datasource — not the requirement that whoever deploys it provides these (ADR-0017 D5).
+ * <p>这里提供的属性，是核心**要求、且有意不给默认**的三项：审计链的 HMAC 密钥、委托密钥、以及它应答的受众。
+ * 供给它们是重点而不是麻烦——**带内置默认值的秘密，不是部署方选的秘密**。核心拒绝携带的是**部署意见**：
+ * 端口、上下文路径、数据源；而不是「部署方必须提供这三项」这个要求（ADR-0017 D5）。
  */
 @SpringBootTest(classes = CoreTestApplication.class,
         properties = {

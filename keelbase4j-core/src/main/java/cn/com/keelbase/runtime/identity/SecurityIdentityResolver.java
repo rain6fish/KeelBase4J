@@ -22,14 +22,23 @@ import org.springframework.web.server.ResponseStatusException;
  * <p>An adapter for a real directory (OIDC, LDAP, Sa-Token, or a host's own user tables) implements this
  * same seam and maps its verified claims onto the same frozen contracts; nothing downstream changes.
  *
- * <p>为真实目录（OIDC、LDAP、Sa-Token，或**宿主自己的用户表**）写的适配器实现的正是同一条缝，把它的
- * 已验证声明映射到同一批冻结契约上；下游一切不变。
- *
  * <p>It is registered as a default bean with {@code @ConditionalOnMissingBean} rather than as a
  * component, because the deployment has to be able to replace it: a host that already knows its users'
  * roles and departments has no business being described a second time in {@code LocalIdentities}, and
  * two beans of this type would be a startup failure rather than a choice
  * ({@code KeelBaseIdentityAutoConfiguration}).
+ *
+ * <p>**默认的身份适配器**：把请求入口认证出来的东西，转成运行时的 `Principal`。
+ *
+ * <p>它只读**已验证**的主体，然后在本地查出用户、角色与组织（`LocalIdentities`）。这就是它与它所取代的那个
+ * header 适配器之间的全部差别：调用方**再也不能**自称是谁、也不能自称能做什么。它可以出示一个令牌，而由**这个
+ * 部署**决定那个令牌的主体在这里意味着什么。
+ *
+ * <p>它投射出来的组织事实，正是行范围用来指称部门的东西——见 `runtime.scope`。在这之前，`Principal#org()`
+ * 永远是 `null`，冻结的 `org-membership-scope` 契约背后空无一物。
+ *
+ * <p>为真实目录（OIDC、LDAP、Sa-Token，或**宿主自己的用户表**）写的适配器实现的正是同一条缝，把它的
+ * 已验证声明映射到同一批冻结契约上；下游一切不变。
  *
  * <p>**它注册成带 `@ConditionalOnMissingBean` 的默认 bean，而不是组件**，因为部署方必须能取代它：一个
  * 已经知道自己用户角色与部门的宿主，没有理由在 `LocalIdentities` 里再被描述一遍；而两个同类型的 bean
