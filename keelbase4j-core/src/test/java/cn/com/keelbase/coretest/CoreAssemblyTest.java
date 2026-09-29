@@ -52,6 +52,22 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * point rather than an inconvenience — a secret with a built-in default is a secret the deployment did not
  * choose. What the core refuses to carry is <em>deployment opinion</em> — a port, a context path, a
  * datasource — not the requirement that whoever deploys it provides these (ADR-0017 D5).
+ *
+ * <p>核心能在一个**从未听说过它**的应用里装配起来（ADR-0017 D3，即缝记录的 F2）。
+ *
+ * <p>这里断言的每一个 bean，都由核心自己的自动配置注册，而它来自一个组件扫描根**完全在别处**的应用。那正是
+ * 宿主需要的那条性质，也是运行时自己的测试**证明不了**的：它们启动的是 `KeelBase4JApplication`，其扫描覆盖了
+ * 运行时的包，所以**即使把那条自动配置删掉**，它们照旧会绿。
+ *
+ * <p>除了**一项设置**，这里同样不配置数据库。核心的 datasource 由部署方交给它；H2 在测试 classpath 上，
+ * 于是 Boot 自己的嵌入式数据库那条路提供了它，而宿主就是用自己那个替换掉这个形状（ADR-0017 D4）。**真正
+ * 被设上的**是 `ddl-auto=validate`——宿主的姿态，也是「核心的迁移必须是对的」的理由：Hibernate 被告知去
+ * 比对实体与 schema，不一致就**拒绝启动**。若用 Hibernate 的嵌入式默认值，Hibernate 会自己建 schema，
+ * 迁移**根本不会被读到**，于是一条坏迁移会在这里通过、只在宿主里失败。
+ *
+ * <p>这里提供的属性，是核心**要求、且有意不给默认**的三项：审计链的 HMAC 密钥、委托密钥、以及它应答的受众。
+ * 供给它们是重点而不是麻烦——**带内置默认值的秘密，不是部署方选的秘密**。核心拒绝携带的是**部署意见**：
+ * 端口、上下文路径、数据源；而不是「部署方必须提供这三项」这个要求（ADR-0017 D5）。
  */
 @SpringBootTest(classes = CoreTestApplication.class,
         properties = {
@@ -178,6 +194,12 @@ class CoreAssemblyTest {
      * only the second half distinguishes the two ways the tables could have appeared — {@code validate}
      * fails loudly if they are missing, but it passes just as happily over tables Hibernate created for
      * itself, which is the state this test exists to keep out (ADR-0017 D4).
+     *
+     * <p>核心的表存在于被部署的 schema 里，而把它们建出来的是**核心自己的迁移**。
+     *
+     * <p>问的是数据库、不是某个 bean：这是宿主依赖的事实，而且**光看上下文看不出来**。表名与迁移名都断言，
+     * 因为只有后半句能区分「这些表可能出现的两种方式」——表缺失时 `validate` 会响亮地失败，但它同样会
+     * 欣然放过 Hibernate 给**自己**建的表，而后者正是这条测试要挡在外面的状态（ADR-0017 D4）。
      */
     @Test
     void theSchemaIsTheCoresOwnMigrationAndNotHibernatesGuess() {

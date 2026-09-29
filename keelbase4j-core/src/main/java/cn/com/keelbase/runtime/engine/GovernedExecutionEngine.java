@@ -21,7 +21,6 @@ import cn.com.keelbase.runtime.tool.ToolResult;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -387,29 +386,12 @@ public class GovernedExecutionEngine {
      */
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal) {
         String argsJson = CanonicalJson.json(args);
-        // Ask the ledger *before* acting (ADR-0018). A write can be replayed — a retried execution, a
-        // second decision on the same confirmation, a restart — and answering from the record keeps the
-        // action single. Recording first and asking afterwards deduplicates the ledger while the write
-        // itself has already happened twice, which is the failure this probe exists to prevent.
-        //
-        // 在**动手之前**先问账本（ADR-0018）。一次写可以被重放——被重试的执行、对同一确认的二次裁决、一次
-        // 重启——而**从记录作答**才能让动作保持只有一次。先登记、后询问，只会把账收成一行，而那次写**已经
-        // 发生了两次**；那正是这道探测要挡下的失效。
-        if (tool.resultType() != null) {
-            Optional<SideEffect> alreadyDone = sideEffects.find(principal, tool.name(), argsJson);
-            if (alreadyDone.isPresent()) {
-                audit.append("tool_call", principal.userId(),
-                        tool.name() + " -> ok (already done; not run again)");
-                // The tool did not run, so there is no fresh payload to report. The effect is what the
-                // caller gets, and saying that beats fashioning a result that never happened.
-                //
-                // 工具没有跑，所以没有新鲜的载荷可报。调用方拿到的就是那条 effect——如实这么说，
-                // 好过编一个从未发生过的结果。
-                return ExecutionOutcome.executed(null, alreadyDone.get().getId());
-            }
-        }
         ToolResult result;
         try {
+            ExecutionOutcome reused = reuseIfAlreadyExecuted(tool, args, principal);
+            if (reused != null) {
+                return reused;
+            }
             result = tool.execute(args, principal); // may throw 403 — before any write
         } catch (RuntimeException refused) {
             audit.append("tool_call", principal.userId(),
@@ -428,6 +410,48 @@ public class GovernedExecutionEngine {
         return result.success()
                 ? ExecutionOutcome.executed(result.data(), effectId)
                 : new ExecutionOutcome("error", null, null, null, result.error());
+    }
+
+    /**
+     * The effect this exact call already produced, if it did — asked <b>before</b> the tool runs.
+     *
+     * <p><b>Why before, and why it is a fix rather than an optimisation.</b> The ledger's idempotency
+     * key is content-derived, and its javadoc promises that "re-running the same call reuses the
+     * existing effect instead of writing twice". The write did not honour that: the tool wrote a new
+     * row every time and the ledger then deduped, so the second identical call left a row <em>named by
+     * no effect</em> — a write with no revocation path, invisible to the ledger and unreachable by
+     * {@code revoke}. Measured on a host (seam S11), and only by a rerun: a single pass writes each
+     * distinct call once. Asking first is what makes the promise true instead of merely stated.
+     *
+     * <p>A revoked effect keeps its key, and the call is refused rather than quietly remade under it —
+     * the same answer the reference implementation gives (its write pipeline probes by key and returns
+     * early, and a revoked effect still occupies the key). Making the same thing again is a different
+     * request and needs different arguments; pretending otherwise would either write an untracked row
+     * or silently do nothing.
+     *
+     * <p><b>What this does not cover, and the reference does:</b> two identical calls <em>at the same
+     * instant</em> can both probe and miss and both write, leaving the loser's row untracked again.
+     * The reference arbitrates that with a write claim taken before execution; this runtime has no such
+     * row, so the concurrent case remains open and is recorded as such rather than claimed.
+     */
+    private ExecutionOutcome reuseIfAlreadyExecuted(AiTool tool, Map<String, Object> args,
+                                                   Principal principal) {
+        SideEffect existing = sideEffects
+                .existingFor(principal, tool.name(), CanonicalJson.json(args))
+                .orElse(null);
+        if (existing == null) {
+            return null;
+        }
+        if ("revoked".equals(existing.getRevokeStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "this call was revoked (effect " + existing.getId() + ") and its key stays occupied"
+                            + " — change the arguments to make it again");
+        }
+        audit.append("tool_call", principal.userId(),
+                tool.name() + " -> ok (effect " + existing.getId() + " reused: the same call)");
+        return ExecutionOutcome.executed(
+                existing.getResultId() == null ? null : Map.of("id", existing.getResultId()),
+                existing.getId());
     }
 
     private static Long resultId(Object data) {

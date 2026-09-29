@@ -19,6 +19,16 @@ import org.springframework.http.HttpHeaders;
  * question it answers is the deployment's, while the mechanics of asking it — once per request, writing
  * the answer into the security context, running at the right point in the chain — are this runtime's and
  * should not be re-implemented by whoever embeds it (see {@link CallerAuthenticator}).
+ *
+ * <p>`CallerAuthenticator` 的**默认实现**：调用方用委托令牌证明自己是谁。
+ *
+ * <p>验证走的是冻结协议自己的 `DelegationToken#verify`，而不是再写一遍 JWT 校验：两个验证器就是两样要
+ * 保持同步的东西，而协议是**被冻结**的那一个。验证不过的令牌——签名不对、受众不对、过期——就是什么都没
+ * 证明，理由也不回传给调用方。
+ *
+ * <p>这段代码原本是一个过滤器的方法体。现在它是对象而不是过滤器，因为**它回答的问题是部署方的**，而「怎么问」
+ * ——每请求一次、把答案写进 security context、在链上正确的位置运行——是**本运行时的**，不该由嵌入它的人
+ * 再实现一遍（见 `CallerAuthenticator`）。
  */
 public class DelegationTokenAuthenticator implements CallerAuthenticator {
 

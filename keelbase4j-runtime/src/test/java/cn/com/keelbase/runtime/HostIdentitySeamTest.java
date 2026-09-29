@@ -42,6 +42,17 @@ import org.springframework.web.server.ResponseStatusException;
  * security context and still resolve it through the identity SPI. That is the property the first test
  * asserts from the outside — the role in the answer is the host's answer, and the request carried no
  * KeelBase token at all.
+ *
+ * <p>JV-35 —— **身份是部署方的，不是本运行时的**（ADR-0017 D6）。
+ *
+ * <p>这里要证的是嵌入式部署需要的那个形状：宿主认证自己的用户，于是由它回答本运行时原本自己回答的两个
+ * 问题 —— **这条请求是怎么被认证的**，以及**那个人在这里是谁** —— 而运行时就**不再**索要委托令牌、
+ * 也**不再**去查它自带的 tier-A 目录。两个答案都以普通 bean 的形式到达（`CallerAuthenticator`、
+ * `IdentityResolver`）；默认实现带 `@ConditionalOnMissingBean`，就此让位。
+ *
+ * <p>**不许**变的是下游那一半。`CurrentPrincipal` 与整条授权链**一行未动**：它们照旧从 security context
+ * 取 `AuthenticatedSubject`，照旧经身份 SPI 解析。第一条测试正是从外部断言这条性质 —— 答出来的角色是
+ * **宿主给的**角色，而这条请求**根本没有**带 KeelBase 令牌。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -56,6 +67,12 @@ class HostIdentitySeamTest {
      * <p>Both beans are what a real adapter would declare — in RuoYi's case over its own token service
      * and its {@code sys_user}/{@code sys_role} tables. Nothing here reads a role from a request header,
      * which is the thing the old header adapter did and this one must not.
+     *
+     * <p>**一个微缩的宿主**：它按自己的请求头认证，并且知道自己用户的角色。
+     *
+     * <p>这两个 bean 就是真实适配器会声明的东西 —— 在 RuoYi 的情形里，它们落在它自己的 token service
+     * 与 `sys_user`/`sys_role` 表之上。这里没有任何一处从请求头读角色，那正是旧的 header 适配器做过、
+     * 而这个**不许**做的事。
      */
     @TestConfiguration
     static class HostSuppliedIdentity {
