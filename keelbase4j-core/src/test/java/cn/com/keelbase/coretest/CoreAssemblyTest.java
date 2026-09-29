@@ -2,6 +2,7 @@
 package cn.com.keelbase.coretest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -146,6 +147,15 @@ class CoreAssemblyTest {
 
         assertEquals(Set.of(), outside,
                 "these routes are served but not governed — the owned-route scope will not cover them: " + outside);
+
+        // And the other direction — the one a scope that is merely *wrong* fails in. These are routes
+        // the host serves; if this chain claimed them, the host's own login page and screens would be
+        // refused by a runtime with no business refusing them. Expressed as paths, not as a comparison
+        // against the derivation, so it still holds if the scope is ever computed another way.
+        for (String hostsRoute : List.of("/login", "/captchaImage", "/system/user/list", "/monitor/online")) {
+            assertFalse(scope.matches(new MockHttpServletRequest("GET", hostsRoute)),
+                    hostsRoute + " belongs to the host, and this runtime's chain must not claim it");
+        }
     }
 
     private static final String RUNTIME_PACKAGE = "cn.com.keelbase.runtime";
