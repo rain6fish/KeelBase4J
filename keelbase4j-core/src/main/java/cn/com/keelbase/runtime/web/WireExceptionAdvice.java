@@ -4,6 +4,8 @@ package cn.com.keelbase.runtime.web;
 import cn.com.keelbase.runtime.authz.RuleDeniedException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -27,7 +29,27 @@ import org.springframework.web.server.ResponseStatusException;
  *
  * <p>Server faults are handled here too, but only to keep the envelope: a 5xx is reported with the
  * status and nothing else, so an internal message cannot become a leak. Its text is not repeated.
+ *
+ * <p><b>Why this advice orders itself first (S9).</b> An embedded host brings an exception handler of
+ * its own, and the common shape — RuoYi's included — catches {@code RuntimeException}, a supertype of
+ * both exceptions below. Spring resolves between advices by order, so a host advice reached earlier
+ * does not answer alongside this one: it <em>takes the refusal</em>, writes its own success envelope,
+ * and because that body is not ours to shape, {@link ApiResponseAdvice} wraps it — the caller reads
+ * HTTP 200 with the refusal nested inside {@code data}. The refusal is real; the contract is not what
+ * arrives. Measured rather than deduced: without an order the outcome turns on registration order, so
+ * the same host reads a 403 one day and a 200 the next. Taking the highest precedence makes this
+ * runtime's refusal arrive as a refusal wherever it is embedded — the invariant every client written
+ * against the frozen envelope depends on.
+ *
+ * <p><b>本条 advice 为什么把自己排在最前（S9）。</b>被嵌进宿主后，宿主自带异常处理器，而常见形状
+ * （含 RuoYi）捕的是 {@code RuntimeException} —— 下面两个异常的超类。Spring 按顺序在 advice 之间裁决，
+ * 因此排在前面的宿主 advice 不是与本条并列作答，而是**把拒绝拿走**：它写自己的成功信封，而那个 body 不是
+ * 我们塑的、于是被 {@link ApiResponseAdvice} 再包一层 —— 调用方读到 HTTP 200、拒绝嵌在 {@code data} 里。
+ * 拒绝是真的，到达客户端的契约不是。这是**实测**而非推断：不声明顺序时结果取决于注册顺序，同一个宿主今天
+ * 读到 403、明天读到 200。取最高优先级后，本运行时的拒绝无论被嵌到哪里都以拒绝的形式到达 —— 这正是每一个
+ * 按冻结信封写的客户端所依赖的不变量。
  */
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice
 public class WireExceptionAdvice {
 
