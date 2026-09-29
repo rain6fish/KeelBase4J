@@ -15,6 +15,19 @@
 -- operator and this stays null.
 --
 -- This file is immutable once applied: a change to the schema is a new V<n>__ file.
+--
+-- 审批模式：高影响动作要等**第二个人**（R4，JV-33 ③）。
+--
+-- `mode` 记的是一行**是哪一种**确认，而不是从风险级反推：两者不是同义词——策略可以把一个 R3 工具升档为
+-- 审批，而 mode 决定的恰恰是**谁可以回答这一行**。默认 `immediate`，故此前写下的每一行含义不变。
+--
+-- `operator_identity` 把**发起人的身份**随行带上。审批行活得过创建它的那次请求（R4 的等待窗口是小时到天级），
+-- 所以当**别人**来批它时，这次写必须以**发起人**的身份执行——而那时发起人不是调用方。身份按 wire 形态存，
+-- 见 `OperatorIdentity`。
+--
+-- `approver_id` 记下是谁回答了审批行。即时确认行的裁决者就是操作者本人，此列留空。
+--
+-- 本文件一经应用即不可改：schema 变更一律新的 V<n>__ 文件。
 ALTER TABLE confirmation_requests ADD COLUMN mode VARCHAR(255) NOT NULL DEFAULT 'immediate';
 ALTER TABLE confirmation_requests ADD COLUMN approver_id VARCHAR(255);
 ALTER TABLE confirmation_requests ADD COLUMN operator_identity VARCHAR(4000);

@@ -97,6 +97,10 @@ public class MyConfirmationController {
      * the list is the operator's own and an approval row belongs to somebody else's decision, so it is
      * not collected here at all. Reading it rather than writing the constant keeps the two facts from
      * drifting — if the list ever widens, the shape follows instead of lying.
+     *
+     * <p>{@code mode} **从行上读**，尽管这份列表能装的每一行都是 {@code immediate}：这份列表是操作者
+     * 自己的，而审批行属于**别人的**决定，根本不在这里收集。**读它而不是写死那个常量**，是为了让这两个
+     * 事实不会各自漂移——列表若有一天变宽，形状会跟着走，而不是撒谎。
      */
     private Map<String, Object> item(ConfirmationRequest row, Instant now, long offlineTtlMillis) {
         Map<String, Object> item = new LinkedHashMap<>();

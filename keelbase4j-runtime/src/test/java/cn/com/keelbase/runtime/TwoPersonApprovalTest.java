@@ -52,6 +52,12 @@ import org.springframework.web.server.ResponseStatusException;
  * request, and that when somebody else does answer it the write belongs to the <b>initiator</b>
  * rather than to whoever approved it. The last one is the difference between approving a request and
  * taking it over.
+ *
+ * <p>高影响动作要等**第二个人**（ADR-0018）——而「第二个人」必须当真，否则这个模式只是个标签。
+ *
+ * <p>真正要紧的断言，是那种「所有状态码都看着对、实现却做错了」才会暴露的：等的时候**什么都没跑**、发起人
+ * **不能**回答自己的请求、以及别人回答时那次写归**发起人**而不是归批准它的人。最后这一条，正是「批准一项
+ * 请求」与「把它接手过去」之间的差别。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -111,6 +117,9 @@ class TwoPersonApprovalTest {
 
         // Same person, administrator role: the rule is about *who*, not about what they may do
         // elsewhere — a high-impact action needs somebody other than its author.
+        //
+        // 同一个人、但带管理员角色：这条规则管的是**是谁**，不是他在别处能做什么——高影响动作需要的是
+        // 作者**以外**的某个人。
         ResponseStatusException refused = assertThrows(ResponseStatusException.class,
                 () -> engine.decideApproval(token, new Principal("alice", "admin"), "approve"));
 
@@ -264,6 +273,13 @@ class TwoPersonApprovalTest {
      * happened (the effect is in the ledger) while the row looks unexecuted; the retry must then settle
      * the row <em>without</em> running the tool again. Without the probe the ledger would still read
      * one row while a second follow-up had been written — the effect deduplicated, the action not.
+     *
+     * <p>**重试存在的理由就是这一格**：一行读作 {@code approved}、带着一个死掉的尝试、且没有结果——而
+     * 因为**我们分不清那次尝试死在哪里**，它也可能**已经写过**了。
+     *
+     * <p>所以这里同时是幂等探测的断言处。构造上让第一次尝试**确实发生过**（账本里有那条 effect），而那一行
+     * 看起来没执行过；于是重试必须**在不重跑工具的前提下**把这一行了结。少了探测，账本仍是一行，而**第二条
+     * 跟进已经写下了**——effect 被去重了，动作没有。
      */
     @Test
     void aDeadAttemptIsRetriedWithoutWritingASecondTime() {
@@ -301,6 +317,10 @@ class TwoPersonApprovalTest {
      * The whole path over HTTP, because each half passing on its own is not the same claim: a question
      * the planner routes to the R4 tool, the gate turning it into a waiting row, and a second person's
      * answer running it as the asker. The row is not planted — it comes out of a real conversation.
+     *
+     * <p>**整条路走一遍 HTTP**，因为两半各自跑通并不等于同一个主张：一句被规划器路由到 R4 工具的话、
+     * 门控把它变成一条等待中的行、再由第二个人回答并以**提问者**的身份执行。这一行不是种进去的——
+     * 它出自一次真实的对话。
      */
     @Test
     void theWholePathRunsOverHttp() throws Exception {
@@ -343,7 +363,11 @@ class TwoPersonApprovalTest {
                 new Principal(user, "user"));
     }
 
-    /** An approval row moved to {@code approved} without an attempt having been made. */
+    /**
+     * An approval row moved to {@code approved} without an attempt having been made.
+     *
+     * <p>一条被移到 {@code approved} 的审批行，且**没有任何尝试发生过**。
+     */
     private String approvedApprovalRow() {
         String token = escalateAs("alice").token();
         store.claimApproval(token, new Principal("carol", "admin"), ConfirmationLifecycle.APPROVED);
@@ -360,6 +384,9 @@ class TwoPersonApprovalTest {
      * Put the row back into the state a crashed attempt leaves: approved, no recorded result, and a
      * claim old enough that the lease has run out. The effect stays in the ledger, which is the whole
      * point — that is what a crash after the write and before the result looks like.
+     *
+     * <p>把这一行放回**一次崩溃的尝试留下的状态**：已批准、没有记录的结果、认领旧到租约早已过期。
+     * **账本里那条 effect 保留**，而这正是要点——「写完了、但结果没记上就崩了」看上去就是这个样子。
      */
     private void leaveAsIfTheAttemptHadDied(String token) {
         ConfirmationRequest row = confirmations.findByToken(token).orElseThrow();

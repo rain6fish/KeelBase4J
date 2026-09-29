@@ -70,6 +70,13 @@ public final class ExecutionAxis {
      *
      * <p>The retry entry consults it to refuse with a reason, but the condition is what decides —
      * between asking and acting, another attempt could take the row.
+     *
+     * <p>这一行还**能不能被新的尝试拿走**：它尚未成功，且既有的认领已早于租约——因为认领仍新鲜就意味着
+     * 可能正有一次尝试在跑。
+     *
+     * <p>它问的与认领那条 SQL 条件问的是同一个问题，边界也与 {@link #derive} 判 {@code running} 的边界
+     * 相同：两者恰好互补。重试入口靠它**带着理由拒绝**，但真正决定的是那条条件——问与做之间，另一个尝试
+     * 可能已经把行拿走了。
      */
     public static boolean isClaimable(ConfirmationRequest row, Instant now) {
         if (row.getExecutedAt() != null) {

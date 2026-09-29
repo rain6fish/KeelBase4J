@@ -36,6 +36,12 @@ import org.springframework.web.server.ResponseStatusException;
  *               ├─ CONFIRM           → issue a token, wait for the operator (R3)
  *               └─ ALLOW             → audit, execute, record side effect
  * </pre>
+ *
+ * <p>**信任闭环**。每一次 AI 工具调用都从这里过——没有哪条路径能绕过门控、审计或副作用账本去执行工具。
+ *
+ * <p>门控的四个出口：BLOCK 只审计、永不执行；**REQUIRE_APPROVAL 发一个 token 等第二个人**（R4）；
+ * CONFIRM 发一个 token 等操作者本人（R3）；ALLOW 审计后执行并登记副作用。前两者的区别**只在于谁可以
+ * 回答那张 token**——而这一点由行的 mode 记住，不由这条分支临时判断。
  */
 @Service
 public class GovernedExecutionEngine {
@@ -76,6 +82,9 @@ public class GovernedExecutionEngine {
                 // returned; nothing runs until somebody else answers it (ADR-0018). Until this branch
                 // wrote a row it stopped at an audit line, and a token nobody held could not be
                 // answered by anyone.
+                //
+                // 高影响动作要等**第二个人**，所以这里写下那一行、把 token 交回去；在别人回答它之前什么都
+                // 不跑（ADR-0018）。在此之前这条分支只留一行审计就返回，没有人持有 token，也就没有人能回答它。
                 ConfirmationRequest req = confirmations.create(
                         principal, toolName, CanonicalJson.json(args), tool.riskLevel(),
                         ConfirmationMode.APPROVAL);
@@ -148,6 +157,11 @@ public class GovernedExecutionEngine {
      * <p>Both guards live in the store, next to the conditional update that makes an answer single:
      * the row has to be an approval row, and the caller may not be its initiator. The write then runs
      * as the initiator, not as the approver.
+     *
+     * <p>**回答一条审批确认**——由**第二个人**裁决高影响动作（ADR-0018）。
+     *
+     * <p>两道守卫都在 store 里，就挨着那条让「回答只有一次」的条件更新：这一行必须是审批行，且调用者不能
+     * 是它的发起人。随后这次写以**发起人**身份执行，而不是以审批人身份。
      */
     public ExecutionOutcome decideApproval(String token, Principal approver, String decision) {
         String toStatus = ConfirmationLifecycle.APPROVE.equals(decision)
@@ -170,6 +184,15 @@ public class GovernedExecutionEngine {
      * {@code approved}, when it already succeeded, and when its claim is still fresh — that last one
      * is what keeps a retry from racing a live attempt. Running it twice over is safe because the
      * write pipeline is idempotent: a retry does not produce a second side effect.
+     *
+     * <p>**把一条「已批准但未成功」的确认再跑一次**（ADR-0018）。
+     *
+     * <p>它为什么存在：一次**没记下结果就死了**的尝试——进程被杀、容器重启、外部调用挂起。那一行会停在
+     * {@code approved}、带着一个过期的认领，而工具从未跑过；在此之前，根本没有任何办法再问它一次。
+     *
+     * <p>以下情形拒绝：token 未知或不是审批行、行不是 {@code approved}、它已经成功、以及它的认领**仍新鲜**
+     * ——最后这一条正是**不让重试与在途尝试撞车**的那一条。重跑本身是安全的，因为写管道幂等：重试不会产出
+     * 第二个副作用。
      */
     public ExecutionOutcome retryExecution(String token, Principal retriedBy) {
         ConfirmationRequest req = confirmations.find(token);
@@ -204,6 +227,13 @@ public class GovernedExecutionEngine {
      * owner, so a second person's decision reuses {@code out_of_band} rather than inventing a word: it
      * genuinely is a decision taken outside the dialogue, and who took it is recorded as the audit's
      * subject and the row's {@code approver_id}.
+     *
+     * <p>**审批的尾段**，每条裁决路径共用：审计、执行、登记 effect，然后告诉正在看的人。
+     *
+     * <p>{@code via} 进审计，因为冻结的生命周期说一次裁决要携带**它在哪里被作出**；状态机不为它分叉，
+     * 线缆也不分。冻结的词汇是 {@code in_band} / {@code out_of_band}，且它的转移**全部由 owner 做**，所以
+     * 第二个人这次的裁决复用 {@code out_of_band} 而不是自己造一个词：它**确实**是在对话之外作出的裁决，
+     * 而**是谁**作出的，记在审计行的人身上和该行的 {@code approver_id} 里。
      */
     private ExecutionOutcome performApproval(ConfirmationRequest req, Principal decider, String via) {
         AiTool tool = registry.require(req.getToolName());
@@ -220,6 +250,12 @@ public class GovernedExecutionEngine {
      * entry into this tail, and a claim that is read and then written lets a retry and a live attempt
      * both pass. The condition is what makes "at most one attempt" hold, and it is also what refuses
      * a row that has already succeeded.
+     *
+     * <p>**执行的尾段**：认领这次尝试、跑工具、落这一行的结果，然后告诉正在看的人。
+     *
+     * <p>**认领是条件更新**（ADR-0018）。在普通的审批路径上这里只可能有一个调用方——行早就被移出
+     * {@code pending} 了——但**重试是这段尾巴的第二个入口**，而「先读后写」的认领会让重试与在途尝试
+     * **都通过**。条件才是让「至多一次尝试」成立的东西，也是拒绝一条**已成功**的行的东西。
      */
     private ExecutionOutcome executeApproved(ConfirmationRequest req, Principal initiator) {
         AiTool tool = registry.require(req.getToolName());
@@ -233,6 +269,9 @@ public class GovernedExecutionEngine {
         }
         // The row now carries the claim; this copy has to as well, or the save below writes the
         // pre-claim null back over it and an attempt in flight becomes invisible.
+        //
+        // 数据库那一行现在已经带上认领了；手上这份也必须带上，否则下面的 save 会把「认领之前」的 null
+        // 写回去，一次正在进行的尝试就此变得不可见。
         req.setExecutionClaimedAt(claimedAt);
         ExecutionOutcome outcome;
         try {
@@ -268,6 +307,11 @@ public class GovernedExecutionEngine {
      * person whose business action this is. It also means the write runs under the identity the request
      * was raised with, rather than whatever role that person happens to hold by the time it is answered
      * (ADR-0018).
+     *
+     * <p>**这次写归谁**：行签发时所带的那个身份；行写在这列存在之前时，回落到裁决者。
+     *
+     * <p>从行里读出来，正是「第二个人可以批准」得以成立的原因——审批人不是这桩业务动作的主人。它同时
+     * 意味着写跑在**请求签发时**的身份下，而不是那个人在**被回答时**恰好持有的角色下（ADR-0018）。
      */
     private static Principal initiator(ConfirmationRequest req, Principal fallback) {
         Principal stored = OperatorIdentity.fromWireJson(req.getOperatorIdentity());
@@ -347,6 +391,10 @@ public class GovernedExecutionEngine {
         // second decision on the same confirmation, a restart — and answering from the record keeps the
         // action single. Recording first and asking afterwards deduplicates the ledger while the write
         // itself has already happened twice, which is the failure this probe exists to prevent.
+        //
+        // 在**动手之前**先问账本（ADR-0018）。一次写可以被重放——被重试的执行、对同一确认的二次裁决、一次
+        // 重启——而**从记录作答**才能让动作保持只有一次。先登记、后询问，只会把账收成一行，而那次写**已经
+        // 发生了两次**；那正是这道探测要挡下的失效。
         if (tool.resultType() != null) {
             Optional<SideEffect> alreadyDone = sideEffects.find(principal, tool.name(), argsJson);
             if (alreadyDone.isPresent()) {
@@ -354,6 +402,9 @@ public class GovernedExecutionEngine {
                         tool.name() + " -> ok (already done; not run again)");
                 // The tool did not run, so there is no fresh payload to report. The effect is what the
                 // caller gets, and saying that beats fashioning a result that never happened.
+                //
+                // 工具没有跑，所以没有新鲜的载荷可报。调用方拿到的就是那条 effect——如实这么说，
+                // 好过编一个从未发生过的结果。
                 return ExecutionOutcome.executed(null, alreadyDone.get().getId());
             }
         }

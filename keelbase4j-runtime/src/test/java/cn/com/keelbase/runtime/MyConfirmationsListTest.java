@@ -107,6 +107,10 @@ class MyConfirmationsListTest {
 
         assertEquals(token, item.get("token"));
         assertEquals("create_followup", item.get("toolName"));
+        // The operator's own list holds immediate rows only — an approval row waits on somebody else
+        // and is not collected here at all.
+        //
+        // 本人列表里只有即时行——审批行等的是别人，根本不在这里收集。
         assertEquals("immediate", item.get("mode"),
                 "the operator's own list holds immediate rows only — an approval row waits on somebody"
                         + " else and is not collected here at all");

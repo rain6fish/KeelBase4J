@@ -22,11 +22,24 @@ import org.springframework.stereotype.Component;
  * <p>What it does is deliberately ordinary — it records an escalation as a follow-up — because the
  * gate is the interesting part, not the errand. It creates a soft-deletable follow-up, so a revoke
  * compensates it locally like any other write.
+ *
+ * <p>**高影响写工具（R4）——要第二个人批准**（ADR-0018）。
+ *
+ * <p>它存在是为了让这个模式**可达**。本运行时另外两个示例工具都由**它们自己的调用者**拍板（R1 读直接执行、
+ * R3 写等操作者本人），所以「**必须由别人来裁决**」那条门控分支会成为一段没有任何东西能走到、也演示不了的
+ * 代码。
+ *
+ * <p>它做的事**故意很平常**——把一次升级登记成一条跟进记录——因为有意思的是那道门，不是这桩差事。它写的
+ * 跟进记录可软删，所以撤销与任何其他写一样，走本地补偿。
  */
 @Component
 public class EscalateCustomerTool implements AiTool {
 
-    /** The note the escalation writes; the tool's whole business meaning for this sample. */
+    /**
+     * The note the escalation writes; the tool's whole business meaning for this sample.
+     *
+     * <p>升级所写的那条备注；对这个样例来说，这就是它的全部业务含义。
+     */
     private static final String NOTE = "Escalated for management review";
 
     private final CustomerRepository customers;

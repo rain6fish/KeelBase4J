@@ -46,6 +46,12 @@ public class SideEffectService {
      * <p>{@link #record} answers the same question after the fact, which deduplicates the ledger while
      * the action has already happened twice. Anything that can replay a write therefore has to ask
      * this one first: a retried execution, a second decision on the same confirmation, a restart.
+     *
+     * <p>**这笔调用已经产出的那个 effect**（如果确实产出过）——在工具跑**之前**就问，好让一次重放无需
+     * 第二次执行动作就能被回答（ADR-0018）。
+     *
+     * <p>{@link #record} 问的是同一个问题的「事后版」：它把**账**收成一行，而**动作已经做了两次**。所以
+     * 任何可能重放写的地方都必须先问这一个：被重试的执行、对同一确认的二次裁决、一次重启。
      */
     public Optional<SideEffect> find(Principal principal, String toolName, String argsJson) {
         return repository.findByIdempotencyKey(idempotencyKey(principal.userId(), toolName, argsJson));

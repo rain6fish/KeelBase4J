@@ -25,6 +25,10 @@ import org.springframework.web.server.ResponseStatusException;
  * a high-impact action answered by a second one (ADR-0018). They are separate paths rather than a
  * flag on this one because they answer a different question, and the engine keeps them apart the same
  * way: what decides which rows a path may move is the row's mode, not what the caller passed.
+ *
+ * <p>另外两个入口服务于「调用者**故意不是**那一个操作者」的模式——由第二个人回答的高影响动作
+ * （ADR-0018）。它们是**独立的路径**而不是本条上的一个开关，因为它们回答的是**另一个问题**；引擎那边
+ * 也以同样的方式把两者分开：决定一条路径能移动哪些行的，是**那一行的 mode**，不是调用方传了什么。
  */
 @RestController
 public class ConfirmationController {
@@ -53,6 +57,10 @@ public class ConfirmationController {
      *
      * <p>Approving is refused when the caller is the row's initiator; declining is not, because
      * withdrawing one's own request is not a self-approval.
+     *
+     * <p>**回答一条审批确认**——高影响动作所等的**第二个人**（ADR-0018）。**仅限管理员**。
+     *
+     * <p>调用者如果是该行的发起人，**批准**被拒；**拒绝**不受限——撤回自己的请求不是自批。
      */
     @PostMapping("/ai/confirmations/{token}/approve-by")
     public ExecutionOutcome approveBy(@PathVariable String token, @RequestBody DecisionRequest request) {
@@ -62,13 +70,20 @@ public class ConfirmationController {
     /**
      * Run an approved-but-not-succeeded confirmation again — the entry an attempt that died without
      * recording a result needs (ADR-0018). Administrators only.
+     *
+     * <p>把一条「已批准但未成功」的确认**再跑一次**——一次没记下结果就死掉的尝试所需要的那个入口
+     * （ADR-0018）。**仅限管理员**。
      */
     @PostMapping("/ai/confirmations/{token}/retry-execution")
     public ExecutionOutcome retryExecution(@PathVariable String token) {
         return engine.retryExecution(token, requireManager());
     }
 
-    /** Answering somebody else's high-impact action is an administrative act. */
+    /**
+     * Answering somebody else's high-impact action is an administrative act.
+     *
+     * <p>回答别人的高影响动作是一种管理行为。
+     */
     private Principal requireManager() {
         Principal principal = principals.current();
         if (!principal.isManager()) {

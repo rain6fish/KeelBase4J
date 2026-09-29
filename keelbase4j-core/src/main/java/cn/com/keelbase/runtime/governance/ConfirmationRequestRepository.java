@@ -21,6 +21,9 @@ public interface ConfirmationRequestRepository extends JpaRepository<Confirmatio
      * <p>Only {@code immediate} rows: an approval row is waiting on <em>somebody else</em>, and this
      * list is "waiting on me" — listing a row its viewer may not answer would offer an action bound to
      * fail. The reference keeps its own out-of-band path to R3 for the same reason.
+     *
+     * <p>只收 {@code immediate} 行：审批行等的是**别人**，而这份列表问的是「**在等我什么**」——把一行
+     * 它的读者无权回答的东西列出来，等于给出一个必然失败的操作。参照把自己的对话外路径也限制在 R3，同一个道理。
      */
     List<ConfirmationRequest> findByOperatorIdAndModeOrderByCreatedAtDesc(String operatorId, String mode);
 
@@ -58,6 +61,10 @@ public interface ConfirmationRequestRepository extends JpaRepository<Confirmatio
      * answer their own high-impact request through this path. Matching on the mode rather than on the
      * risk level is deliberate — the two are not synonyms (see {@link ConfirmationMode}), and the mode
      * is what decides who may answer a row.
+     *
+     * <p>{@code mode} 也在条件里，它正是**不让双人规则被绕过**的那一条：审批行同样带着操作者的 id，少了
+     * 它，操作者就能经这条路回答自己的高影响请求。按 mode 而不是按风险级匹配是有意的——两者不是同义词
+     * （见 {@link ConfirmationMode}），而 mode 决定的才是谁可以回答一行。
      */
     @Modifying(clearAutomatically = true)
     @Query("update ConfirmationRequest r set r.status = :to, r.decidedAt = :at "
@@ -97,6 +104,12 @@ public interface ConfirmationRequestRepository extends JpaRepository<Confirmatio
      *
      * <p>{@code approverId} is written by the same statement that moves the row, so "somebody approved
      * it" and "who" cannot disagree.
+     *
+     * <p>与 {@link #claim} 同一套仲裁，同一套「为什么必须是条件更新」的理由：任意多个审批人同时裁决，只有
+     * 一方命中，也只有那一方会跑工具。不同的是条件——不是操作者的 id（回答按构造就来自别人），而是 **mode**，
+     * 于是这条路只能移动审批行，而操作者本人那条路只能移动即时行。
+     *
+     * <p>{@code approverId} 由**同一条**移动该行的语句写入，所以「有人批了它」与「是谁批的」不可能各说各话。
      */
     @Modifying(clearAutomatically = true)
     @Query("update ConfirmationRequest r set r.status = :to, r.approverId = :approverId, r.decidedAt = :at "
@@ -116,6 +129,15 @@ public interface ConfirmationRequestRepository extends JpaRepository<Confirmatio
      *
      * <p>{@code executedAt is null} in the condition is what makes a succeeded row unclaimable, so no
      * path can re-run a write that already landed.
+     *
+     * <p>**认领一次执行尝试** —— ADR-0016 描述过、却留成了读改写的那个租约。
+     *
+     * <p>它必须是条件更新，理由只有在**重试存在之后**才显形：重试是同一段尾巴的第二个入口，而读改写会让它
+     * 与在途的那次**都通过检查**、把工具跑两遍。条件本身就是全部规则——行已批准、尚未成功、且它的认领要么
+     * 不存在、要么早于租约，而那正是「上一次尝试可以推定已死」的时刻。
+     *
+     * <p>条件里的 {@code executedAt is null} 使**已成功的行不可再被认领**，于是没有任何路径能重跑一次已经
+     * 落地的写。
      */
     @Modifying(clearAutomatically = true)
     @Query("update ConfirmationRequest r set r.executionClaimedAt = :at "

@@ -38,11 +38,18 @@ public class ConfirmationRequest {
      * Which confirmation this row is — see {@link ConfirmationMode}. Not derived from the risk level:
      * the two are not synonyms (a policy may promote a tool to approval), and the mode is what decides
      * who may answer the row.
+     *
+     * <p>这一行是**哪一种**确认——见 {@link ConfirmationMode}。**不由风险级推导**：两者不是同义词
+     * （策略可以把工具升档为审批），而 mode 决定的正是谁可以回答这一行。
      */
     @Column(nullable = false)
     private String mode = ConfirmationMode.IMMEDIATE;
 
-    /** Who answered an {@code approval} row. Null for an immediate row — there the decider is the operator. */
+    /**
+     * Who answered an {@code approval} row. Null for an immediate row — there the decider is the operator.
+     *
+     * <p>是谁回答了那行**审批**。即时确认行留空——那种行的裁决者就是操作者本人。
+     */
     @Column(name = "approver_id")
     private String approverId;
 
@@ -50,6 +57,9 @@ public class ConfirmationRequest {
      * The initiator's identity in its wire form, so the write can be performed as them when somebody
      * else answers the row (ADR-0018). An approval row outlives the request that created it, so the
      * identity it was created under has to travel with it.
+     *
+     * <p>**发起人身份的 wire 形态**：别人来回答这一行时，写要以**它的**身份执行（ADR-0018）。审批行活得过
+     * 创建它的那次请求，所以签发时的身份必须随行携带。
      */
     @Column(name = "operator_identity", length = 4000)
     private String operatorIdentity;
