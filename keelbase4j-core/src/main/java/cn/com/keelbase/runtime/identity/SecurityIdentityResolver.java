@@ -22,11 +22,19 @@ import org.springframework.web.server.ResponseStatusException;
  * <p>An adapter for a real directory (OIDC, LDAP, Sa-Token, or a host's own user tables) implements this
  * same seam and maps its verified claims onto the same frozen contracts; nothing downstream changes.
  *
+ * <p>为真实目录（OIDC、LDAP、Sa-Token，或**宿主自己的用户表**）写的适配器实现的正是同一条缝，把它的
+ * 已验证声明映射到同一批冻结契约上；下游一切不变。
+ *
  * <p>It is registered as a default bean with {@code @ConditionalOnMissingBean} rather than as a
  * component, because the deployment has to be able to replace it: a host that already knows its users'
  * roles and departments has no business being described a second time in {@code LocalIdentities}, and
  * two beans of this type would be a startup failure rather than a choice
  * ({@code KeelBaseIdentityAutoConfiguration}).
+ *
+ * <p>**它注册成带 `@ConditionalOnMissingBean` 的默认 bean，而不是组件**，因为部署方必须能取代它：一个
+ * 已经知道自己用户角色与部门的宿主，没有理由在 `LocalIdentities` 里再被描述一遍；而两个同类型的 bean
+ * 会让上下文**启动失败**，那不是「一个选择」
+ * （`KeelBaseIdentityAutoConfiguration`）。
  */
 public class SecurityIdentityResolver implements IdentityResolver {
 

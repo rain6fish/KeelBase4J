@@ -34,6 +34,23 @@ import org.springframework.context.annotation.Bean;
  * secret it has no use for. And a deployment that replaces {@code IdentityResolver} leaves the tier-A
  * directory ({@code LocalIdentities}) in the context unused: it is a plain bean nobody asks for, which
  * is preferable to making the default unreplaceable to keep it tidy.
+ *
+ * <p>部署嵌入本运行时时，**要替换掉的那两个身份默认值**（ADR-0017 D6，JV-35）。
+ *
+ * <p>本运行时需要的两个身份答案都来自部署方：**这条请求是怎么被认证的**（`CallerAuthenticator`），以及
+ * **那个人在这里是谁、什么角色、哪个组织**（`IdentityResolver`）。独立部署时两个都由运行时自己回答——
+ * 一个委托令牌，加上 `LocalIdentities` 里声明的一份目录。嵌入时宿主两个都知道，而让宿主的人再持有一个
+ * KeelBase 令牌、或在 KeelBase 目录里再被描述一遍，就是**在宿主之外又立一套身份系统**——正是「绝对不要
+ * 出现三套权限系统」那句警告所指。
+ *
+ * <p>所以它们是**带默认实现的 bean**，不是有主见的组件。两个都带 `@ConditionalOnMissingBean`：声明了自己
+ * 实现的部署就用自己那个，这里一个都不注册。这不是便利，**而是机制本身**。组件扫描表达不了它（`@ConditionalOnMissingBean`
+ * 标在被扫描的类上，求值方式与在自动配置上不同），所以「必须可被取代的默认值」只能注册在这里。
+ *
+ * <p>两处后果值得知道。替换掉 `CallerAuthenticator` 的部署，`keelbase.delegation.secret` **根本不会被解析**，
+ * 所以嵌入的宿主**不必**持有一个它用不上的 KeelBase 秘密。而替换掉 `IdentityResolver` 的部署，会把 tier-A
+ * 目录（`LocalIdentities`）留成上下文里一个没人注入的闲置 bean——这比「为了不留闲置 bean 而让默认实现换不掉」
+ * 可取得多。
  */
 @AutoConfiguration
 public class KeelBaseIdentityAutoConfiguration {

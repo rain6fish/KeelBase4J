@@ -35,8 +35,25 @@ import org.springframework.context.annotation.Bean;
  * {@code {vendor}} placeholder it offers for {@code spring.flyway.locations}. That is the only way to
  * keep an H2 migration from being run against a host's MySQL: the two dialects disagree about identity
  * columns and timestamp types, so a single file cannot be both, and a wrong one fails at startup rather
- * than at review. Today only {@code h2/} exists — the standalone deployment's — and a host on another
- * dialect finds no directory and no migrations, which is a schema Hibernate then reports as missing.
+ * than at review. Both dialects are present — {@code h2/} for a standalone deployment, {@code mysql/}
+ * for a host — and a dialect without a directory finds no migrations, which is a schema Hibernate then
+ * reports as missing.
+ *
+ * <p>给部署本核心的人**核心自己的 schema**（ADR-0017 D4）。
+ *
+ * <p>核心映着实体——会话记录、确认队列、副作用台账、审计链与它那把锁行——而自己不持有数据库。独立部署交给它
+ * 一个嵌入式库，嵌入部署交给它宿主的库。无论哪种，那些表都得在 Hibernate 看它们之前存在，而一个会校验 schema
+ * 的部署**宁可拒绝启动**、也不会自己把它们造出来。所以迁移文件随 jar 走，由这里应用它们。
+ *
+ * <p>**迁移位置是「追加」，不是「指派」。** 为自身 schema 跑 Flyway 的宿主已经选好了它自己的迁移住哪儿；
+ * 一个覆写 `spring.flyway.locations` 的核心，会把那个选择夺走、并让宿主自己的迁移不被应用。这里只加一个位置，
+ * Flyway 的其它决定一律不碰——与整个嵌入的形状一致：我们带来我们那份，部署方保留它自己的。
+ *
+ * <p>**方言是路径的一部分，不是文件的一部分。** 迁移住在 `db/keelbase-migration/<vendor>/` 下，vendor 按
+ * Boot 为 `spring.flyway.locations` 提供的 `{vendor}` 占位符同样的方式解析。这是唯一能保证「H2 的迁移不会被
+ * 跑到宿主的 MySQL 上」的办法：两种方言在自增列与时间类型上不一致，所以一个文件不可能同时是两者，而跑错的那份
+ * 会在**启动时**失败、不是在评审时。**两种方言现在都在**——`h2/` 给独立部署，`mysql/` 给宿主；某个方言没有
+ * 对应目录时找不到任何迁移，那就是 Hibernate 随后报告「表不存在」的那种 schema。
  */
 @AutoConfiguration
 @ConditionalOnClass(FlywayConfigurationCustomizer.class)

@@ -55,6 +55,11 @@
       migrations exist to prevent. Carrying the runner rather than the SQL files alone is deliberate: an
       application that adds this jar should not also have to be told to apply what is inside it. Boot 4
       has a starter for this; flyway-core alone is no longer enough.
+
+      —— 核心自己的 schema，以及应用它的运行器。核心的数据库由部署方交给它（ADR-0017 D4），所以它不能把
+      自己的表交给一个自己控制不了的 ddl-auto —— 一个会校验 schema 的宿主，在某个被映射的实体没有表时
+      **拒绝启动**，而迁移正是为了避免那种失败。**带运行器而不是只带 SQL 文件是有意的**：加了这个 jar 的
+      应用，不该还要被告知去应用它里面的东西。Boot 4 为此有 starter；只有 flyway-core 已经不够了。
     -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
