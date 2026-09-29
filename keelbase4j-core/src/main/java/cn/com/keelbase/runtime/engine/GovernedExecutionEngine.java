@@ -18,7 +18,9 @@ import cn.com.keelbase.runtime.tool.ToolResult;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * The trust loop. Every AI tool call goes through here — there is no path that executes a tool
@@ -235,6 +237,10 @@ public class GovernedExecutionEngine {
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal) {
         ToolResult result;
         try {
+            ExecutionOutcome reused = reuseIfAlreadyExecuted(tool, args, principal);
+            if (reused != null) {
+                return reused;
+            }
             result = tool.execute(args, principal); // may throw 403 — before any write
         } catch (RuntimeException refused) {
             audit.append("tool_call", principal.userId(),
@@ -254,6 +260,48 @@ public class GovernedExecutionEngine {
         return result.success()
                 ? ExecutionOutcome.executed(result.data(), effectId)
                 : new ExecutionOutcome("error", null, null, null, result.error());
+    }
+
+    /**
+     * The effect this exact call already produced, if it did — asked <b>before</b> the tool runs.
+     *
+     * <p><b>Why before, and why it is a fix rather than an optimisation.</b> The ledger's idempotency
+     * key is content-derived, and its javadoc promises that "re-running the same call reuses the
+     * existing effect instead of writing twice". The write did not honour that: the tool wrote a new
+     * row every time and the ledger then deduped, so the second identical call left a row <em>named by
+     * no effect</em> — a write with no revocation path, invisible to the ledger and unreachable by
+     * {@code revoke}. Measured on a host (seam S11), and only by a rerun: a single pass writes each
+     * distinct call once. Asking first is what makes the promise true instead of merely stated.
+     *
+     * <p>A revoked effect keeps its key, and the call is refused rather than quietly remade under it —
+     * the same answer the reference implementation gives (its write pipeline probes by key and returns
+     * early, and a revoked effect still occupies the key). Making the same thing again is a different
+     * request and needs different arguments; pretending otherwise would either write an untracked row
+     * or silently do nothing.
+     *
+     * <p><b>What this does not cover, and the reference does:</b> two identical calls <em>at the same
+     * instant</em> can both probe and miss and both write, leaving the loser's row untracked again.
+     * The reference arbitrates that with a write claim taken before execution; this runtime has no such
+     * row, so the concurrent case remains open and is recorded as such rather than claimed.
+     */
+    private ExecutionOutcome reuseIfAlreadyExecuted(AiTool tool, Map<String, Object> args,
+                                                   Principal principal) {
+        SideEffect existing = sideEffects
+                .existingFor(principal, tool.name(), CanonicalJson.json(args))
+                .orElse(null);
+        if (existing == null) {
+            return null;
+        }
+        if ("revoked".equals(existing.getRevokeStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "this call was revoked (effect " + existing.getId() + ") and its key stays occupied"
+                            + " — change the arguments to make it again");
+        }
+        audit.append("tool_call", principal.userId(),
+                tool.name() + " -> ok (effect " + existing.getId() + " reused: the same call)");
+        return ExecutionOutcome.executed(
+                existing.getResultId() == null ? null : Map.of("id", existing.getResultId()),
+                existing.getId());
     }
 
     private static Long resultId(Object data) {

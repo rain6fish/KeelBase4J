@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.effect;
 
+import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.domain.FollowUp;
 import cn.com.keelbase.runtime.domain.FollowUpRepository;
 import cn.com.keelbase.runtime.identity.Principal;
@@ -27,16 +28,39 @@ import org.springframework.web.server.ResponseStatusException;
  * <p>Revocation is class-aware: this spike only has local
  * entities, so revoke means a local soft delete ({@code local_compensate}) — never a claim of
  * "reverted" for something that cannot be.
+ *
+ * <p><b>A revocation is audited, and that is not decoration.</b> It used to write the ledger row and
+ * the soft delete and nothing else, so the chain went on describing a write and never that somebody
+ * undid it — and "who undid what" is the one question the operation exists to answer. Every other
+ * governance transition already writes a line; this one was an omission. The row carries the acting
+ * user, so the trace answers it without a second table.
+ *
+ * <p>记录与撤销 AI 的写副作用。
+ *
+ * <p>幂等由内容推导（user + tool + args），故重复同一次调用会**复用**已有 effect、而不是写两次。**并发**
+ * 重复——两次调用都没查到时——用同一条路解决：唯一键拒绝输家，输家再读回赢家写的行、把它返回。这就是冻结的
+ * `unique_conflict_idempotent` 处置：**跳过、绝不分裂、绝不冒出假失败**。只有这个键上的冲突才这样处理；
+ * 其它完整性失败仍然是真失败。
+ *
+ * <p>撤销是**分档**的：这个 spike 只有本地实体，所以撤销 = 本地软删（`local_compensate`）——绝不为做不到
+ * 的事情宣称「已还原」。
+ *
+ * <p>**撤销是要进审计的，这不是装饰。** 它过去只写账本行与软删、别的什么都不写，于是链继续描述着一次写、
+ * **从不描述有人把它撤了**——而「谁撤了什么」正是这个操作存在的唯一理由。其它每一次治理状态迁移都写了行；
+ * 这一处是**遗漏**。行里带着执行者，所以轨迹不需要第二张表就能回答它。
  */
 @Service
 public class SideEffectService {
 
     private final SideEffectRepository repository;
     private final FollowUpRepository followUps;
+    private final AuditService audit;
 
-    public SideEffectService(SideEffectRepository repository, FollowUpRepository followUps) {
+    public SideEffectService(SideEffectRepository repository, FollowUpRepository followUps,
+                            AuditService audit) {
         this.repository = repository;
         this.followUps = followUps;
+        this.audit = audit;
     }
 
     /**
@@ -86,7 +110,35 @@ public class SideEffectService {
             // governed_external etc. are out of scope for G1 — honest "compensating", never "revoked".
             effect.setRevokeStatus("compensating");
         }
-        return repository.save(effect);
+        SideEffect saved = repository.save(effect);
+        // The actor, not the effect's owner: an operator revoking somebody else's effect is exactly
+        // the case the trace has to be able to name. Written after the row moves, so a revoke that
+        // throws on the way (an unreachable target, say) leaves no line claiming it happened.
+        audit.append("tool_call", principal.userId(),
+                saved.getToolName() + " revoked (effect " + saved.getId() + ", "
+                        + saved.getRevokeClass() + " -> " + saved.getRevokeStatus() + ")");
+        return saved;
+    }
+
+    /**
+     * The effect this content already produced, if any — the same key {@link #record} would compute,
+     * asked <em>before</em> a tool runs rather than after. See
+     * {@code GovernedExecutionEngine#reuseIfAlreadyExecuted} for why the asking has to come first: the
+     * key describes a write only if there can be at most one write under it, and a probe after the
+     * fact cannot make that true.
+     *
+     * <p>Returns the row whatever its revoke status — the caller decides what a revoked key means. A
+     * probe that filtered revoked rows out would report "this call is new" about a call that is not.
+     *
+     * <p>某个内容的 effect 是否已经存在——与 {@link #record} 会算出的**同一个键**，但问的时机是**工具执行
+     * 之前**而非之后。为何必须先问，见 `GovernedExecutionEngine#reuseIfAlreadyExecuted`：**只有当同一个键下
+     * 至多只有一次写时，这个键才真的在描述一次写**，而事后探测做不到这一点。
+     *
+     * <p>无论撤销状态如何都返回该行——**撤销过的键意味着什么，由调用方决定**。把已撤销的行过滤掉，会让探测
+     * 对一次并非新调用的事情报告「这是新调用」。
+     */
+    public Optional<SideEffect> existingFor(Principal principal, String toolName, String argsJson) {
+        return repository.findByIdempotencyKey(idempotencyKey(principal.userId(), toolName, argsJson));
     }
 
     private void softDeleteTarget(SideEffect effect) {

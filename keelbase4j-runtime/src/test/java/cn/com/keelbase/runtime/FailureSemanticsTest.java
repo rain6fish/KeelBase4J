@@ -202,7 +202,7 @@ class FailureSemanticsTest {
                 .thenReturn(Optional.of(winner));
         when(racing.saveAndFlush(any(SideEffect.class)))
                 .thenThrow(new DataIntegrityViolationException("unique idempotency_key"));
-        SideEffectService secondRacer = new SideEffectService(racing, mock(FollowUpRepository.class));
+        SideEffectService secondRacer = new SideEffectService(racing, mock(FollowUpRepository.class), mock(AuditService.class));
 
         SideEffect resolved = secondRacer.record(new Principal("alice", "user"), "create_followup",
                 "follow_up", 2L, "{}", "local_compensate");
@@ -214,7 +214,7 @@ class FailureSemanticsTest {
         when(unrelated.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
         when(unrelated.saveAndFlush(any(SideEffect.class)))
                 .thenThrow(new DataIntegrityViolationException("unique result_id"));
-        SideEffectService otherConflict = new SideEffectService(unrelated, mock(FollowUpRepository.class));
+        SideEffectService otherConflict = new SideEffectService(unrelated, mock(FollowUpRepository.class), mock(AuditService.class));
 
         assertThrows(DataIntegrityViolationException.class, () -> otherConflict.record(
                 new Principal("alice", "user"), "create_followup", "follow_up", 1L, "{}", "local_compensate"));
@@ -225,7 +225,7 @@ class FailureSemanticsTest {
         SideEffectRepository broken = mock(SideEffectRepository.class);
         when(broken.findByIdempotencyKey(anyString()))
                 .thenThrow(new DataAccessResourceFailureException("db down"));
-        SideEffectService service = new SideEffectService(broken, mock(FollowUpRepository.class));
+        SideEffectService service = new SideEffectService(broken, mock(FollowUpRepository.class), mock(AuditService.class));
 
         assertThrows(DataAccessResourceFailureException.class, () -> service.record(
                 new Principal("alice", "user"), "create_followup", "follow_up", 1L, "{}", "local_compensate"));
