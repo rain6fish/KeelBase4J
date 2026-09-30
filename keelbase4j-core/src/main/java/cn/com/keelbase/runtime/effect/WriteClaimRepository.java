@@ -26,16 +26,27 @@ public interface WriteClaimRepository extends JpaRepository<WriteClaim, Long> {
     Optional<WriteClaim> findByIdempotencyKey(String idempotencyKey);
 
     /**
-     * Re-claim a row a previous attempt released. Conditional on {@code released}, so a caller racing
-     * another re-claim loses rather than both proceeding, and a row that is {@code claimed} or
-     * {@code settled} is not reachable this way at all.
+     * Re-claim a row a previous attempt gave up, or one whose claim outlived its lease.
+     *
+     * <p><b>Two doors, one condition, and the condition is the arbitration.</b> {@code released} is an
+     * attempt that said so; a {@code claimed} row older than {@code staleBefore} is one that never
+     * could — the process died between taking the claim and settling it. Both are "no attempt is
+     * running", and both are taken the same way: a conditional update that also moves {@code claimedAt}
+     * forward, so of two callers racing for a stale row, the second finds the condition false (the
+     * timestamp is no longer old) and loses. That is the same compare-and-swap the confirmation row's
+     * execution claim uses, for the same reason.
+     *
+     * <p>A {@code settled} row is reachable by neither door: an effect exists and is recorded, and the
+     * ledger probe answers before anyone gets here.
      */
     @Transactional
     @Modifying(clearAutomatically = true)
     @Query("update WriteClaim c set c.status = :to, c.claimedAt = :at, c.settledAt = null "
-            + "where c.idempotencyKey = :key and c.status = :from")
-    int reclaim(@Param("key") String key, @Param("from") String from, @Param("to") String to,
-                @Param("at") Instant at);
+            + "where c.idempotencyKey = :key "
+            + "and (c.status = :released or (c.status = :claimed and c.claimedAt < :staleBefore))")
+    int reclaim(@Param("key") String key, @Param("released") String released,
+                @Param("claimed") String claimed, @Param("to") String to, @Param("at") Instant at,
+                @Param("staleBefore") Instant staleBefore);
 
     /** The execution finished and its effect is recorded — or there was no effect to record. */
     @Transactional

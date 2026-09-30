@@ -10,9 +10,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import cn.com.keelbase.runtime.effect.WriteClaim;
+import cn.com.keelbase.runtime.governance.ExecutionAxis;
 import cn.com.keelbase.runtime.effect.WriteClaimRepository;
 import cn.com.keelbase.runtime.effect.WriteClaimService;
 import cn.com.keelbase.runtime.identity.Principal;
+import jakarta.persistence.EntityManager;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -25,6 +28,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The pre-execution claim arbitrates a write, so two identical calls cannot both perform it (seam S11).
@@ -56,6 +60,12 @@ class WriteClaimTest {
 
     @Autowired
     WriteClaimService claims;
+
+    @Autowired
+    EntityManager entityManager;
+
+    @Autowired
+    TransactionTemplate transactions;
 
     /**
      * Arguments unique to one test, and that is not decoration: these tests share a database, and the
@@ -107,6 +117,36 @@ class WriteClaimTest {
         claims.release(ALICE, TOOL, args);
         assertTrue(claims.claim(ALICE, TOOL, args).won(),
                 "an attempt that failed without landing frees the key — a refusal must not be permanent");
+    }
+
+    /**
+     * A claim that outlived its lease is taken again — the door that keeps a crash from making a call
+     * permanently impossible.
+     *
+     * <p>This is the case the row cannot see its way out of on its own: a process killed between taking
+     * the claim and settling it leaves a row that looks exactly like one still executing, and no code of
+     * ours runs again to say otherwise. Time is the only thing that separates them, which is why the
+     * lease exists and why it is the same constant the confirmation row's execution claim spends.
+     */
+    @Test
+    void aClaimWhoseLeaseRanOutIsTakenAgain() {
+        String args = sameCallEverywhere();
+        claims.claim(ALICE, TOOL, args);
+        assertFalse(claims.claim(ALICE, TOOL, args).won(), "a fresh claim is not retried");
+
+        ageTheClaim(args, ExecutionAxis.LEASE_MILLIS + 1_000L);
+
+        assertTrue(claims.claim(ALICE, TOOL, args).won(),
+                "past the lease the attempt is not coming back, so the key is free again");
+    }
+
+    /** Age the row by hand: the only way to reach the stale branch without waiting five minutes. */
+    private void ageTheClaim(String args, long byMillis) {
+        transactions.executeWithoutResult(status -> entityManager
+                .createQuery("update WriteClaim c set c.claimedAt = :old where c.idempotencyKey = :key")
+                .setParameter("old", Instant.now().minusMillis(byMillis))
+                .setParameter("key", WriteClaimService.keyFor(ALICE, TOOL, args))
+                .executeUpdate());
     }
 
     /**

@@ -26,8 +26,9 @@ import java.time.Instant;
  * deliberately small: the fields that decide anything are the key and the status.
  *
  * <p><b>The status set is the whole protocol.</b> {@code claimed} means an execution is in flight — or
- * that a previous one died without saying otherwise, and the two are <em>not distinguishable</em>, which
- * is why neither is retried. {@code released} means a previous attempt failed in a way that proves
+ * that a previous one died without saying otherwise. The two are <em>not distinguishable by looking</em>,
+ * which is why nothing retries a fresh claim; what separates them is the lease, and only that — see
+ * {@code WriteClaimService}, where it is spent and where its price is written down. {@code released} means a previous attempt failed in a way that proves
  * nothing landed, so a retry may re-claim (conditionally — still arbitration, not an unconditional
  * overwrite). {@code settled} means the effect it produced is recorded, and {@code effectId} says which.
  *
@@ -41,8 +42,9 @@ import java.time.Instant;
  * <p>于是仲裁挪到写发生的地方：**执行前**取一个唯一键。插进去的那个人拥有这次执行，其余人被告知不要执行。这是
  * 参照实现的形状（带 `claimed`/`settled`/`released` 的 write claim），但有意做小：真正决定事情的字段只有键与状态。
  *
- * <p>**状态集本身就是全部协议。** `claimed` = 有一次执行在飞——或者上一次执行死了却没留下别的话，而这两者
- * **无法区分**，所以两者都不重试。`released` = 上一次尝试以一种「证明什么都没落地」的方式失败，故重试可以**条件
+ * <p>**状态集本身就是全部协议。** `claimed` = 有一次执行在飞——或者上一次执行死了却没留下别的话。这两者
+ * **靠看是分不开的**，所以**新鲜的**占位谁都不重试；把它们分开的是**租约**，也只有租约——见
+ * `WriteClaimService`，租约在那里被花掉、它的代价也写在同一个地方。`released` = 上一次尝试以一种「证明什么都没落地」的方式失败，故重试可以**条件
  * 地**重新占位（仍是仲裁，不是无条件覆盖）。`settled` = 它产出的 effect 已登记，`effectId` 指出是哪一个。
  */
 @Entity
