@@ -160,7 +160,15 @@ class MyConfirmationsListTest {
 
         assertEquals(1, store.mine("alice", null, Instant.now(),
                 ConfirmationLifecycle.DEFAULT_OFFLINE_TTL_MILLIS).size(), "inside its window, it is listed");
-        assertTrue(store.mine("alice", null, Instant.now(), ALREADY_CLOSED).isEmpty(),
+        // A `now` strictly after the row, not the wall clock. With a zero window the cutoff lands
+        // exactly on the row's `createdAt`, and the boundary is half-open — `createdAt < cutoff` has
+        // closed, `createdAt >= cutoff` has not — so a row stamped in the same microsecond as
+        // `Instant.now()` is still inside its window and would be listed. Asking the clock makes this
+        // assertion a race it wins almost always; asking for a millisecond past the row makes its
+        // premise true by construction. The same correction the two offline-window tests needed, for
+        // the same reason: this was the third place a wall clock was compared against a row it had
+        // just created.
+        assertTrue(store.mine("alice", null, fresh.getCreatedAt().plusMillis(1), ALREADY_CLOSED).isEmpty(),
                 "past its window it is not: offering a button that is bound to fail is what the window is for");
         assertEquals(ConfirmationLifecycle.PENDING, statusOf(fresh.getToken()),
                 "and it is still pending — the sweeper is what ends it, not the list");
