@@ -8,6 +8,8 @@ import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
 import cn.com.keelbase.runtime.domain.FollowUpRepository;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
+import cn.com.keelbase.runtime.effect.WriteClaim;
+import cn.com.keelbase.runtime.effect.WriteClaimRepository;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -84,6 +86,9 @@ class RepeatedCallIsNotWrittenTwiceTest {
     @Autowired
     SideEffectRepository sideEffects;
 
+    @Autowired
+    WriteClaimRepository claimRepository;
+
     @Value("${keelbase.delegation.secret}")
     String delegationSecret;
 
@@ -120,6 +125,39 @@ class RepeatedCallIsNotWrittenTwiceTest {
         assertEquals(409, again.getStatusCode().value(),
                 "a revoked key stays occupied; body was " + again.getBody());
         assertEquals(followUpsBefore, followUps.count(), "and nothing is written under it again");
+    }
+
+    /**
+     * The engine obeys the claim, which is its half of the concurrent case.
+     *
+     * <p>The state below — the key held, no effect recorded yet — is what a second call <em>sees</em>
+     * while a first one is executing. It is constructed rather than raced, because a raced version would
+     * assert something about scheduling; the race itself is arbitrated by the unique key and covered in
+     * {@code WriteClaimTest}. What this one pins is that the engine, handed that answer, does not
+     * execute — which is the part a read-back cannot give you.
+     */
+    @Test
+    void aCallWhoseClaimIsHeldIsNotExecuted() {
+        Long customer = customers.save(new Customer("Held Co", "low", "alice")).getId();
+        ExecutionOutcome executed = approve(aliceWrites(customer));
+
+        sideEffects.deleteById(executed.effectId());
+        WriteClaim settled = claimRepository.findAll().stream()
+                .filter(claim -> executed.effectId().equals(claim.getEffectId()))
+                .findFirst().orElse(null);
+        assertNotNull(settled, "the execution took a claim and settled it onto its effect");
+        String key = settled.getIdempotencyKey();
+        claimRepository.deleteById(settled.getId());
+        claimRepository.saveAndFlush(new WriteClaim(key, "alice", "create_followup"));
+
+        long followUpsBefore = followUps.count();
+        ResponseEntity<Map> again = rest.postForEntity("/ai/confirmations/" + aliceWrites(customer),
+                entity(Map.of("decision", "approve")), Map.class);
+
+        assertEquals(409, again.getStatusCode().value(),
+                "a key somebody is executing under is not free; body was " + again.getBody());
+        assertEquals(followUpsBefore, followUps.count(),
+                "and the call is not run — which is the whole point of asking before executing");
     }
 
     /** Propose the write and return its confirmation token. */

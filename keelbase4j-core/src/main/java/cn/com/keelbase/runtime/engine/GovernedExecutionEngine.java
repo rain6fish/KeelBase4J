@@ -6,6 +6,7 @@ import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectService;
+import cn.com.keelbase.runtime.effect.WriteClaimService;
 import cn.com.keelbase.runtime.governance.ConfirmationMode;
 import cn.com.keelbase.runtime.governance.ConfirmationRequest;
 import cn.com.keelbase.runtime.governance.ConfirmationStore;
@@ -49,6 +50,7 @@ public class GovernedExecutionEngine {
     private final GovernanceService governance;
     private final ConfirmationStore confirmations;
     private final SideEffectService sideEffects;
+    private final WriteClaimService claims;
     private final AuditService audit;
     private final ConfirmationWatchers watchers;
 
@@ -57,12 +59,14 @@ public class GovernedExecutionEngine {
             GovernanceService governance,
             ConfirmationStore confirmations,
             SideEffectService sideEffects,
+            WriteClaimService claims,
             AuditService audit,
             ConfirmationWatchers watchers) {
         this.registry = registry;
         this.governance = governance;
         this.confirmations = confirmations;
         this.sideEffects = sideEffects;
+        this.claims = claims;
         this.audit = audit;
         this.watchers = watchers;
     }
@@ -387,13 +391,18 @@ public class GovernedExecutionEngine {
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal) {
         String argsJson = CanonicalJson.json(args);
         ToolResult result;
+        boolean claimed = false;
         try {
             ExecutionOutcome reused = reuseIfAlreadyExecuted(tool, args, principal);
             if (reused != null) {
                 return reused;
             }
+            claimed = claimForExecution(tool, argsJson, principal);
             result = tool.execute(args, principal); // may throw 403 — before any write
         } catch (RuntimeException refused) {
+            if (claimed) {
+                claims.release(principal, tool.name(), argsJson);
+            }
             audit.append("tool_call", principal.userId(),
                     tool.name() + " refused: " + refused.getMessage());
             throw refused;
@@ -405,11 +414,59 @@ public class GovernedExecutionEngine {
                     principal, tool.name(), tool.resultType(), resultId, argsJson, tool.revokeClass());
             effectId = effect.getId();
         }
+        if (claimed) {
+            claims.settle(principal, tool.name(), argsJson, effectId);
+        }
         audit.append("tool_call", principal.userId(),
                 tool.name() + " -> " + (result.success() ? "ok" : "fail: " + result.error()));
         return result.success()
                 ? ExecutionOutcome.executed(result.data(), effectId)
                 : new ExecutionOutcome("error", null, null, null, result.error());
+    }
+
+    /**
+     * Take the pre-execution claim, or refuse the call — the half of S11 that a sequential repeat cannot
+     * show.
+     *
+     * <p>Asking the ledger first (see {@link #reuseIfAlreadyExecuted}) settles every repeat that arrives
+     * after the first one finished. It settles nothing about two calls that arrive together: both ask,
+     * both find nothing, both write. The claim is the row whose unique key is taken <em>before</em> the
+     * write, so exactly one of them owns the execution and the other is refused — which is the honest
+     * answer, since from here an execution in flight and one that died silently look the same (see
+     * {@code WriteClaimService}).
+     *
+     * <p>Not to be confused with the confirmation row's own claim ({@code executionClaimedAt},
+     * ADR-0016): that one arbitrates <em>attempts at one confirmation</em>, this one arbitrates
+     * <em>the same call arriving twice</em>. Two different questions, and a call can be the only attempt
+     * at its confirmation and still be the second one of its kind.
+     *
+     * <p>Reads are not claimed: they write nothing, so there is nothing to arbitrate, and a row per read
+     * would be a ledger of nothing.
+     *
+     * <p>领取执行前的占位，否则拒绝这次调用——S11 中**顺序重复显不出来**的那一半。
+     *
+     * <p>先问账本（见 {@link #reuseIfAlreadyExecuted}）能解决**第一次已经完成之后**到达的每一次重复；它对
+     * **同时到达**的两次调用一无所用：两边都问、都没查到、都写。本方法取的那一行，唯一键是在写**之前**拿的，
+     * 于是其中之一拥有这次执行、另一个被拒——这是诚实的答案，因为从这里看，**在飞的执行**与**死得无声无息的
+     * 执行**长得一样（见 `WriteClaimService`）。
+     *
+     * <p>不要与确认行自己的认领（`executionClaimedAt`，ADR-0016）混为一谈：那个仲裁的是**针对同一条确认的
+     * 多次尝试**，这个仲裁的是**同一次调用到了两遍**。两个不同的问题，而一次调用完全可以是它那条确认的唯一
+     * 一次尝试、同时又是同类中的第二次。
+     *
+     * <p>读不占位：它什么都不写，也就没什么可仲裁；而每次读留一行，等于给「什么都没有」记账。
+     */
+    private boolean claimForExecution(AiTool tool, String argsJson, Principal principal) {
+        if (tool.resultType() == null) {
+            return false;
+        }
+        WriteClaimService.Outcome claim = claims.claim(principal, tool.name(), argsJson);
+        if (!claim.won()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "this call is already being executed (claim: " + claim.status() + ")"
+                            + " — the same call is not run twice");
+        }
+        return true;
     }
 
     /**
