@@ -51,6 +51,9 @@ class HostShapedAdviceTest {
 
     private static final String REFUSED = "/probe/rule-denial";
 
+    /** A path nothing is mapped to — the 404 door. 没有任何映射的路径 —— 那扇 404 的门。 */
+    private static final String UNMAPPED = "/no-such-path-so-nothing-matches";
+
     /**
      * The host's global handler, in miniature — broad exception types, catching what this runtime
      * refuses with.
@@ -71,6 +74,25 @@ class HostShapedAdviceTest {
 
             @ExceptionHandler(RuntimeException.class)
             ResponseEntity<Map<String, Object>> anything(RuntimeException failure) {
+                return ResponseEntity.ok(Map.of(
+                        "code", 200,
+                        "data", Map.of("msg", String.valueOf(failure.getMessage()), "code", 500)));
+            }
+
+            /**
+             * The host does not stop at {@code RuntimeException}. RuoYi declares a second handler for
+             * {@code Exception}, and a path no handler matches arrives as
+             * {@code NoResourceFoundException} — a {@code ServletException}, so it is this one that
+             * catches it. A copy that declared only the runtime supertype would not be the host, and
+             * would leave the wider door untested.
+             *
+             * <p>宿主并不止步于 {@code RuntimeException}。RuoYi 另有一个 {@code Exception} 的处理器，
+             * 而没有处理器接手的路径以 {@code NoResourceFoundException} 到达 —— 那是 {@code
+             * ServletException}，故接住它的是这一条。只声明运行时超类的副本不算宿主，也会让那扇更宽的
+             * 门无人测。
+             */
+            @ExceptionHandler(Exception.class)
+            ResponseEntity<Map<String, Object>> anythingElse(Exception failure) {
                 return ResponseEntity.ok(Map.of(
                         "code", 200,
                         "data", Map.of("msg", String.valueOf(failure.getMessage()), "code", 500)));
@@ -125,5 +147,36 @@ class HostShapedAdviceTest {
         assertEquals(403, response.getStatusCode().value(), "body was " + response.getBody());
         assertEquals(403, ((Number) response.getBody().get("code")).intValue(),
                 "and the envelope agrees with the status, rather than carrying the refusal inside data");
+    }
+
+    /**
+     * The same door, wider than refusals: a path that does not exist.
+     *
+     * <p>Measured against the running host on 2026-09-30, an unknown path with a valid token answers
+     * HTTP 200 carrying {@code code:200} and the success message, with the real 404 buried in
+     * {@code data} — the host's generic handler produces the body, and {@code ApiResponseAdvice} labels
+     * it a success because the body is not ours. Ordering cannot reach this one: this runtime's advice
+     * declares no handler for {@code NoResourceFoundException}, so there is no second claimant for the
+     * order to rank. Covering the type is the fix, and this is its guard.
+     *
+     * <p>同一扇门，比拒绝更宽：一条不存在的路径。2026-09-30 在运行中的宿主上实测，带有效 token 打未知
+     * 路径答 HTTP 200、带 {@code code:200} 与成功文案，真正的 404 埋在 {@code data} 里 —— 正文由宿主的
+     * 泛型处理器产出，而 {@code ApiResponseAdvice} 因「正文不是我们的」把它标成成功。排序到不了这里：本
+     * 运行时的 advice 对 {@code NoResourceFoundException} 未声明处理器，没有第二个主张者让排序去排。
+     * 修法是**覆盖该类型**，本条即它的守卫。
+     */
+    @Test
+    void aPathThatDoesNotExistReachesTheCallerAsNotFoundEvenWithAHostHandlerPresent() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(TestTokens.forUser("alice", delegationSecret));
+
+        ResponseEntity<Map> response = rest.exchange(URI.create(UNMAPPED), HttpMethod.GET,
+                new HttpEntity<>(headers), Map.class);
+
+        assertNotEquals(200, response.getStatusCode().value(),
+                "a not-found must not arrive as a success: " + response.getBody());
+        assertEquals(404, response.getStatusCode().value(), "body was " + response.getBody());
+        assertEquals(404, ((Number) response.getBody().get("code")).intValue(),
+                "and the envelope agrees with the status");
     }
 }

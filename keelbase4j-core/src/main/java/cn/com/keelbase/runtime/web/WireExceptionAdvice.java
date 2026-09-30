@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Renders failures the application raises <em>on purpose</em> in the frozen {@code error-body}
@@ -88,6 +89,33 @@ public class WireExceptionAdvice {
                 : WireFailure.messageFor(status);
         return ResponseEntity.status(status)
                 .body(WireEnvelope.error(status.value(), message, WireFailure.guidanceFor(status)));
+    }
+
+    /**
+     * A path no handler matches. Its absence from this advice was the wider half of the S9 door:
+     * because no handler here claimed the type, in an embedded host the exception fell to the host's
+     * generic {@code Exception} handler, which answered HTTP 200 with its own body, and
+     * {@link ApiResponseAdvice} — its exemption turns on who produced the body, and that body is not
+     * ours — labelled it a success. The caller read "操作成功" for a route that does not exist.
+     * Ordering cannot reach this one: with no handler declared here there is no second claimant for
+     * the order to rank. Covering the type is what fixes it.
+     *
+     * <p>{@link WireFailure} already carried 404 wording and guidance — the type was the only part
+     * missing, so this is an omission closed rather than a policy chosen.
+     *
+     * <p><b>没有被处理器接手的路径。</b>它在本条 advice 里的缺席，正是 S9 那扇门更宽的那一半：此处
+     * 无人认领该类型，故在被嵌入的宿主里异常落到宿主那个泛型 {@code Exception} 处理器上，后者以
+     * HTTP 200 写自己的正文，而 {@link ApiResponseAdvice}（它的豁免取决于正文是谁产的，而那份正文不
+     * 是我们的）把它标成成功 —— 调用方为一条不存在的路由读到了「操作成功」。排序到不了这里：此处未声明
+     * 处理器，就没有第二个主张者让排序去排；修法是**覆盖该类型**。{@link WireFailure} 本就带着 404 的
+     * 文案与指引 —— 缺的只有类型这一环，故这是**补上一处遗漏**，不是选定了某种策略。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> noSuchPath(NoResourceFoundException missing) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(WireEnvelope.error(HttpStatus.NOT_FOUND.value(),
+                        WireFailure.messageFor(HttpStatus.NOT_FOUND),
+                        WireFailure.guidanceFor(HttpStatus.NOT_FOUND)));
     }
 
     /** A status this runtime did not mean to send is a fault, whatever it claimed to be. */
