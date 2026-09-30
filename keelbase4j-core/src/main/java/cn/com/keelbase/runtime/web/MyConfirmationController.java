@@ -93,8 +93,14 @@ public class MyConfirmationController {
      * is the exception: the contract gives it to pending rows and omits it on terminal ones, and it is
      * not nullable there, so it is left out rather than sent as null.
      *
-     * <p>{@code mode} is always {@code immediate}: this runtime creates R3 confirmations, the operator's
-     * own, and inventing an approval or run mode it cannot produce would be a shape nothing backs.
+     * <p>{@code mode} is read off the row, though every row this list can hold is {@code immediate}:
+     * the list is the operator's own and an approval row belongs to somebody else's decision, so it is
+     * not collected here at all. Reading it rather than writing the constant keeps the two facts from
+     * drifting — if the list ever widens, the shape follows instead of lying.
+     *
+     * <p>{@code mode} **从行上读**，尽管这份列表能装的每一行都是 {@code immediate}：这份列表是操作者
+     * 自己的，而审批行属于**别人的**决定，根本不在这里收集。**读它而不是写死那个常量**，是为了让这两个
+     * 事实不会各自漂移——列表若有一天变宽，形状会跟着走，而不是撒谎。
      */
     private Map<String, Object> item(ConfirmationRequest row, Instant now, long offlineTtlMillis) {
         Map<String, Object> item = new LinkedHashMap<>();
@@ -102,7 +108,7 @@ public class MyConfirmationController {
         item.put("toolName", row.getToolName());
         item.put("summary", null);
         item.put("arguments", parseArgs(row.getArgsJson()));
-        item.put("mode", "immediate");
+        item.put("mode", row.getMode());
         item.put("riskLevel", row.getRiskLevel());
         item.put("status", row.getStatus());
         item.put("impact", null);

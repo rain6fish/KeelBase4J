@@ -10,6 +10,7 @@ import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
+import cn.com.keelbase.runtime.governance.ConfirmationMode;
 import cn.com.keelbase.runtime.governance.ConfirmationRequest;
 import cn.com.keelbase.runtime.governance.ConfirmationRequestRepository;
 import cn.com.keelbase.runtime.governance.ConfirmationStore;
@@ -146,7 +147,8 @@ class OutOfBandDecisionTest {
      */
     @Test
     void pastTheOfflineWindowTheDecisionIsRefusedAndNothingMoves() {
-        ConfirmationRequest req = store.create(new Principal("alice", "user"), "create_followup", "{}", "R3");
+        ConfirmationRequest req = store.create(
+                new Principal("alice", "user"), "create_followup", "{}", "R3", ConfirmationMode.IMMEDIATE);
 
         // One millisecond past the row, not the wall clock: with a zero window the cutoff lands on the
         // row's `createdAt`, and that boundary is half-open (`createdAt >= cutoff` stays decidable), so

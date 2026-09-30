@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import cn.com.keelbase.protocol.ConfirmationLifecycle;
+import cn.com.keelbase.runtime.governance.ConfirmationMode;
 import cn.com.keelbase.runtime.governance.ConfirmationRequest;
 import cn.com.keelbase.runtime.governance.ConfirmationRequestRepository;
 import cn.com.keelbase.runtime.governance.ConfirmationStore;
@@ -150,7 +151,8 @@ class ConfirmationOfflineWindowTest {
     }
 
     private ConfirmationRequest pending() {
-        return confirmations.create(new Principal("alice", "user"), "create_followup", "{}", "R3");
+        return confirmations.create(
+                new Principal("alice", "user"), "create_followup", "{}", "R3", ConfirmationMode.IMMEDIATE);
     }
 
     private String statusOf(ConfirmationRequest req) {
