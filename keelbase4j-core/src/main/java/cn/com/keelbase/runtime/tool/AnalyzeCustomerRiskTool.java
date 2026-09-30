@@ -33,7 +33,7 @@ public class AnalyzeCustomerRiskTool implements AiTool {
 
     @Override
     public String description() {
-        return "Analyze the risk level of a customer (read-only).";
+        return "Analyze the risk level of a customer.";
     }
 
     @Override

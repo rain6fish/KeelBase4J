@@ -37,7 +37,7 @@ public class CreateFollowUpTool implements AiTool {
 
     @Override
     public String description() {
-        return "Create a follow-up note on a customer (requires confirmation).";
+        return "Create a follow-up note on a customer.";
     }
 
     @Override
