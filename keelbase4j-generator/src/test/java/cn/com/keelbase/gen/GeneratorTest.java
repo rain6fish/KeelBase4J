@@ -290,6 +290,23 @@ class GeneratorTest {
         assertEquals(filtered, protocolDependency.group(1),
                 "and the emitted dependency is on the version this build publishes, not a literal");
 
+        // The generated app runs on H2 out of the box and has to be able to run on PostgreSQL: the
+        // deployment a pilot targets is PostgreSQL, and a driver a project does not declare is not
+        // something a deployment can add from the outside. Both ride along and the URL decides — the
+        // same shape the core takes for its own dialect. Flyway's PostgreSQL module comes with them for
+        // the same reason it comes with the core: this app runs Flyway itself, and Flyway refuses a
+        // database it has no module for.
+        //
+        // Asserted on the pom with its comments stripped, so that what is being checked is a dependency
+        // and not a sentence about one — the template carries prose about the drivers, and a plain
+        // `contains` would be satisfied by that prose alone.
+        String dependencies = pom.replaceAll("(?s)<!--.*?-->", "");
+        assertTrue(dependencies.contains("<groupId>org.postgresql</groupId>")
+                        && dependencies.contains("<artifactId>postgresql</artifactId>"),
+                "the generated pom declares the PostgreSQL driver, so the app can be pointed at one");
+        assertTrue(dependencies.contains("<artifactId>flyway-database-postgresql</artifactId>"),
+                "and Flyway's PostgreSQL module, without which Flyway will not run against one");
+
         // The generated project compiles as real Java source.
         List<File> sources = javaFiles(out.resolve("src/main/java"));
         assertFalse(sources.isEmpty(), "no sources generated");
