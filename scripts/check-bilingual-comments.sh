@@ -60,8 +60,19 @@ scan() {
         }
         return 0
       }
-      # A paragraph ends at a blank comment line; consecutive lines of one kind are one paragraph.
-      function closeParagraph() { if (kind != "") { sequence = sequence kind " "; kind = "" } }
+      # A paragraph ends at a blank comment line, and it is the paragraph that is English or Chinese —
+      # not the line. Classifying line by line was the third mistake this script made, and the worst: an English
+      # paragraph that quotes one Chinese sample ("当前客户「Acme」（ID 1）。…") flipped kind in the middle
+      # of the paragraph and came out interleaved, so half the report was English prose quoting Chinese.
+      # A paragraph counts as Chinese when most of its lines are, which survives both a quoted sample and
+      # a Chinese line that carries nothing but full-width punctuation.
+      function closeParagraph() {
+        if (plines > 0) {
+          kind = (pcjk * 2 > plines) ? "ZH" : "EN"
+          sequence = sequence kind " "
+          plines = 0; pcjk = 0
+        }
+      }
       function report(   n, parts, i, seenChinese, bad) {
         closeParagraph()
         if (sequence == "") return
@@ -73,15 +84,14 @@ scan() {
         }
         if (bad) printf "%s:%d: a Chinese paragraph is followed by an English one\n", file, start
       }
-      /^[[:space:]]*\/\*\*/ { inside = 1; start = NR; sequence = ""; kind = ""; next }
+      /^[[:space:]]*\/\*\*/ { inside = 1; start = NR; sequence = ""; plines = 0; pcjk = 0; next }
       inside && /\*\/[[:space:]]*$/ { report(); inside = 0; next }
       inside {
         line = $0
         sub(/^[[:space:]]*\*[[:space:]]?/, "", line)
         if (line ~ /^[[:space:]]*$/) { closeParagraph(); next }
-        thisKind = hasCJK(line) ? "ZH" : "EN"
-        if (kind == "") kind = thisKind
-        else if (kind != thisKind) { sequence = sequence kind " "; kind = thisKind }
+        plines++
+        if (hasCJK(line)) pcjk++
         next
       }
     ' "$f"
@@ -112,7 +122,17 @@ JAVA
  * And English again, which is the shape this looks for.
  */
 JAVA
+# An English paragraph quoting a Chinese sample is English. This one is here because the script did not
+# know that: it classified line by line, so the quoted sample flipped the paragraph and the report was
+# half full of English prose quoting Chinese.
+  cat > "$tmp/Quoted.java" <<'JAVA'
+/**
+ * The console names the customer it is looking at inside the message ("当前客户「Acme」（ID 1）。…"),
+ * which is what a model would read, and the runtime resolves the reference either way.
+ */
+JAVA
   good="$(scan "$tmp/Good.java" | grep -c . || true)"
+  quoted="$(scan "$tmp/Quoted.java" | grep -c . || true)"
   bad="$(scan "$tmp/Bad.java" | grep -c . || true)"
   rm -rf "$tmp"
 
@@ -125,6 +145,11 @@ JAVA
     echo "  ok    a correct block is not reported, full-width punctuation and all"
   else
     echo "  FAIL  a correct block was reported ($good finding(s))"; failures=$((failures + 1))
+  fi
+  if [ "$quoted" = "0" ]; then
+    echo "  ok    an English paragraph quoting Chinese is not reported"
+  else
+    echo "  FAIL  English prose quoting a Chinese sample was reported ($quoted finding(s))"; failures=$((failures + 1))
   fi
   return "$failures"
 }
