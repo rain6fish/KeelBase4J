@@ -28,15 +28,6 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * <p>Putting role rules here would not merely duplicate that decision — it would be a second,
  * silently diverging answer to the same question.
  *
- * <p>请求安全：在入口认证，到此为止。
- *
- * <p>本运行时暴露的一切都受治理，故每个端点都要求已认证的调用方。除此之外，本文件**刻意不含任何授权**
- * —— 没有 {@code hasRole}、没有 {@code @PreAuthorize}、没有 URL 到角色的规则。「某身份能否做某事」
- * 由冻结的授权契约裁定，这正是 ADR-0004 划的那条线：Spring Security 回答「这是谁」，KeelBase 回答
- * 「这段 AI 行为允不允许」。
- *
- * <p>把角色规则写在这里不只是重复那个判断 —— 它会是同一个问题的**第二份、且会悄悄分叉的答案**。
- *
  * <p><b>Where this chain stops</b> (JV-35 F1): this core is built to be embedded in a host that
  * arrives with a security chain of its own, and Spring Security has no notion of "the application's
  * own chain" — it matches by path and orders by {@code @Order}. Two chains that each match any
@@ -46,18 +37,27 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * controllers rather than listed — and {@code @Order(1)}, which puts this chain ahead of a host
  * chain that declares no order (the host is entitled to declare none).
  *
+ * <p>The prefix on this class name is load-bearing, not decoration. The class is found by a
+ * component scan rooted in a library's package, and a bean name is derived from the simple class
+ * name — so a class called {@code SecurityConfig} collides with any host that has one of its own,
+ * and the host fails to start before any of the above can matter. Measured, not theorised: the first
+ * host run died on exactly that. Do not shorten it.
+ *
+ * <p>请求安全：在入口认证，到此为止。
+ *
+ * <p>本运行时暴露的一切都受治理，故每个端点都要求已认证的调用方。除此之外，本文件**刻意不含任何授权**
+ * —— 没有 {@code hasRole}、没有 {@code @PreAuthorize}、没有 URL 到角色的规则。「某身份能否做某事」
+ * 由冻结的授权契约裁定，这正是 ADR-0004 划的那条线：Spring Security 回答「这是谁」，KeelBase 回答
+ * 「这段 AI 行为允不允许」。
+ *
+ * <p>把角色规则写在这里不只是重复那个判断 —— 它会是同一个问题的**第二份、且会悄悄分叉的答案**。
+ *
  * <p><b>本条链到哪为止</b>（JV-35 F1）：本核心是要被**嵌进自带安全链的宿主**里的，而 Spring Security
  * 没有「应用自己那条链」这个概念 —— 它按路径匹配、按 {@code @Order} 排序。两条都匹配任意请求的链甚至
  * 轮不到排序：{@code WebSecurityConfiguration} 直接拒绝装配（{@code UnreachableFilterChainException}）
  * ⇒ **嵌入后的应用起不来**。故有 {@link OwnedRoutes} 这个范围 —— 它治理的是**本运行时自己的控制器**所
  * 服务的路径，从控制器推导而来、而非手写清单 —— 以及 {@code @Order(1)}：它排在**未声明 order 的宿主链**
  * 之前（宿主不声明 order 是它的正当默认）。
- *
- * <p>The prefix on this class name is load-bearing, not decoration. The class is found by a
- * component scan rooted in a library's package, and a bean name is derived from the simple class
- * name — so a class called {@code SecurityConfig} collides with any host that has one of its own,
- * and the host fails to start before any of the above can matter. Measured, not theorised: the first
- * host run died on exactly that. Do not shorten it.
  *
  * <p>类名上的前缀是**承重的**，不是装饰。本类由**根在库包里的**组件扫描发现，而 bean 名取自简单类名
  * ——所以一个叫 {@code SecurityConfig} 的类会和任何有同名类的宿主相撞，宿主在以上任何一条成为问题
