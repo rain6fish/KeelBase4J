@@ -302,6 +302,23 @@ public class JavaGenerator {
                       <artifactId>h2</artifactId>
                       <scope>runtime</scope>
                     </dependency>
+                    <!-- PostgreSQL, because the deployment this is aimed at runs one, and a driver the
+                         project does not declare is not a driver a deployment can add from outside.
+                         Both ride along and the URL decides which is used. Flyway's PostgreSQL module
+                         comes with them for the same reason the core carries its own: this app runs
+                         Flyway itself, and Flyway refuses a database it has no module for. The
+                         datasource needs no template change — a URL, or Boot's usual environment
+                         variable, points the app at a PostgreSQL. -->
+                    <dependency>
+                      <groupId>org.postgresql</groupId>
+                      <artifactId>postgresql</artifactId>
+                      <scope>runtime</scope>
+                    </dependency>
+                    <dependency>
+                      <groupId>org.flywaydb</groupId>
+                      <artifactId>flyway-database-postgresql</artifactId>
+                      <scope>runtime</scope>
+                    </dependency>
                     <!-- Schema migrations: a change becomes an immutable, versioned migration rather
                          than a re-create, so rows already in the database survive it. Boot 4 has a
                          starter for this; the bare flyway-core library is no longer enough. -->

@@ -1,0 +1,37 @@
+-- Approval mode: a high-impact action waits for a second person (R4, JV-33 ③).
+--
+-- `mode` records which confirmation a row *is*, rather than inferring it from the risk level: the two
+-- are not synonyms — a policy can promote an R3 tool to approval, and the mode is what decides who may
+-- answer it. `immediate` is the default so every pre-existing row keeps meaning what it meant.
+--
+-- `operator_identity` carries the initiator's identity with the row. An approval row outlives the
+-- request that created it (R4's waiting window is hours to days), so the write has to be performed *as
+-- the initiator* when somebody else approves it — and by then the initiator is not the caller. The
+-- identity is stored in its wire form; see `OperatorIdentity`.
+--
+-- `approver_id` records who answered an approval row. For an immediate row the decider is the
+-- operator and this stays null.
+--
+-- This file is immutable once applied: a change to the schema is a new V<n>__ file.
+--
+-- Dialect: PostgreSQL, as in V1 — the DDL is the h2 sibling's, unchanged. Plain `ALTER TABLE ADD COLUMN`
+-- with a default is standard, and PostgreSQL takes it as written.
+--
+-- 审批模式：高影响动作要等**第二个人**（R4，JV-33 ③）。
+--
+-- `mode` 记的是一行**是哪一种**确认，而不是从风险级反推：两者不是同义词——策略可以把一个 R3 工具升档为
+-- 审批，而 mode 决定的恰恰是**谁可以回答这一行**。默认 `immediate`，故此前写下的每一行含义不变。
+--
+-- `operator_identity` 把**发起人的身份**随行带上。审批行活得过创建它的那次请求（R4 的等待窗口是小时到天级），
+-- 所以当**别人**来批它时，这次写必须以**发起人**的身份执行——而那时发起人不是调用方。身份按 wire 形态存，
+-- 见 `OperatorIdentity`。
+--
+-- `approver_id` 记下是谁回答了审批行。即时确认行的裁决者就是操作者本人，此列留空。
+--
+-- 本文件一经应用即不可改：schema 变更一律新的 V<n>__ 文件。
+--
+-- 方言：PostgreSQL，与 V1 相同 —— DDL 就是 h2 那份、一字未改。带默认值的 `ALTER TABLE ADD COLUMN`
+-- 是标准写法，PostgreSQL 原样接受。
+ALTER TABLE confirmation_requests ADD COLUMN mode VARCHAR(255) NOT NULL DEFAULT 'immediate';
+ALTER TABLE confirmation_requests ADD COLUMN approver_id VARCHAR(255);
+ALTER TABLE confirmation_requests ADD COLUMN operator_identity VARCHAR(4000);

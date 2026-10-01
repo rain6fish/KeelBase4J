@@ -86,6 +86,17 @@
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-mysql</artifactId>
     </dependency>
+    <!--
+      PostgreSQL, for the same reason and by the same rule the MySQL module above is here: this
+      module ships `db/keelbase-migration/postgresql/`, and a jar that carries a dialect's migrations
+      and cannot apply them is half a feature. The host line's decision to run on PostgreSQL is what
+      made it concrete (JV-36); the comment above already noted that a PostgreSQL host would have to
+      add its own alongside, and shipping it here is cheaper than making every such host remember to.
+    -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -99,6 +110,18 @@
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      Test scope too, and for the same reason. The PostgreSQL DDL is a byte-identical copy of the h2
+      one, which is exactly the kind of claim that should be checked by running rather than by reading:
+      the two dialects agree on the types here, but `validate` is also what catches a mapping that has
+      drifted, and it can only catch it where that database actually is. A deployment brings its own
+      driver; this one exists so the check is a run.
+    -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

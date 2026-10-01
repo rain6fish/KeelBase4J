@@ -32,6 +32,10 @@ bash scripts/demo-changeability.sh  # 变更 → 再生成 → 手改存活 → 
 bash scripts/demo-migration.sh      # 变更 → 加性迁移 → 存量数据跟着走
 bash scripts/demo-golden-path.sh    # 前端自己的模块打本运行时（需主仓 Web-Admin-Vue 检出）
 bash scripts/demo-springai.sh       # 真模型上接缝（需 DEEPSEEK_API_KEY；无 key 时会明确报错退出）
+
+# 第三种方言（PostgreSQL）真跑一遍：迁移 + ddl-auto=validate，对真的 PG。
+# 无 KEELBASE_PG_URL 时该测试自动跳过；CI 侧对第三方言的闸是 MigrationDialectsTest（哪儿都跑）。
+KEELBASE_PG_URL=jdbc:postgresql://localhost:5432/keelbase mvn test -Dtest=PostgresMigrationTest
 ```
 
 CI（`.github/workflows/ci.yml`）门禁两件事：`conformance`（`mvn verify`）+ `vector-drift`
