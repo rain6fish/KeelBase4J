@@ -41,9 +41,13 @@ public class SpringAiChatReplierAutoConfiguration {
      * Which model answered, for the {@code model} field a caller reads. Spring AI does not promise
      * the options carry a name — a provider may leave it unset — so this says "unknown" rather than
      * inventing one.
+     *
+     * <p>{@code getOptions()} rather than {@code getDefaultOptions()}: the latter is deprecated for
+     * removal in Spring AI 2.0 and, in its bytecode, does nothing but call the former. Reading it
+     * through the deprecated name would work today and stop compiling on the next upgrade.
      */
     private static String modelName(ChatModel model) {
-        Object configured = model.getDefaultOptions().getModel();
+        Object configured = model.getOptions().getModel();
         return configured == null || configured.toString().isBlank() ? "unknown" : configured.toString();
     }
 }

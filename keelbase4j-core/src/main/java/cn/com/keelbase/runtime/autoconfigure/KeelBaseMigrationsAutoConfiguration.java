@@ -4,7 +4,6 @@ package cn.com.keelbase.runtime.autoconfigure;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import javax.sql.DataSource;
 import org.flywaydb.core.api.Location;
@@ -69,9 +68,15 @@ public class KeelBaseMigrationsAutoConfiguration {
             if (vendor == null) {
                 return;
             }
-            List<Location> locations = new ArrayList<>(Arrays.asList(configuration.getLocations()));
-            locations.add(new Location(LOCATION_PREFIX + vendor));
-            configuration.locations(locations.toArray(Location[]::new));
+            // Kept as strings on purpose: Flyway's own Location(String) constructor is deprecated, and
+            // locations(String...) is what the configuration is set through anyway — building objects only
+            // to hand them back as their descriptors is a detour through the API's deprecated door.
+            List<String> locations = new ArrayList<>();
+            for (Location existing : configuration.getLocations()) {
+                locations.add(existing.getDescriptor());
+            }
+            locations.add(LOCATION_PREFIX + vendor);
+            configuration.locations(locations.toArray(String[]::new));
         };
     }
 
