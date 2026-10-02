@@ -2159,6 +2159,7 @@ public class JavaGenerator {
                 package %s.authz;
 
                 import cn.com.keelbase.protocol.PermissionCapabilityList;
+                import %s.identity.Principal;
                 import java.util.List;
                 import java.util.Map;
                 import org.springframework.stereotype.Component;
@@ -2167,7 +2168,7 @@ public class JavaGenerator {
                  * The authorization rule source — who may do what, before any decision is taken.
                  *
                  * <p>Generated from the business specification. The decisions themselves live in
-                 * {@link PermissionAuthorizer}, which reads rules only through {@link #rulesFor(String)},
+                 * {@link PermissionAuthorizer}, which reads rules through {@link #rulesFor(Principal)},
                  * so replacing this source (declarations today, a table later) does not touch the
                  * semantics. There is deliberately no roles/permissions table.
                  */
@@ -2196,8 +2197,20 @@ public class JavaGenerator {
                     public List<Rule> rulesFor(String role) {
                         return byRole.getOrDefault(role, List.of());
                     }
+
+                    /**
+                     * The rules for a caller. Delegates to {@link #rulesFor(String)} here, because this
+                     * source is declared rather than read from a table and the role is all it needs. A
+                     * source that has to answer from the caller overrides <em>this</em> one instead: the
+                     * decision function asks through it, so that a deployment whose roles are its own can
+                     * tell two people of one role apart without reaching into the security context, which
+                     * is where the answer starts depending on the path the decision runs on.
+                     */
+                    public List<Rule> rulesFor(Principal principal) {
+                        return rulesFor(principal.role());
+                    }
                 }
-                """.formatted(pkg, userRules);
+                """.formatted(pkg, pkg, userRules);
     }
 
     private String permissionAuthorizer(String pkg) {
@@ -2265,7 +2278,7 @@ public class JavaGenerator {
                      * what basis. */
                     public PermissionCapabilityList describe(Principal principal) {
                         List<PermissionCapabilityList.Resource> resources = new ArrayList<>();
-                        for (AuthorizationRules.Rule rule : rules.rulesFor(principal.role())) {
+                        for (AuthorizationRules.Rule rule : rules.rulesFor(principal)) {
                             resources.add(new PermissionCapabilityList.Resource(
                                     rule.subject(), scopeOf(rule), rule.actions(), reasonOf(rule)));
                         }
@@ -2278,7 +2291,7 @@ public class JavaGenerator {
                     }
 
                     private AuthorizationRules.Rule ruleFor(Principal principal, String subject) {
-                        for (AuthorizationRules.Rule rule : rules.rulesFor(principal.role())) {
+                        for (AuthorizationRules.Rule rule : rules.rulesFor(principal)) {
                             if (PermissionCapabilityList.SUBJECT_ALL.equals(rule.subject())
                                     || rule.subject().equals(subject)) {
                                 return rule;
