@@ -60,7 +60,7 @@ public class PermissionAuthorizer {
      * split it.
      */
     public PermissionCapabilityList.Resource capabilityFor(Principal principal, String subject) {
-        for (AuthorizationRules.Rule rule : rules.rulesFor(principal.role())) {
+        for (AuthorizationRules.Rule rule : rules.rulesFor(principal)) {
             if (!grants(rule, subject)) {
                 continue;
             }
@@ -83,7 +83,7 @@ public class PermissionAuthorizer {
     /** The frozen {@code permission-capability-list}: what this identity may do, and on what basis. */
     public PermissionCapabilityList describe(Principal principal) {
         Map<String, PermissionCapabilityList.Resource> bySubject = new LinkedHashMap<>();
-        for (AuthorizationRules.Rule rule : rules.rulesFor(principal.role())) {
+        for (AuthorizationRules.Rule rule : rules.rulesFor(principal)) {
             if (PermissionCapabilityList.SUBJECT_ALL.equals(rule.subject())) {
                 bySubject.put(rule.subject(), new PermissionCapabilityList.Resource(
                         rule.subject(), PermissionCapabilityList.SCOPE_ALL,

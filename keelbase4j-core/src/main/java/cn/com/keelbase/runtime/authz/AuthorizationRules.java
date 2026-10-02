@@ -2,6 +2,7 @@
 package cn.com.keelbase.runtime.authz;
 
 import cn.com.keelbase.protocol.PermissionCapabilityList;
+import cn.com.keelbase.runtime.identity.Principal;
 import java.util.List;
 import java.util.Map;
 
@@ -54,7 +55,35 @@ public class AuthorizationRules {
                         new Rule("FollowUp", PermissionCapabilityList.MANAGE, "userId"))));
     }
 
+    /**
+     * The rules for a role. The tier-A source is keyed by role alone, so this is where its rules come
+     * from; a source that needs to know <em>who</em> is asking overrides {@link #rulesFor(Principal)}
+     * instead, and the decision function asks through that one.
+     *
+     * 按角色取规则。档 A 的源只按角色取，故这就是它规则的来处；需要知道**谁**在问的源改为覆写
+     * {@link #rulesFor(Principal)}，而判决函数是经那一个来问的。
+     */
     public List<Rule> rulesFor(String role) {
         return byRole.getOrDefault(role, List.of());
+    }
+
+    /**
+     * The rules for a caller.
+     *
+     * <p>It exists because a role string is not enough to answer with. The contract's role vocabulary
+     * holds two values, and a deployment whose roles are its own collapses several of them onto those
+     * two before any rule is looked up — so a source that answers from its own tables cannot tell two
+     * people holding the same role apart, and asking the caller through the security context instead
+     * makes the answer depend on which path the decision runs on. Measured on a host: one build, three
+     * runs, twenty-six assertions then twenty-five twice, refusing at execution. The key carries the
+     * caller, and a source that ignores it is unchanged.
+     *
+     * <p>本方法之所以存在，是因为**一个角色字符串不足以作答**。契约的角色词表只有两个值，而一个角色体系
+     * 自成一家的部署，会在任何规则被查之前把它的若干角色塌缩到那两个上——于是**读自己表的源分不清同角色的
+     * 两个人**；而改从安全上下文去够调用者，会让答案**取决于判决跑在哪条路径上**。在一个宿主上实测：一份
+     * 构建、三次运行，26 条断言，随后两次 25 条，且拒在**执行**步。键带上调用者，而不理它的源一行未改。
+     */
+    public List<Rule> rulesFor(Principal principal) {
+        return rulesFor(principal.role());
     }
 }
