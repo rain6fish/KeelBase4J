@@ -45,8 +45,12 @@ public class SpringAiChatReplierAutoConfiguration {
      * <p>{@code getOptions()} rather than {@code getDefaultOptions()}: the latter is deprecated for
      * removal in Spring AI 2.0 and, in its bytecode, does nothing but call the former. Reading it
      * through the deprecated name would work today and stop compiling on the next upgrade.
+     *
+     * <p>Package-private rather than private so the two answers it can give — the name, or "unknown" —
+     * can be pinned without standing up a context; the wiring, that the answer reaches the reply a
+     * caller reads, is asserted where that reply is.
      */
-    private static String modelName(ChatModel model) {
+    static String modelName(ChatModel model) {
         Object configured = model.getOptions().getModel();
         return configured == null || configured.toString().isBlank() ? "unknown" : configured.toString();
     }

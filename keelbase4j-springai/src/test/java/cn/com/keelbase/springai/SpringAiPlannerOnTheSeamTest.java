@@ -101,6 +101,22 @@ class SpringAiPlannerOnTheSeamTest {
         assertNotNull(data(res).get("token"), "and it still returns a confirmation token");
     }
 
+    /**
+     * The name the replier was built with is the name a caller reads.
+     *
+     * <p>Pinned here rather than beside the chooser, because the two are joined by wiring — a bean
+     * method handing a string to a constructor — and wiring is exactly what a unit test of the chooser
+     * cannot see. This stub names no model, so the honest answer is "unknown"; the other half, that a
+     * named model reports its name, is in {@code ModelNameTest}.
+     */
+    @Test
+    void theReplyCarriesTheModelNameTheReplierWasBuiltWith() {
+        ResponseEntity<Map> res = chat("alice", "盘点一下这个客户");
+
+        assertEquals("unknown", data(res).get("model"),
+                "this model names itself nowhere, and the field says so rather than inventing one");
+    }
+
     @Test
     void theModelIsNotToldHowTheCallIsGoverned() {
         chat("alice", "盘点一下这个客户");
