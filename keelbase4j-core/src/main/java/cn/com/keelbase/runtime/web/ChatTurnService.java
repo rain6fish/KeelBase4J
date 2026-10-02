@@ -43,10 +43,10 @@ public class ChatTurnService {
     }
 
     /**
-     * The customer the console is looking at, as it writes it into the message: 「Acme」（ID 1）.
-     *
      * <p>One reader for this, here rather than in the planner: the reference is conversation state, and this is
      * where the transcript is. A planner receives the resolved id in its context and routes on it.
+     *
+     * The customer the console is looking at, as it writes it into the message: 「Acme」（ID 1）.
      */
     private static final Pattern CUSTOMER_MARKER =
             Pattern.compile("[（(]\\s*ID\\s*(\\d+)\\s*[）)]", Pattern.CASE_INSENSITIVE);
@@ -94,14 +94,14 @@ public class ChatTurnService {
     /**
      * Which customer this conversation is about, as named in its own transcript.
      *
+     * <p>Reading the transcript is what the store is for: this is not embeddings, not retrieval and not a memory
+     * policy (ADR-0009 D3 — a transcript, not memory).
+     *
      * <p>The console names it once — in the <em>first</em> message ("当前客户「Acme」（ID 1）。给客户建一条
      * 跟进记录"), because no frontend sends a customer id as a field. A model reads that reference wherever it
      * appears; a runtime without one has to as well, or the second write in a conversation — "再建一条" — goes
      * to a tool with nobody to act on. So the most recent mention wins, and the caller's explicit id (handled by
      * the caller of this method) beats everything.
-     *
-     * <p>Reading the transcript is what the store is for: this is not embeddings, not retrieval and not a memory
-     * policy (ADR-0009 D3 — a transcript, not memory).
      */
     private Long mentionedCustomer(String conversationId) {
         List<ConversationMessage> history = conversations.history(conversationId);
