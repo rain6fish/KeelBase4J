@@ -58,26 +58,45 @@ public class PermissionAuthorizer {
      * The capability this principal holds on {@code subject}, or {@code null} when nothing is granted.
      * The row-level scope lives here rather than on the decision, which is how the frozen contracts
      * split it.
+     *
+     * <p>Every rule that grants the subject contributes its actions, which is the union
+     * {@link #describe} states. A source that declares one rule per permission — what a table-backed
+     * tier B does, one row per host permission — would otherwise have all but the first of them
+     * ignored, and the caller would be refused an action it was granted. The scope and the reason are
+     * the first grant's, the same way {@code describe} keeps them.
+     *
+     * <p>授予该 subject 的**每一条**规则都贡献它的动作——这正是 {@link #describe} 声明的并集。一个按
+     * 权限逐条声明规则的源（表后端的档 B 就是——宿主一条权限一行）否则除第一条外全被忽略，调用者会被拒掉
+     * 它**本已获授**的动作。范围与理由取**第一条**授予的，与 `describe` 的取法一致。
      */
     public PermissionCapabilityList.Resource capabilityFor(Principal principal, String subject) {
+        boolean found = false;
+        boolean own = false;
+        String reason = null;
+        List<String> granted = new ArrayList<>();
         for (AuthorizationRules.Rule rule : rules.rulesFor(principal)) {
             if (!grants(rule, subject)) {
                 continue;
             }
-            boolean own = rule.ownerField() != null;
-            String reason;
-            if (own) {
-                reason = PermissionCapabilityList.REASON_RESOURCE_OWN;
-            } else if (PermissionCapabilityList.SUBJECT_ALL.equals(rule.subject())) {
-                reason = PermissionCapabilityList.REASON_RESOURCE_ALL;
-            } else {
-                reason = PermissionCapabilityList.REASON_RESOURCE_UNRESTRICTED;
+            if (!found) {
+                found = true;
+                own = rule.ownerField() != null;
+                if (own) {
+                    reason = PermissionCapabilityList.REASON_RESOURCE_OWN;
+                } else if (PermissionCapabilityList.SUBJECT_ALL.equals(rule.subject())) {
+                    reason = PermissionCapabilityList.REASON_RESOURCE_ALL;
+                } else {
+                    reason = PermissionCapabilityList.REASON_RESOURCE_UNRESTRICTED;
+                }
             }
-            return new PermissionCapabilityList.Resource(subject,
-                    own ? PermissionCapabilityList.SCOPE_OWN : PermissionCapabilityList.SCOPE_ALL,
-                    PermissionCapabilityList.normalizeActions(rule.action()), reason);
+            granted.addAll(PermissionCapabilityList.normalizeActions(rule.action()));
         }
-        return null;
+        if (!found) {
+            return null;
+        }
+        return new PermissionCapabilityList.Resource(subject,
+                own ? PermissionCapabilityList.SCOPE_OWN : PermissionCapabilityList.SCOPE_ALL,
+                PermissionCapabilityList.normalizeActions(granted), reason);
     }
 
     /** The frozen {@code permission-capability-list}: what this identity may do, and on what basis. */
