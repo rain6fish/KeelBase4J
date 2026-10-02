@@ -4,7 +4,6 @@ package cn.com.keelbase.runtime.authz;
 import cn.com.keelbase.protocol.PermissionCapabilityList;
 import java.util.List;
 import java.util.Map;
-import org.springframework.stereotype.Component;
 
 /**
  * The authorization rule source — who may do what, before any decision is taken.
@@ -19,8 +18,19 @@ import org.springframework.stereotype.Component;
  * <p>Rule subjects are entity names; {@code ownerField} names the column holding the row's owner,
  * and {@code null} means the grant carries no row-level restriction. A rule on the wildcard subject
  * grants everything, which is how the contract's {@code admin} role is expressed.
+ *
+ * <p><b>Not a {@code @Component} on purpose.</b> The class is not scanned; the runtime supplies the
+ * tier-A instance as a conditional bean instead ({@code KeelBaseAuthorizationAutoConfiguration}), which
+ * is what makes tier B possible at all: a host that declares a table-backed source of this type replaces
+ * this default, and a scanned component cannot be replaced — the deployment would end up with two
+ * sources of the same type and a context that refuses to start. The identity seams are arranged the
+ * same way, and accept the same cost: a deployment that replaces this one leaves the default unused.
+ *
+ * <p>**刻意不是 `@Component`。** 这个类不被扫描；运行时改为以一个**条件 bean** 供给档 A 实例
+ * （`KeelBaseAuthorizationAutoConfiguration`），而这正是档 B 得以存在的前提：声明了表驱动源的宿主**替换**掉
+ * 这个默认，而被扫描出来的组件**换不掉** —— 部署方会得到两个同类型的源、以及一个**拒绝启动**的上下文。
+ * 身份那两条缝是同样的安排，也接受同样的代价：替换掉它的部署，把这个默认留成闲置。
  */
-@Component
 public class AuthorizationRules {
 
     /** A declared grant: act on {@code subject}, with an ownership condition when {@code ownerField} is set. */
