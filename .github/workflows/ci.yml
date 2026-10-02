@@ -7,6 +7,10 @@
 #      contract repository, at the version this repository answers for, plus the main repo's scenario
 #      packs, which are not part of the contract. They must never be hand-edited here; a divergence
 #      means one side moved without the other.
+#   3. bilingual-comments — every javadoc block reads English and then Chinese, each as a block. Not a
+#      conformance claim, but the same kind of gate: that rule was enforced by whoever happened to be
+#      reviewing, the interleaved shape went in twice in one session with nobody catching it, and a
+#      rule that depends on who is looking is not enforced.
 name: CI
 
 on:
@@ -54,3 +58,16 @@ jobs:
           path: main-repo
       - name: Vendored snapshot must match its sources
         run: scripts/sync-vectors.sh --check --contract contract-repo --main main-repo
+
+  bilingual-comments:
+    name: Comment blocks read English then Chinese
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # The self-test runs first because it is what says the classification works on *this* machine:
+      # the check depends on byte-wise string comparison, and a runner whose awk behaves differently
+      # should fail as itself rather than report a clean zero.
+      - name: The checker agrees with itself here
+        run: scripts/check-bilingual-comments.sh --self-test
+      - name: Every javadoc block is English and then Chinese
+        run: scripts/check-bilingual-comments.sh --strict

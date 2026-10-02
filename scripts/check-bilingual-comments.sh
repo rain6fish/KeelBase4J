@@ -40,6 +40,11 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# GNU awk where it exists, whatever `awk` is otherwise. The classification depends on byte-wise
+# string comparison, which both implementations do under LC_ALL=C — and the self-test is what says
+# so on a given machine, which is why the gate runs it before it runs the check.
+AWK="$(command -v gawk || command -v awk)"
+
 # Findings for the given files, one line each: path:line: what is wrong. The classification is done on
 # bytes rather than characters on purpose — LC_ALL=C makes awk count bytes and compare single bytes, so
 # no Unicode range and no locale are involved, which are the two things that make this kind of check
@@ -52,7 +57,7 @@ cd "$ROOT"
 # version of this script managed to accuse a file it had just been used to fix.
 scan() {
   for f in "$@"; do
-    LC_ALL=C awk -v file="$f" '
+    LC_ALL=C "$AWK" -v file="$f" '
       function hasCJK(s,   i, c) {
         for (i = 1; i <= length(s); i++) {
           c = substr(s, i, 1)
