@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
 import cn.com.keelbase.runtime.governance.ConfirmationSweeper;
 import cn.com.keelbase.runtime.web.ChatController;
+import cn.com.keelbase.runtime.web.WireErrorController;
+import org.springframework.boot.webmvc.error.ErrorController;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -184,6 +186,34 @@ class CoreAssemblyTest {
     /** A pattern with its variables filled, so the matcher can be asked about a concrete request. */
     private static String concrete(String pattern) {
         return pattern.replaceAll("\\{[^/}]*}", "x");
+    }
+
+    /**
+     * Container failures are answered by this runtime's controller, not by Boot's — in a host too.
+     *
+     * <p>The prediction this pins is the seam record's "F1 附带发现": the core declares a bean
+     * implementing {@link ErrorController}, Boot's own carries
+     * {@code @ConditionalOnMissingBean(ErrorController.class)}, so wherever this core is assembled the
+     * runtime's error shape answers 404s and container errors. In a host that is a real consequence and
+     * not a detail: a client of the host reads {@code message} / {@code reason} / {@code nextStep} off
+     * an error it used to get in the host's own shape. Asserted by name because that is the whole
+     * claim — which controller is the one registered.
+     *
+     * 容器的失败由**本运行时**的控制器作答，而不是 Boot 的——在宿主里也一样。
+     *
+     * <p>这里钉住的就是缝记录那条「F1 附带发现」：核心声明了一个实现 `ErrorController` 的 bean，而 Boot 自己那个带
+     * `@ConditionalOnMissingBean(ErrorController.class)`，故**凡装配了本核心处**，404 与容器错误都由运行时的错误形状作答。
+     * 在宿主里这是一条**真后果**、不是细节：宿主的客户端会从它过去按宿主自己形状收到的错误里，读到 `message` / `reason` /
+     * `nextStep`。按**名字**断言，因为全部主张就是「注册的是哪一个」。
+     */
+    @Test
+    void containerFailuresAreAnsweredByThisRuntimesErrorController() {
+        Map<String, ErrorController> registered = context.getBeansOfType(ErrorController.class);
+
+        assertEquals(1, registered.size(),
+                "one ErrorController is registered, and Boot's own stood down: " + registered.keySet());
+        assertTrue(registered.values().iterator().next() instanceof WireErrorController,
+                "and it is this runtime's, so the error body a caller reads is the wire contract");
     }
 
     /**
