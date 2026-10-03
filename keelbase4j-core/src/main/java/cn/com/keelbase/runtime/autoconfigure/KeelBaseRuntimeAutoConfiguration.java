@@ -7,6 +7,9 @@ import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
+import cn.com.keelbase.runtime.pipeline.ChatReplierAutoConfiguration;
+import cn.com.keelbase.runtime.pipeline.RuleBasedPlannerAutoConfiguration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -70,7 +73,25 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
  * 有自己那套的部署方保留自己的。
  */
 @AutoConfiguration
-@ComponentScan("cn.com.keelbase.runtime")
+// The two single-slot fallbacks are excluded from this scan, and that exclusion is load-bearing.
+// They are @AutoConfiguration classes, and @AutoConfiguration is meta-annotated @Configuration, so a
+// scan over their package registers them as ordinary configurations — in the user phase, before any
+// auto-configuration is ordered. Each then takes its single slot first, and the model-backed
+// auto-configurations (which correctly declare @AutoConfigureBefore these two) see the bean and back
+// off: measured, with a model configured, neither the planner nor the replier was the model's. Left to
+// the imports file they are ordered like every other auto-configuration, and their own
+// @ConditionalOnMissingBean does what it says.
+//
+// 两条**单槽兜底**被排除出这次扫描，而这条排除是承重的。它们是 @AutoConfiguration 类，而
+// @AutoConfiguration 的元注解含 @Configuration，所以扫到它们所在包就会把它们当**普通配置**注册——那是在
+// **用户阶段**、早于任何自动配置被排序。于是各自**先占住自己那唯一的槽**，而模型驱动的自动配置（它们**正确
+// 地**声明了 @AutoConfigureBefore 指向这两条）看见 bean 就让位：实测，配好模型后规划器与回复器**都不是模型的**。
+// 交给 imports 文件，它们就和别的自动配置一样参与排序，而它们自己的 @ConditionalOnMissingBean 也就名副其实了。
+@ComponentScan(
+        value = "cn.com.keelbase.runtime",
+        excludeFilters = @ComponentScan.Filter(
+                type = FilterType.ASSIGNABLE_TYPE,
+                classes = {RuleBasedPlannerAutoConfiguration.class, ChatReplierAutoConfiguration.class}))
 @EntityScan("cn.com.keelbase.runtime")
 @EnableJpaRepositories("cn.com.keelbase.runtime")
 @ConfigurationPropertiesScan("cn.com.keelbase.runtime")
