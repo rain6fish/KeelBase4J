@@ -67,6 +67,31 @@ public final class SpringAiChatReplier implements ChatReplier {
         sb.append("Runtime outcome: ").append(outcome == null
                 ? "no tool was proposed for this message"
                 : outcome.status()).append('\n');
+        // What the call returned, not only that it ran. A model asked to describe an outcome it cannot
+        // see will refuse to invent one — the right instinct and a useless answer, and it was measured:
+        // the tool answered with three customers and the reply described the result as empty. The data
+        // is safe to hand over because it is the tool's own projection — a tool decides what it gives
+        // the AI, which ListSysUsersTool's javadoc makes the security-relevant part — so what arrives
+        // here is already a shape somebody chose to disclose, never an entity and never a risk level.
+        //
+        // 写的是**这一调用返回了什么**，而不只是「它跑了」。被要求描述一个看不见的结果的模型**会拒绝编造**
+        // ——那是**对的直觉**、也是**没用的答案**——而这是实测的：工具答了三个客户，回复把结果描述成空的。
+        // 这笔数据**可以交出去**，因为它是**工具自己的投影**——工具自己决定交给 AI 什么，`ListSysUsersTool`
+        // 的 javadoc 正是把「投影」定为与安全相关的那部分——所以到这里的东西**已经是有人选择披露过的形状**，
+        // 从来不是实体、也不是风险级。
+        if (outcome != null && outcome.data() != null) {
+            // `String.valueOf` rather than a serialiser: this module deliberately carries no JSON
+            // library, and a tool's projection is a list of small maps, which is already readable as
+            // `{id=2, name=…}`. Adding a dependency to the adapter to change punctuation would be the
+            // wrong trade.
+            //
+            // 用 `String.valueOf` 而不是序列化器：本模块刻意不带 JSON 库，而一个工具的投影是**一列小 map**，
+            // 印成 `{id=2, name=…}` 本来就够读。为了改几个标点就往适配器上加依赖，是本末倒置。
+            sb.append("What the call returned: ").append(String.valueOf(outcome.data())).append('\n');
+        }
+        if (outcome != null && outcome.error() != null) {
+            sb.append("The call reported: ").append(outcome.error()).append('\n');
+        }
         return sb.toString();
     }
 }
