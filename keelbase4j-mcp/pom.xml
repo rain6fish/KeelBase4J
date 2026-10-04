@@ -40,6 +40,16 @@
       <version>0.18.0</version>
     </dependency>
 
+    <!-- The application the tests start is the runtime's, so that is what a test needs on its
+         classpath — the same arrangement the Spring AI adapter uses. Test scope only: nothing here is
+         needed to serve a tool. -->
+    <dependency>
+      <groupId>cn.com.keelbase</groupId>
+      <artifactId>keelbase4j-runtime</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
@@ -53,6 +63,13 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-webmvc</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- `@AutoConfigureTestRestTemplate` is what the seam tests drive the application with, and it
+         needs this on the classpath — the same three test dependencies the Spring AI adapter carries. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-restclient</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

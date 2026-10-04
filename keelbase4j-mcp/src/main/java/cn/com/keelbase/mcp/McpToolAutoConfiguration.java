@@ -11,9 +11,11 @@ import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 
 /**
  * Wires a configured MCP server in, and does nothing at all when none is configured.
@@ -64,15 +66,28 @@ public class McpToolAutoConfiguration {
      * <em>defined</em> before the registry that consumes them is built, and the definitions are not
      * known until the server has answered.
      *
+     * <p><b>The settings are bound here rather than injected.</b> A post-processor runs before the
+     * post-processor that binds {@code @ConfigurationProperties}, so an injected properties bean would
+     * arrive unbound — measured: {@code baseUri must not be empty}, because the URL was still null when
+     * the client was built. Binding from the {@code Environment} directly is what makes this independent
+     * of that order.
+     *
      * 用工厂后处理器而不是 {@code @Bean} 方法：消费它们的那个注册表建立之前，bean 就必须已被定义，而定义
      * 要等服务端答完才知道。
+     *
+     * <p><b>配置在这里现绑，而不是注入。</b>后处理器跑在「绑定 {@code @ConfigurationProperties}」那个后处理器
+     * **之前**，所以注入进来的配置 bean 会是**未绑定**的——实测：`baseUri must not be empty`，因为造客户端时那个
+     * URL 还是 null。直接从 {@code Environment} 绑，才使它**与那次次序无关**。
      */
     @Bean
-    static BeanFactoryPostProcessor mcpTools(McpProperties properties) {
+    static BeanFactoryPostProcessor mcpTools(Environment environment) {
         return new BeanFactoryPostProcessor() {
             @Override
             public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory)
                     throws BeansException {
+                McpProperties properties =
+                        Binder.get(environment).bind("keelbase.mcp", McpProperties.class)
+                                .orElseGet(McpProperties::new);
                 McpSyncClient session = McpServerTools.connect(properties.getServerUrl());
                 McpServerTools.Discovery found = McpServerTools.discover(session, properties.policy());
                 BeanDefinitionRegistry registry = (BeanDefinitionRegistry) beanFactory;
