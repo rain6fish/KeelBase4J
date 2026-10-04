@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>cn.com.keelbase</groupId>
+    <artifactId>keelbase4j</artifactId>
+    <version>0.1.0</version>
+  </parent>
+
+  <artifactId>keelbase4j-mcp</artifactId>
+  <packaging>jar</packaging>
+
+  <name>KeelBase4J MCP Tool Source</name>
+  <description>
+    Adapter. Turns the tools an MCP server advertises into the runtime's own tools, so that discovery
+    is the only thing MCP adds: authorization, confirmation, execution and audit stay the runtime's.
+    Depends on the runtime; the runtime never depends on this (ADR-0017 D2).
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>cn.com.keelbase</groupId>
+      <artifactId>keelbase4j-core</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!-- The protocol is not ours to write. The official SDK carries it, and this module only carries
+         the one thing the SDK cannot know: how a discovered tool is governed here. -->
+    <dependency>
+      <groupId>io.modelcontextprotocol.sdk</groupId>
+      <artifactId>mcp-core</artifactId>
+      <version>0.18.0</version>
+    </dependency>
+    <dependency>
+      <groupId>io.modelcontextprotocol.sdk</groupId>
+      <artifactId>mcp-json-jackson2</artifactId>
+      <version>0.18.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

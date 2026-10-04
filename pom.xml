@@ -86,6 +86,7 @@
     <module>keelbase4j-runtime</module>
     <module>keelbase4j-generator</module>
     <module>keelbase4j-springai</module>
+    <module>keelbase4j-mcp</module>
     <module>keelbase4j-demo</module>
   </modules>
 
