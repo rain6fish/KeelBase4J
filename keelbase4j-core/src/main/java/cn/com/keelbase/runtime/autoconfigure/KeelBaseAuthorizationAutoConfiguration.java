@@ -2,6 +2,8 @@
 package cn.com.keelbase.runtime.autoconfigure;
 
 import cn.com.keelbase.runtime.authz.AuthorizationRules;
+import cn.com.keelbase.runtime.scope.DataScopeRules;
+import cn.com.keelbase.runtime.scope.ScopeFilter;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -41,5 +43,29 @@ public class KeelBaseAuthorizationAutoConfiguration {
     @ConditionalOnMissingBean(AuthorizationRules.class)
     AuthorizationRules keelBaseAuthorizationRules() {
         return new AuthorizationRules();
+    }
+
+    /**
+     * The runtime's own level source, as a default a deployment can replace — tier A of the two
+     * {@link DataScopeRules} documents, and the range half of the same arrangement.
+     *
+     * <p>It sits beside the rule source rather than on {@link KeelBaseRuntimeAutoConfiguration} for
+     * exactly the reason the class comment gives: an application whose component scan already covers the
+     * core excludes that one, so a default both shapes need would be lost to the runtime. Until now the
+     * level source was a scanned component, which made it unreplaceable — a deployment declaring its own
+     * got two beans of the type and a {@link ScopeFilter} that matched neither.
+     *
+     * <p>运行时自己那份档位来源，作为**可被部署方替换**的默认——即 {@link DataScopeRules} 记着的那两档里的
+     * 档 A，也是同一套安排的**范围那半**。
+     *
+     * <p>它待在规则源旁边、而不挂在 {@link KeelBaseRuntimeAutoConfiguration} 上，理由与类注释给的完全相同：
+     * 组件扫描**已经覆盖 core** 的应用**排除**了那一条，于是两个形状都要用的默认值会被运行时**丢掉**。此前
+     * 这份档位来源是**被扫描的组件**，因此**换不掉**——自建一个的部署会得到两个同类型的 bean、以及一个两者
+     * 都不配的 {@link ScopeFilter}。
+     */
+    @Bean
+    @ConditionalOnMissingBean(DataScopeRules.class)
+    DataScopeRules keelBaseDataScopeRules() {
+        return new DataScopeRules();
     }
 }

@@ -53,9 +53,9 @@ public class ScopeFilter {
         this.departments = departments;
     }
 
-    /** The range this principal's role gets, before any degradation. */
+    /** The range this caller gets, before any degradation — the caller is the key here, not its role. */
     public ScopeDescriptor levelFor(Principal principal) {
-        return levels.forRole(principal.role());
+        return levels.forRole(principal);
     }
 
     /** Whether this entity may be row-filtered at all. */
