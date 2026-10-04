@@ -116,9 +116,23 @@ public class ScopeFilter {
                     || (same(caller.orgId(), ofRow.orgId()) && same(caller.deptId(), ofRow.deptId()));
             case OWN_DEPT_AND_BELOW -> Objects.equals(caller.userId(), ofRow.userId())
                     || (same(caller.orgId(), ofRow.orgId())
-                        && deptIdsFor(level, scope, caller).contains(ofRow.deptId()));
-            case CUSTOM_DEPT -> deptIdsFor(level, scope, caller).contains(ofRow.deptId());
+                        && inAnyDept(deptIdsFor(level, scope, caller), ofRow.deptId()));
+            case CUSTOM_DEPT -> inAnyDept(deptIdsFor(level, scope, caller), ofRow.deptId());
         };
+    }
+
+    /**
+     * Whether a row sits in one of these departments. A row with no department sits in none of them —
+     * answered here rather than left to the set, because the descriptor's set is immutable and
+     * {@code Set.of(...).contains(null)} throws instead of answering, which would turn an ordinary row
+     * into an internal error at the one gate whose whole job is to answer.
+     *
+     * <p>一行是否落在这些部门里。**没有部门的行不落在任何部门里**——这一句写在这里、而不是交给集合本身，
+     * 因为描述符那个集合是不可变的，而 `Set.of(...).contains(null)` **抛**而不是作答；那会把一行普通的行，
+     * 变成在这道唯一以「作答」为职责的闸上的一个内部错误。
+     */
+    private static boolean inAnyDept(Set<Long> deptIds, Long rowDeptId) {
+        return rowDeptId != null && deptIds.contains(rowDeptId);
     }
 
     /**

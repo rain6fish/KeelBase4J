@@ -92,6 +92,21 @@ class ScopeFilterTest {
                 "and not even the caller's own, which is not named");
     }
 
+    /**
+     * A row whose department is unknown is in no department set — answered, not thrown. The descriptor's
+     * set is immutable, so asking it about {@code null} raises, and a row without a department is an
+     * ordinary row: it must come back as "not in range" from the gate rather than as an internal error.
+     */
+    @Test
+    void aRowWithNoDepartmentIsInNoDepartmentSet() {
+        ScopeDescriptor custom = ScopeDescriptor.customDept(Set.of(12L));
+        Principal alice = inOrg(SALES_USER, 1L, 11L);
+        assertFalse(scopes.covers(row("eve", 1L, null), alice, custom),
+                "a row with no department is not in a named one");
+        assertFalse(scopes.covers(row("eve", null, null), alice, custom),
+                "nor is a row with no organization either");
+    }
+
     @Test
     void allIsTheOnlyRangeThatReachesEveryRow() {
         ScopeDescriptor all = ScopeDescriptor.of(ScopeLevel.ALL);
