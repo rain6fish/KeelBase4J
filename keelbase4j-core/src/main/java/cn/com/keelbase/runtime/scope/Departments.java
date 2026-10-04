@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.springframework.stereotype.Component;
 
 /**
  * The department tree, declared — delivery tier A, like the rule sources beside it.
@@ -19,8 +18,25 @@ import org.springframework.stereotype.Component;
  *
  * <p>A tier B deployment replaces this bean with a directory-backed tree; nothing downstream changes,
  * because the range only ever asks it for {@link #subtreeIds(long)} and {@link #pathNames(Long)}.
+ *
+ * <p><b>Not a {@code @Component} on purpose</b>, for the reason the level source gives: a scanned
+ * component cannot be replaced, so a deployment whose departments live in its own directory would get
+ * two beans of this type and a {@link ScopeFilter} whose constructor parameter matches neither name.
+ * The promise in the paragraph above was unkeepable while this class was scanned — the same gap, in
+ * the second of the two defaults a row range is assembled from.
+ *
+ * <p>部门树，**声明**的——交付档 A，与旁边的规则来源同档。
+ *
+ * <p>它存在，是为了让一个行范围能指名「某个部门及其以下」。参照实现给每个部门留一条物化的 `ancestors`
+ * 路径、用它下钻子树；而**声明**的树用走父节点得出同一个集合——同一个答案，且不必维护一条冗余列。
+ *
+ * <p>档 B 的部署把这个 bean 换成**目录驱动**的树；下游一行不改，因为范围只问它 {@link #subtreeIds(long)}
+ * 与 {@link #pathNames(Long)} 两件事。
+ *
+ * <p>**刻意不是 `@Component`**，理由与档位来源那处相同：**被扫描的组件换不掉**，于是把部门放在自己目录里的
+ * 部署会得到两个同类型的 bean、以及一个构造参数名与两者都不配的 {@link ScopeFilter}。上面那段里的那句承诺，
+ * 在这个类还被扫描的时候是**兑现不了**的——同一个缺口，出现在拼出一个行范围所需的**两个默认值里的第二个**上。
  */
-@Component
 public class Departments {
 
     /** A declared department: its id, its name, and its parent ({@code null} at the root). */
