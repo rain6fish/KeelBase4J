@@ -12,6 +12,101 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-05
+
+**English**
+
+A version that matches what this repository says. The published `0.1.0` does not: content moved after
+that tag while the version stayed where it was, so a consumer resolving `0.1.0` from Maven Central
+gets a jar that predates the repository. It lacks, among other things, the PostgreSQL migrations the
+core now carries — and an application built against it on another machine cannot start. A published
+artifact cannot be rewritten, so the honest repair is a new version carrying the current content.
+
+What is published is unchanged: the parent pom and `cn.com.keelbase:keelbase4j-protocol`, the artifact
+a generated application resolves. The protocol library's API is unchanged in this release.
+
+### Added
+
+- **The runtime can be embedded in a host.** It is split into `keelbase4j-core` — an embeddable core
+  holding the trust loop, the governance surface and the security chain — and `keelbase4j-runtime`, a
+  thin application over it. The core assembles itself through one auto-configuration, and a host's own
+  security chain, error handling and identity source coexist with the runtime's rather than displacing
+  it. Its configuration classes were renamed to names that cannot collide with a host's.
+- **Tools a server advertises** (MCP) are governed exactly like the ones compiled in.
+- **A third dialect.** The core ships PostgreSQL migrations beside the H2 and MySQL ones, and a
+  generated application carries the driver and the Flyway module it needs. A test applies them and
+  runs `ddl-auto=validate` against a real PostgreSQL, rather than reading them.
+- **Two-person approval.** A high-impact action is written as a durable row and waits for somebody
+  other than the person who asked for it; the write then runs as that person, not as the approver.
+  Answers are taken at `approve-by`, and an approved execution that died can be asked for again at
+  `retry-execution`.
+- **A write is claimed before it runs**, so two identical calls cannot both perform the action. A
+  claim whose lease has run out is taken again, so an attempt that died is not a permanent dead end.
+- **Policy a deployment can replace** — the rule source, the row range and the department tree become
+  defaults, which is what delivery tier B was built to allow.
+
+### Changed
+
+- **A refusal is an event.** It gets an audit line; a revocation reaches the chain (it previously
+  wrote the ledger row and nothing else, so the trace could not say who undid what); and a path no
+  handler matches arrives as a 404 in the frozen error-body. A host's own exception handler can no
+  longer take the runtime's refusal — the order is declared rather than left to registration order.
+- **A tool's description carries no governance metadata.** A description reaches a model verbatim, so
+  the risk level is where the verdict belongs and nowhere else. A test reads the tools that actually
+  ship — in the runtime and in the generator — because the earlier assertion read a hand-written stub
+  and passed while a real description leaked.
+- **Every rule that grants a subject counts**, not only the first one seen.
+- CI gains a third gate: the bilingual-comment rule is now checked rather than left to a reviewer, and
+  the checker tests itself before it judges the tree.
+
+### Fixed
+
+- A repeated call no longer writes a row nothing can revoke.
+- A row with no department belongs to no department set, instead of raising at the row gate.
+- The capability surface names the module, not one of its entities.
+- The spec the generator emits from no longer writes a governance verdict into a tool's description.
+
+**中文**
+
+**一版与仓库所述一致的版本。** 已发布的 `0.1.0` 并不一致：那个 tag 之后内容继续变了，版本号却没跟着变，
+于是从 Maven Central 解析 `0.1.0` 的人拿到的是一份**比仓库旧**的 jar——它缺的包括 core 现在带的
+**PostgreSQL 迁移**，而这会让另一台机器上按它构建的应用**起不来**。已发布的产物改不了，所以诚实的修法
+是发一个**承载当前内容**的新版本。
+
+**发布的东西没有变**：父 pom 与 `cn.com.keelbase:keelbase4j-protocol`——生成物要解析的那个 artifact。
+协议库的 API 在本版**没有变化**。
+
+### 新增
+
+- **运行时可以被嵌进宿主**：拆成 `keelbase4j-core`（可嵌入核心：信任闭环 + 治理面 + 安全链）与
+  `keelbase4j-runtime`（薄应用）。核心由**一条自动配置**自装配；宿主自己的安全链、错误处理与身份来源
+  与运行时**并存**，而不是被顶掉。库的配置类改了名，换成**不可能与宿主相撞**的名字。
+- **服务端宣称的工具**（MCP）与编译进来的那些受**同一种治理**。
+- **第三种方言**：core 在 H2 与 MySQL 之外带上 **PostgreSQL** 迁移，生成物带上它需要的驱动与 Flyway 模块。
+  有测试对**真的 PostgreSQL** 应用迁移并跑 `ddl-auto=validate`，而不是读一遍。
+- **双人审批**：高影响动作写成一条持久行，等**发起人以外的人**；随后这次写**以发起人身份**执行，不是以
+  审批人身份。在 `approve-by` 作答；一次已批准但死掉的执行可以在 `retry-execution` 再要一次。
+- **写在执行前被认领**：两次相同调用不会都执行。跑完租约的认领可被再次取走，所以**崩溃不再是一条死路**。
+- **部署方可替换的策略**：规则源、数据范围与部门树都成为默认值——这正是交付档 B 当初要放行的事。
+
+### 变更
+
+- **拒绝是一个事件**：它有自己的审计行；撤销**进链**（此前只写账本行、别的什么都不写，于是轨迹说不出
+  「谁撤的」）；没有处理器接手的路径以**冻结 error-body 的 404** 到达。宿主的全局异常处理器**再也拿不走**
+  运行时的拒绝——顺序是**声明的**，不再听凭注册顺序。
+- **工具描述不带治理元数据**：描述会被逐字送到模型面前，所以那个结论只该由**风险级**承载。守卫读的是
+  **真正发货的工具**（运行时与生成器各一处）——此前那条断言读的是**手写的桩**，于是一条真实描述在泄露、
+  它却一路绿着。
+- **每一条授予主体的规则都算数**，不只是最先看到的那条。
+- CI 多一道门：**注释的双语规则**改为受检，而不是留给评审人；且检查器**先自检**、再判全树。
+
+### 修复
+
+- 重复调用不再写下**没有任何撤销路径**的行。
+- 没有部门的行**不在任何部门集合里**，而不是在行闸上抛错。
+- 能力面报的是**模块**名，不是它某个实体的名字。
+- 生成器据以发射的 spec，不再把治理结论写进工具描述。
+
 ## [0.1.0] - 2026-09-22
 
 **English**
@@ -101,5 +196,6 @@ application depends on.
   在各自 pom 的 `release` profile 里声明不发布。
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.1
 [0.1.0]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.0

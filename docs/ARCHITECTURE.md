@@ -221,12 +221,14 @@ verifiable.
 
 | Artifact | Version | Contents |
 |---|---|---|
-| `cn.com.keelbase:keelbase4j-protocol` | 0.1.0 | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on, and the one published to Maven Central. |
-| `cn.com.keelbase:keelbase4j-runtime` | 0.1.0 | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
-| `cn.com.keelbase:keelbase4j-generator` | 0.1.0 | The generator (studio side). |
-| `cn.com.keelbase:keelbase4j-springai` | 0.1.0 | The Spring AI adapter — **depends on the runtime**, and nothing depends on it. |
-| `cn.com.keelbase:keelbase4j-demo` | 0.1.0 | The runnable demo deployment — runtime + adapter + one provider, chosen by Maven profile. |
-| `cn.com.keelbase:keelbase4j` | 0.1.0 | The parent/aggregator (`pom`). |
+| `cn.com.keelbase:keelbase4j-protocol` | 0.1.1 | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on, and the one published to Maven Central. |
+| `cn.com.keelbase:keelbase4j-core` | 0.1.1 | The embeddable core — the trust loop, the governance surface and the security chain, assembled by one auto-configuration so a host can carry it. **Depends on the protocol**, and nothing depends on it but the application over it. |
+| `cn.com.keelbase:keelbase4j-runtime` | 0.1.1 | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
+| `cn.com.keelbase:keelbase4j-generator` | 0.1.1 | The generator (studio side). |
+| `cn.com.keelbase:keelbase4j-springai` | 0.1.1 | The Spring AI adapter — **depends on the runtime**, and nothing depends on it. |
+| `cn.com.keelbase:keelbase4j-mcp` | 0.1.1 | The MCP adapter — the tools a server advertises, governed like the ones compiled in. |
+| `cn.com.keelbase:keelbase4j-demo` | 0.1.1 | The runnable demo deployment — runtime + adapter + one provider, chosen by Maven profile. |
+| `cn.com.keelbase:keelbase4j` | 0.1.1 | The parent/aggregator (`pom`). |
 
 Only `keelbase4j-protocol` — together with the parent pom it inherits from — is published: it is the
 one a generated application resolves, so it is the one that has to be in a repository. What publishes
