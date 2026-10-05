@@ -107,6 +107,16 @@ class GeneratorTest {
         String baseline = Files.readString(out.resolve("src/main/resources/db/migration/V1__crm_baseline.sql"));
         assertTrue(baseline.contains("CREATE TABLE customers"), "the baseline creates the table");
         assertTrue(baseline.contains("owner_user_id VARCHAR(255)"), "with the ownership column");
+        // `deleted_at` is an `Instant`, and Hibernate maps that to a zoned type. A bare `TIMESTAMP`
+        // passes `validate` all the same: it starts clean and then rounds every instant through the
+        // JVM's zone on the way in and out (see the note in core's V1__governance_state.sql). That is
+        // exactly the kind of difference no other assertion in this file would catch.
+        //
+        // `deleted_at` 是 `Instant`，Hibernate 把它映射成带时区的类型。写成裸 `TIMESTAMP` 照样能过
+        // `validate`：它会干净地启动，然后按 JVM 时区把每个时刻在进出时换算一遍（见 core 的
+        // `V1__governance_state.sql` 那段注释）。而这正是本文件其他断言都抓不到的那类差别。
+        assertTrue(baseline.contains("deleted_at TIMESTAMP(6) WITH TIME ZONE"),
+                "deleted_at is an Instant, so the column carries the zone");
         String properties = Files.readString(out.resolve("src/main/resources/application.properties"));
         assertTrue(properties.contains("jdbc:h2:file:"), "a database that outlives the process");
         assertTrue(properties.contains("ddl-auto=validate"), "Flyway owns the schema; Hibernate checks it");
@@ -119,6 +129,11 @@ class GeneratorTest {
                 out.resolve("src/main/resources/db/migration/V2__add_conversations.sql"));
         assertTrue(conversation.contains("CREATE TABLE conversation_messages"),
                 "it creates the transcript table the chat's conversationId names");
+        // Same reason as `deleted_at` above: the entity declares `Instant createdAt`.
+        //
+        // 与上面的 `deleted_at` 同理：实体把 `createdAt` 声明为 `Instant`。
+        assertTrue(conversation.contains("created_at TIMESTAMP(6) WITH TIME ZONE"),
+                "created_at is an Instant, so the column carries the zone");
         assertFalse(conversation.contains("ALTER") || conversation.contains("DROP"),
                 "and it is additive: it alters and drops nothing");
 

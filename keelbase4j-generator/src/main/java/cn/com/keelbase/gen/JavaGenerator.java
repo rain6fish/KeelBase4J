@@ -522,7 +522,13 @@ public class JavaGenerator {
             columns.add(new Column(snake(f.name()), sqlType(javaType(f.type()))));
         }
         columns.add(new Column("owner_user_id", "VARCHAR(255)"));
-        columns.add(new Column("deleted_at", "TIMESTAMP"));
+        // The zone is the point: `deleted_at` is an `Instant`, and Hibernate maps that to
+        // `timestamp(6) with time zone`. A bare `TIMESTAMP` still passes `validate` — it then rounds
+        // every instant through the JVM's zone on the way in and out.
+        //
+        // 时区是关键：`deleted_at` 是 `Instant`，Hibernate 把它映射成 `timestamp(6) with time zone`。
+        // 裸 `TIMESTAMP` 照样能过 `validate` —— 它只是会把每个时刻按 JVM 时区在进出时换算一遍。
+        columns.add(new Column("deleted_at", "TIMESTAMP(6) WITH TIME ZONE"));
         return columns;
     }
 
@@ -883,7 +889,11 @@ public class JavaGenerator {
                     user_id VARCHAR(255) NOT NULL,
                     role VARCHAR(255) NOT NULL,
                     content VARCHAR(4000) NOT NULL,
-                    created_at TIMESTAMP NOT NULL
+                    -- `created_at` is an `Instant`; the zone is part of the type. A bare `TIMESTAMP` passes
+                    -- Hibernate's schema check and then rounds through the JVM's zone.
+                    -- `created_at` 是 `Instant`，时区是类型的一部分。裸 `TIMESTAMP` 能过 Hibernate 的
+                    -- schema 校验，然后按 JVM 时区换算一遍。
+                    created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL
                 );
 
                 CREATE INDEX idx_conversation_messages_conversation ON conversation_messages (conversation_id);
