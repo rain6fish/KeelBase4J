@@ -16,14 +16,22 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 **English**
 
-A version that matches what this repository says. The published `0.1.0` does not: content moved after
-that tag while the version stayed where it was, so a consumer resolving `0.1.0` from Maven Central
-gets a jar that predates the repository. It lacks, among other things, the PostgreSQL migrations the
-core now carries — and an application built against it on another machine cannot start. A published
-artifact cannot be rewritten, so the honest repair is a new version carrying the current content.
+A version that matches what this repository says. Content kept landing after the `0.1.0` tag while the
+version number stayed where it was, so the number no longer described the tree it was cut from; this
+release moves the number to the content.
 
 What is published is unchanged: the parent pom and `cn.com.keelbase:keelbase4j-protocol`, the artifact
-a generated application resolves. The protocol library's API is unchanged in this release.
+a generated application resolves. For the protocol library this release is a **version update only** —
+its public API and its compiled classes are identical to `0.1.0`'s, which is measured rather than
+assumed: the two published jars carry the same 31 entries, and the only differences are the version
+strings in the manifest and the embedded pom. (An earlier version of this note, and the tag message it
+was written for, claimed the release carried the PostgreSQL migrations the published `0.1.0` lacked.
+It does not: those migrations live in `keelbase4j-core`, which this repository does not publish. The
+claim was taken from a roadmap note without being checked, and is corrected here.)
+
+What the repository itself gained since `0.1.0` lives in modules that are **not** published — an
+embeddable core, tools a server advertises over MCP, a third SQL dialect, two-person approval for
+high-impact actions — and is listed below.
 
 ### Added
 
@@ -68,13 +76,18 @@ a generated application resolves. The protocol library's API is unchanged in thi
 
 **中文**
 
-**一版与仓库所述一致的版本。** 已发布的 `0.1.0` 并不一致：那个 tag 之后内容继续变了，版本号却没跟着变，
-于是从 Maven Central 解析 `0.1.0` 的人拿到的是一份**比仓库旧**的 jar——它缺的包括 core 现在带的
-**PostgreSQL 迁移**，而这会让另一台机器上按它构建的应用**起不来**。已发布的产物改不了，所以诚实的修法
-是发一个**承载当前内容**的新版本。
+**一版与仓库版本号一致的发布。** `0.1.0` 那个 tag 之后内容继续落地，而版本号停在原地——于是那个号不再
+描述它被裁出来的那棵树；本版把**号**挪到**内容**上。
 
 **发布的东西没有变**：父 pom 与 `cn.com.keelbase:keelbase4j-protocol`——生成物要解析的那个 artifact。
-协议库的 API 在本版**没有变化**。
+对协议库而言，本版**只是版本号更新**——它的公开 API 与**编译产物**与 `0.1.0` 完全相同，这一点是**实测**的
+而不是假定的：两个已发布的 jar 条目数同为 31，差异只有 manifest 与内嵌 pom 里的版本串。（本条目**先前
+的版本**、以及它当初为之写的 tag message，声称本版承载了已发布的 `0.1.0` 所缺的 **PostgreSQL 迁移**。
+**并没有**：那些迁移住在 `keelbase4j-core`，而本仓**不发布**它。那句话是从一条路线图备注里**转述**来的、
+**未经核实**，在此更正。）
+
+仓库自身自 `0.1.0` 以来新增的东西，都在**不发布**的模块里——可嵌入核心 · 服务端经 MCP 宣称的工具 ·
+第三种方言 · 高影响动作的双人审批——列在下面。
 
 ### 新增
 
