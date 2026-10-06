@@ -321,6 +321,8 @@ bash scripts/demo-generated-app.sh    # generate → build → run → exercise 
 bash scripts/demo-changeability.sh    # change → regenerate → the hand edit survives
 bash scripts/demo-migration.sh        # change → additive migration → existing rows carry over
 bash scripts/demo-golden-path.sh      # the frontend's own modules against this runtime (L3)
+bash scripts/demo-flagship-generated.sh --ui   # the flagship demo: seeded → containerised → the console signs in
+bash scripts/check-console-login.mjs  # ...and asserts that sign-in in a real browser (Node >= 22 + Chrome; DEMO_PASS=<the one the demo printed>)
 bash scripts/demo-springai.sh         # a real model on the planner seam (needs a model key)
 ```
 

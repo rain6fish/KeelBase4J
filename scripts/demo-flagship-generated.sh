@@ -307,8 +307,12 @@ if [ "$MODE" = container ]; then
     echo "    $WEB/$ENTRY/"
     echo "  Sign in with a demo identity. This run's passphrase was generated, and is:"
     echo "    $DEMO_PASSWORD"
-    echo "    alice / bob   salespeople — land on the workbench and see only their own rows"
+    echo "    alice / bob   salespeople — land on the workbench"
     echo "    carol         the admin — lands in the console"
+    echo "  (Row-level scoping is asserted against the API above; this console has no page that lists"
+    echo "   this application's records, so the interface shows the shell, not the rows.)"
+    echo "  To have the browser path asserted rather than looked at (needs Node >= 22 and Chrome):"
+    echo "    DEMO_PASS='$DEMO_PASSWORD' node scripts/check-console-login.mjs"
     echo "  Ctrl-C to stop."
     if [ "${NO_WAIT:-0}" = "1" ]; then
       echo "   NO_WAIT=1 — automated run: not waiting, and the stack is taken down below"
