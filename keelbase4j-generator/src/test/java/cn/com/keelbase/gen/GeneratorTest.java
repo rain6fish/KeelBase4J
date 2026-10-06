@@ -159,6 +159,30 @@ class GeneratorTest {
         assertFalse(headerResolver.contains("@Component"),
                 "the header adapter must not be the default: a role from a request is a role the caller grants itself");
 
+        // JV-43: the generated application can be signed into, which is what lets the runtime-neutral
+        // console get past its own login page against it. The session it mints is the token it already
+        // verifies — same secret, same audience — so there stays one verification path rather than a
+        // second token format to keep in step. The passphrase is read from the environment and has no
+        // default, so an application nobody told to have a login does not get one.
+        //
+        // JV-43：生成的应用可以被登录进去——这正是「运行时中立的控制台能在这个产物上越过它自己的登录页」
+        // 的原因。它铸出的会话就是它已经在验的那枚令牌——同一 secret、同一 audience——于是始终只有一条验证
+        // 路径，而不是多出第二种要同步保持一致的令牌格式。口令从环境读入且没有默认值，所以一个没人交代要有
+        // 登录的应用，就不会有登录。
+        String authController = Files.readString(
+                out.resolve("src/main/java/com/example/crm/web/AuthController.java"));
+        assertTrue(authController.contains("@PostMapping(\"/auth/login\")"), "the console can sign in");
+        assertTrue(authController.contains("@GetMapping(\"/auth/me\")"), "and ask who it is");
+        assertTrue(authController.contains("DelegationToken.sign("),
+                "the session is the token the app already verifies, not a second format");
+        assertTrue(authController.contains("${keelbase.demo.password:}"),
+                "the passphrase arrives from the environment, with no default in the source");
+        assertTrue(Files.readString(out.resolve("src/main/java/com/example/crm/identity/LocalIdentities.java"))
+                        .contains("subjectOf("),
+                "the login path resolves a typed user id to the subject the rest of the chain uses");
+        assertTrue(properties.contains("keelbase.demo.password=${KEELBASE_DEMO_PASSWORD:}"),
+                "and application.properties ships the key with no value");
+
         // The two AI seams and the transcript behind conversationId (ADR-0013). All of it is generated
         // source, so the app answers a message with no model and still depends only on the protocol
         // library — and it converges on the runtime's conversation shape rather than inventing one.

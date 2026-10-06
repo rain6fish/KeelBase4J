@@ -12,6 +12,28 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+**English**
+
+### Added
+
+- **A generated application can be signed into.** `POST /auth/login` and `GET /auth/me` let the
+  runtime-neutral console reach its workbench against a generated application, instead of stopping at
+  its own login page. Login signs in the identities `LocalIdentities` declares, and mints *the same*
+  delegation token the application already verifies — same secret, same audience — so there stays one
+  verification path rather than a second token format to keep in step. It is **off unless
+  `KEELBASE_DEMO_PASSWORD` is injected**: no passphrase ships in the generated source or in
+  `application.properties`, and with none set every attempt is refused.
+
+**中文**
+
+### 新增
+
+- **生成的应用可以被登录进去。** `POST /auth/login` 与 `GET /auth/me` 让运行时中立的控制台能在一个
+  生成物上走进工作台，而不是停在它自己的登录页。登录签入的是 `LocalIdentities` 声明的那些身份，并铸出
+  **同一枚**本应用已经在验的委托令牌——同一 secret、同一 audience——于是始终只有一条验证路径，而不是
+  多出第二种要同步保持一致的令牌格式。它**在未注入 `KEELBASE_DEMO_PASSWORD` 时是关的**：生成物源码与
+  `application.properties` 都不带口令，而未设时每一次尝试都会被拒绝。
+
 ## [0.1.1] - 2026-10-05
 
 **English**

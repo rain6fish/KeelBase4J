@@ -8,13 +8,12 @@
 # governance beat itself is the sibling's subject; this script asserts only what the seed makes newly
 # observable: **each identity sees its own rows and not the other's**, on an application nobody hand-wrote.
 #
-# Three things about this artifact are worth knowing before reading the assertions, and all three were
-# measured rather than assumed: the generated application ships **no login** (its auth controller serves
-# the permissions read only, so a caller proves itself with a delegation token); its
-# `analyze_customer_risk` is a **stub** that computes nothing, so the seed deliberately plants no
-# "customer at risk" because there is no such signal to plant; and for the same reason the console, once
-# served against it, **renders but stops at its own login page** — it restores a session through
-# `GET /auth/me` and signs in through `POST /auth/login`, neither of which this application serves.
+# Two things about this artifact are worth knowing before reading the assertions, and both were measured
+# rather than assumed: its `analyze_customer_risk` is a **stub** that computes nothing, so the seed
+# deliberately plants no "customer at risk" because there is no such signal to plant; and — since JV-43
+# — the generated application **has a login**, so the console served against it signs in as one of the
+# demo identities by name and passphrase rather than being handed a token. The passphrase is generated
+# per run and injected below, and printed with the login instructions.
 #
 #   bash scripts/demo-flagship-generated.sh                # run it on the host, as a jar
 #   bash scripts/demo-flagship-generated.sh --container     # run it as the container, and prove the mount
@@ -25,9 +24,10 @@
 # **带外**、**幂等**地灌入；以及它所跑的那个**容器**。治理那一拍是兄弟脚本的题目；本脚本只断言**种子新
 # 让它可观测**的那件事：**每个身份只看得到自己的行、看不到别人的**——而且是在一个没人手写的应用上。
 #
-# 这个产物有两件事值得在断言之前知道，且两件都是**实测**不是假定：生成物**没有登录**（认证控制器只提供
-# 权限读取，故调用方靠委托令牌自证），而它的 `analyze_customer_risk` 是**桩**、什么都不算——所以种子
-# **刻意不造「有风险的客户」**，因为**没有那个信号可种**。
+# 这个产物有两件事值得在断言之前知道，且两件都是**实测**不是假定：它的 `analyze_customer_risk` 是**桩**、
+# 什么都不算——所以种子**刻意不造「有风险的客户」**，因为**没有那个信号可种**；以及——自 JV-43 起——生成物
+# **有了登录面**，故对着它伺服的这场演示里，控制台是用**名字加口令**登进某个演示身份的，而不是被塞一枚令牌。
+# 口令每次运行现生成、在下面注入，并与登录说明一起打印。
 #
 #   bash scripts/demo-flagship-generated.sh                # 在宿主机上以 jar 跑
 #   bash scripts/demo-flagship-generated.sh --container     # 以容器跑，并证明挂载
@@ -52,6 +52,14 @@ PORT="${PORT:-18085}"
 COMPOSE="$ROOT/docker-compose.flagship.yml"
 CONTAINER_PORT="${FLAGSHIP_PORT:-18086}"
 SECRET="${DELEGATION_SECRET:-cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd}"
+# The passphrase that turns on the generated application's login (JV-43). Generated per run and exported,
+# so it reaches both the host-mode `java -jar` and the container: the application reads
+# KEELBASE_DEMO_PASSWORD, and with it unset it refuses every login rather than shipping one of its own.
+#
+# 打开生成物登录面（JV-43）的口令。每次运行现生成并导出，故宿主模式的 `java -jar` 与容器都能收到：应用
+# 读 KEELBASE_DEMO_PASSWORD，而未设时它拒绝每一次登录，而不是自带一个。
+DEMO_PASSWORD="${KEELBASE_DEMO_PASSWORD:-$(openssl rand -hex 6 2>/dev/null || echo keelbase-demo)}"
+export KEELBASE_DEMO_PASSWORD="$DEMO_PASSWORD"
 SEED="$ROOT/scripts/seed/flagship-crm.sql"
 if [ "$MODE" = container ]; then BASE="http://localhost:$CONTAINER_PORT/api/v1"; else BASE="http://localhost:$PORT/api/v1"; fi
 
@@ -206,27 +214,14 @@ if [ "$MODE" = container ]; then
       echo "  FAIL the front end build has no $ENTRY/index.html — see $ROOT/$GEN_DIR/web-build.log" >&2
       exit 1
     fi
-    # The token the console would keep after signing in. It goes where the console looks for it —
-    # `admin_access_token`, raw string, measured — but **it does not sign you in**: this console restores
-    # a session only through `GET /auth/me`, and signs in only through `POST /auth/login`, and the
-    # generated application serves neither (its auth controller answers **`/auth/me/permissions` only**,
-    # because it authenticates delegated callers rather than people). Measured in a real browser: the
-    # console loads, renders, and stops at its login page having called no API at all. Closing that gap
-    # means adding a login surface to the generated application — a change to the product surface, which
-    # is why it is not done here.
+    # The console signs in for real (JV-43): the generated application serves `POST /auth/login` and
+    # `GET /auth/me`, so nothing is injected into the page any more. What is asserted is the path the
+    # browser walks — sign in as a demo identity with this run's passphrase, then read the identity and
+    # the data back through the same origin that proxies the API.
     #
-    # 控制台登录后会保存的那枚令牌。它被放到控制台会去找的地方——`admin_access_token`、原样字符串、实测
-    # ——但**它并不能让你登录**：这个控制台只通过 `GET /auth/me` 恢复会话、只通过 `POST /auth/login` 登录，
-    # 而生成物**两个都不提供**（它的认证控制器**只回答 `/auth/me/permissions`**，因为它认证的是被委托的
-    # 调用方、而不是人）。真浏览器实测：控制台加载、渲染、停在它自己的登录页上，**一条 API 都没调**。要
-    # 补上这个差，得给生成物加一层登录面——那是对**产品面**的改动，所以不在这里做。
-    TOK="$(mint "$UI_AS")"
-    if [ -z "$TOK" ]; then echo "  FAIL could not mint a token for $UI_AS" >&2; exit 1; fi
-    awk -v tok="$TOK" 'BEGIN{done=0} { if (!done && index($0, "</head>")) {
-        printf "<script>localStorage.setItem(\"admin_access_token\",\"%s\")</script>\n", tok; done=1 } print }' \
-      "$IDX" > "$IDX.tmp" && mv "$IDX.tmp" "$IDX"
-    grep -qF 'admin_access_token' "$IDX" || { echo "  FAIL the token stand-in was not injected into $IDX" >&2; exit 1; }
-
+    # 控制台现在**真登录**（JV-43）：生成物提供 `POST /auth/login` 与 `GET /auth/me`，故不再往页面里注入
+    # 任何东西。断言的是浏览器要走的那条路——用本次运行的口令以某个演示身份登录，再经由那个反代接口的
+    # 同源，把身份与数据读回来。
     export FLAGSHIP_WEB_PORT="${FLAGSHIP_WEB_PORT:-18087}"
     WEB="http://localhost:$FLAGSHIP_WEB_PORT"
     docker compose -f "$COMPOSE" up -d
@@ -237,20 +232,54 @@ if [ "$MODE" = container ]; then
     #
     # 短地址**重定向**到控制台——这是 nginx.conf 配的行为，故断言就是 302；而上面那条断言证明它落到哪。
     check "the demo's short URL redirects to the console" '302' "$(curl -s -o /dev/null -w '%{http_code}' "$WEB/")"
-    check "and the page carries the token stand-in"       'admin_access_token' "$(cat "$IDX")"
-    # The path the browser will actually walk: the front end's own origin, the injected token, the API
-    # through the proxy — so this asserts the demo's wiring, not just that two ports answer.
-    check "and the same origin serves the API for $UI_AS" '晨光科技' "$(curl -s -H "Authorization: Bearer $TOK" "$WEB/api/v1/customers")"
+
+    # `login()` — the endpoint the console itself calls, with the passphrase the script injected into the
+    # container. `json_field` reads a value out of the response rather than matching punctuation, so a
+    # change in key order does not turn a working login into a red assertion.
+    #
+    # `login()` —— 控制台自己调的那个端点，用脚本注入容器的口令。`json_field` 从响应里**取值**、而不是
+    # 去匹配标点，于是键序变化不会把一个能用的登录变成一条红的断言。
+    login_as() { # userId
+      curl -s -X POST -H 'Content-Type: application/json' \
+        -d "{\"username\":\"$1\",\"password\":\"$DEMO_PASSWORD\"}" "$WEB/api/v1/auth/login"
+    }
+    json_field() { # field json
+      printf '%s' "$2" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"
+    }
+    LOGIN_ALICE="$(login_as alice)"
+    UI_TOKEN="$(json_field accessToken "$LOGIN_ALICE")"
+    if [ -z "$UI_TOKEN" ]; then echo "  FAIL login returned no accessToken: $LOGIN_ALICE" >&2; exit 1; fi
+    check "the console's login answers for alice"       'alice' "$(json_field username "$LOGIN_ALICE")"
+    check "and reports the role the shell routes on"    'user'  "$(json_field role "$LOGIN_ALICE")"
+    check "while the admin identity reports admin"      'admin' "$(json_field role "$(login_as carol)")"
+    # The session the login minted is the token the rest of the surface already verifies: `/auth/me` reads
+    # it back, and the row gate honours it — so this is one chain, not a login-shaped side door.
+    #
+    # 登录铸出的会话，就是这个面其余部分已经在验的那枚令牌：`/auth/me` 把它读回来，行闸也认它——所以这是
+    # **一条**链，不是一扇做成登录样子的侧门。
+    check "and /auth/me answers the signed-in identity"   "$UI_AS" \
+      "$(json_field username "$(curl -s -H "Authorization: Bearer $UI_TOKEN" "$WEB/api/v1/auth/me")")"
+    check "and the same origin serves the API for $UI_AS" '晨光科技' \
+      "$(curl -s -H "Authorization: Bearer $UI_TOKEN" "$WEB/api/v1/customers")"
+    # Fail-closed both ways: a wrong passphrase and an unknown user are refused the same way, so the
+    # login says nothing about which identities this deployment knows.
+    #
+    # 两个方向都关得死：口令不对与用户未知被**同样**拒绝，于是登录不会泄露本部署认识哪些身份。
+    check "a wrong passphrase is refused" '401' "$(curl -s -o /dev/null -w '%{http_code}' \
+      -X POST -H 'Content-Type: application/json' \
+      -d '{"username":"alice","password":"not-the-passphrase"}' "$WEB/api/v1/auth/login")"
+    check "and an unknown user is refused the same way" '401' "$(curl -s -o /dev/null -w '%{http_code}' \
+      -X POST -H 'Content-Type: application/json' \
+      -d "{\"username\":\"nobody\",\"password\":\"$DEMO_PASSWORD\"}" "$WEB/api/v1/auth/login")"
     [ "$fail" -eq 0 ] || { echo "  FAIL — see: docker compose -f docker-compose.flagship.yml logs web" >&2; exit 1; }
 
     echo ""
     echo "  The front end is served against the generated application — open this in a browser:"
-    echo "    $WEB/$ENTRY/            (it renders; it lands on its own login page — see the note above)"
-    echo "  The console cannot be signed into on this artifact: it wants /auth/me and /auth/login, which"
-    echo "  the generated application does not serve. Its pages are still reachable once a session exists;"
-    echo "  to look as $UI_AS by hand, paste this in the browser console and reload:"
-    echo "    localStorage.setItem('admin_access_token','$TOK'); location.reload()"
-    echo "  ($UI_AS's token; swap in another identity's the same way — the app answers for it.)"
+    echo "    $WEB/$ENTRY/"
+    echo "  Sign in with a demo identity. This run's passphrase was generated, and is:"
+    echo "    $DEMO_PASSWORD"
+    echo "    alice / bob   salespeople — land on the workbench and see only their own rows"
+    echo "    carol         the admin — lands in the console"
     echo "  Ctrl-C to stop."
     if [ "${NO_WAIT:-0}" = "1" ]; then
       echo "   NO_WAIT=1 — automated run: not waiting, and the stack is taken down below"

@@ -460,7 +460,17 @@ public class JavaGenerator {
         sb.append("Callers prove who they are with a KeelBase delegation token — `Authorization: Bearer <jwt>` —\n");
         sb.append("verified against the frozen contract with `keelbase.delegation.secret` and\n");
         sb.append("`keelbase.delegation.audience` (set `DELEGATION_SECRET` / `DELEGATION_AUDIENCE`, or edit\n");
-        sb.append("`application.properties`). Nothing runs anonymously: a request without a valid token is a 401.\n\n");
+        sb.append("`application.properties`). Nothing runs anonymously on the governance surface: a request\n");
+        sb.append("without a valid token is a 401. The one exception is `POST /auth/login` itself, and only\n");
+        sb.append("where this deployment turns it on.\n\n");
+        sb.append("`POST /auth/login` and `GET /auth/me` are the console's session point — who the caller is,\n");
+        sb.append("settled before what they may do. Login is **off unless you set `KEELBASE_DEMO_PASSWORD`**\n");
+        sb.append("(no default; nothing is written into the source): with a passphrase set, one of the declared\n");
+        sb.append("demo identities can sign in by name, and the session it mints is the same delegation token\n");
+        sb.append("this application already verifies — no second token format, and no refresh token.\n");
+        sb.append("`GET /auth/me` answers `{username, role}`, which is what the console keys its shell off. Both\n");
+        sb.append("are demo furniture: one shared passphrase across the declared identities, no rate limit of its\n");
+        sb.append("own, and no registration, password reset or SSO — replace the identity source for real users.\n\n");
         sb.append("`LocalIdentities` says which local user and role a *verified* subject holds. It ships with the\n");
         sb.append("demo entries; **replace them with your directory**. A role is never taken from the request —\n");
         sb.append("a caller that could state its own role would grant itself one.\n\n");
@@ -498,6 +508,17 @@ public class JavaGenerator {
                 # DELEGATION_AUDIENCE. Same keys as the runtime's, so one token works on both.
                 keelbase.delegation.secret=${DELEGATION_SECRET:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd}
                 keelbase.delegation.audience=${DELEGATION_AUDIENCE:keelbase4j}
+                # The passphrase that turns on this application's login surface (POST /auth/login), read
+                # from the environment (KEELBASE_DEMO_PASSWORD binds here). Deliberately left with no
+                # value: an application that shipped one would be born with a login nobody asked for, so
+                # while this is empty every login attempt is refused. The demo script injects it; a
+                # deployment with real users replaces the identity source instead (identity/IdentityResolver).
+                #
+                # 打开本应用登录面（POST /auth/login）的口令，从环境读入（KEELBASE_DEMO_PASSWORD 绑到这里）。
+                # 刻意<b>不给值</b>：一个自带口令的应用等于一出生就带着一个没人要的登录，所以只要这里是空的，
+                # 每一次登录尝试都会被拒绝。演示脚本负责注入；有真实用户的部署应改为替换身份源
+                # （identity/IdentityResolver）。
+                keelbase.demo.password=${KEELBASE_DEMO_PASSWORD:}
                 """.formatted(module, module);
     }
 
@@ -2065,6 +2086,26 @@ public class JavaGenerator {
                     public Optional<Entry> lookup(String subject) {
                         return Optional.ofNullable(bySubject.get(subject));
                     }
+
+                    /**
+                     * The subject a user id is filed under, or empty when this deployment does not know
+                     * the user.
+                     *
+                     * <p>The login path is the one caller that looks a person up by the id they type
+                     * rather than by the subject their IdP issues — so this is the one lookup that has to
+                     * search by value. It answers with the <b>key</b>, not the entry, so the session it
+                     * mints names the same subject the rest of the chain already resolves.
+                     *
+                     * <p>登录那条路是唯一一个「按人<b>敲进去的</b>用户 id、而不是按 IdP 发的 subject」
+                     * 查身份的调用者——所以这是唯一一处必须<b>按值搜</b>的查找。它答的是<b>键</b>、不是条目，
+                     * 好让它铸出的会话命名的正是链上其余部分已经在解析的那个 subject。
+                     */
+                    public Optional<String> subjectOf(String userId) {
+                        return bySubject.entrySet().stream()
+                                .filter(e -> e.getValue().userId().equals(userId))
+                                .map(Map.Entry::getKey)
+                                .findFirst();
+                    }
                 }
                 """.formatted(pkg);
     }
@@ -2945,29 +2986,115 @@ public class JavaGenerator {
                 import %s.authz.PermissionAuthorizer;
                 import %s.identity.IdentityEvidence;
                 import %s.identity.IdentityResolver;
+                import %s.identity.LocalIdentities;
                 import %s.identity.Principal;
+                import cn.com.keelbase.protocol.DelegationToken;
+                import java.nio.charset.StandardCharsets;
+                import java.security.MessageDigest;
+                import java.time.Instant;
+                import java.util.LinkedHashMap;
                 import java.util.Map;
+                import org.springframework.beans.factory.annotation.Value;
+                import org.springframework.http.HttpStatus;
                 import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.PostMapping;
+                import org.springframework.web.bind.annotation.RequestBody;
                 import org.springframework.web.bind.annotation.RequestHeader;
                 import org.springframework.web.bind.annotation.RestController;
+                import org.springframework.web.server.ResponseStatusException;
 
                 /**
-                 * The identity surface: what the caller may do.
+                 * The identity surface: who the caller is, what they may do, and — where this deployment
+                 * turns it on — how a person signs in.
                  *
                  * <p>{@code GET /auth/me/permissions} answers in the frozen
                  * {@code permission-capability-list} contract — the same path and the same shape the
                  * runtime and the reference implementation serve, which is what lets one frontend key
                  * page/menu/button visibility off either backend.
+                 *
+                 * <p>{@code GET /auth/me} and {@code POST /auth/login} are not in the frozen wire
+                 * registry: the frozen contracts describe the governance surface, not a deployment's
+                 * login page. What fixes their shape is the runtime-neutral frontend that consumes them
+                 * — without them the console reaches its own login page and stops, because it restores
+                 * a session through {@code /auth/me} and signs in through {@code /auth/login}.
+                 *
+                 * <p><b>Login issues this application's own session as the token this application
+                 * already verifies.</b> The session is a KeelBase delegation token — the frozen §3
+                 * shape — signed with the same secret and audience {@link IdentityResolver} checks, so
+                 * it travels the one verification path that exists and nothing downstream learns a
+                 * second token format. The minted token carries no role, which is the contract's own
+                 * property: the role still comes from {@link LocalIdentities} after mapping, so a
+                 * session cannot grant authority.
+                 *
+                 * <p><b>Login is off unless this deployment configures a demo password</b>
+                 * ({@code keelbase.demo.password}, injected by the environment — deliberately not
+                 * written into this file, and with no default in {@code application.properties}): an
+                 * application that shipped a passphrase would be born with a login nobody asked for.
+                 * This is tier-A furniture — declared identities and one shared passphrase, which is a
+                 * demo and not people — and it adds no rate limit of its own; a deployment with real
+                 * users replaces the identity source (the {@link IdentityResolver} SPI) and brings its
+                 * own login, rather than hardening this one. It signs in the identities
+                 * {@link LocalIdentities} declares, not whatever a replaced resolver answers — which is
+                 * the same limit seen from the other side.
+                 *
+                 * <p>身份面：调用者是谁、能做什么，以及——在本部署把它打开时——一个人怎么登录。
+                 *
+                 * <p>{@code /auth/me/permissions} 按冻结的 {@code permission-capability-list} 契约作答——
+                 * 路径与形状都与运行时和参照实现一致，这正是「一个前端能对着任一后端按页 / 菜单 / 按钮
+                 * 控可见性」的原因。
+                 *
+                 * <p>{@code /auth/me} 与 {@code /auth/login} <b>不在</b>冻结的 wire 登记表里：冻结契约
+                 * 描述的是治理面，不是某个部署的登录页家具。定它们形状的是消费它们的<b>运行时中立前端</b>
+                 * ——没有这两个端点，控制台会走到它自己的登录页就停下，因为它靠 {@code /auth/me} 恢复会话、
+                 * 靠 {@code /auth/login} 登录。
+                 *
+                 * <p><b>登录签发的是本应用自己的会话，用的就是本应用已经在验的那枚令牌。</b>会话是一枚
+                 * KeelBase 委托令牌——冻结的 §3 形状——用与 {@link IdentityResolver} 校验时<b>同一个</b>
+                 * secret 与 audience 签名，于是它走的是<b>唯一那条</b>验证路径，下游不必再认第二种令牌格式。
+                 * 铸出的令牌<b>不带角色</b>，这正是契约自身的性质：角色仍在映射之后来自
+                 * {@link LocalIdentities}，所以会话<b>不能</b>授予权限。
+                 *
+                 * <p><b>本部署不配置演示口令，登录就是关的</b>（{@code keelbase.demo.password}，由环境
+                 * 注入——刻意不写进本文件，{@code application.properties} 里也<b>不给默认值</b>）：一个
+                 * 自带口令的应用，等于一出生就带着一个没人要的登录。这是 <b>tier-A 的家具</b>——声明式身份
+                 * 加一个共享口令，那是演示、不是给人用的——它<b>自己不设速率限制</b>；有真实用户的部署应当
+                 * <b>替换身份源</b>（{@link IdentityResolver} SPI）并自带登录，而不是来加固这一个。它签入的
+                 * 是 {@link LocalIdentities} 声明的那些身份，而不是被替换过的解析器会答的——这是同一个限制
+                 * 从另一面看的样子。
                  */
                 @RestController
                 public class AuthController {
 
+                    /**
+                     * How long a minted session lasts. Long enough for a demo to be watched, short
+                     * enough that a leaked token stops mattering. This application issues no refresh
+                     * token: the console re-authenticates when this expires, which is the honest
+                     * behaviour for a single-credential login.
+                     *
+                     * <p>铸出的会话活多久。够一场演示被看完，又短到泄出的令牌很快不再要紧。本应用
+                     * <b>不签发刷新令牌</b>：过期后控制台重新登录——对「单凭证登录」来说，这才是诚实的
+                     * 行为。
+                     */
+                    private static final long SESSION_TTL_SECONDS = 8 * 3600;
+
                     private final IdentityResolver identities;
                     private final PermissionAuthorizer authorizer;
+                    private final LocalIdentities directory;
+                    private final String delegationSecret;
+                    private final String delegationAudience;
+                    private final String demoPassword;
 
-                    public AuthController(IdentityResolver identities, PermissionAuthorizer authorizer) {
+                    public AuthController(IdentityResolver identities, PermissionAuthorizer authorizer,
+                            LocalIdentities directory,
+                            @Value("${keelbase.delegation.secret}") String delegationSecret,
+                            @Value("${keelbase.delegation.audience}") String delegationAudience,
+                            @Value("${keelbase.demo.password:}") String demoPassword) {
                         this.identities = identities;
                         this.authorizer = authorizer;
+                        this.directory = directory;
+                        this.delegationSecret = delegationSecret;
+                        this.delegationAudience = delegationAudience;
+                        this.demoPassword = demoPassword;
                     }
 
                     @GetMapping("/auth/me/permissions")
@@ -2976,12 +3103,102 @@ public class JavaGenerator {
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
                             @RequestHeader(value = "X-User-Role", required = false) String role,
                             @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
-                        Principal principal =
-                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
-                        return authorizer.describe(principal).toWire();
+                        return authorizer.describe(principal(authorization, userId, role, oidcSubject)).toWire();
+                    }
+
+                    /**
+                     * Who the caller is, as this deployment knows them.
+                     *
+                     * <p>The console asks this once, at the session point, and keys the whole shell off
+                     * the answer. It answers with {@code username} and {@code role} because those are
+                     * what this deployment's identity directory holds — tier A is declared identities,
+                     * no user table. The console's wider user shape also names a numeric id and an
+                     * email; neither exists here, and manufacturing one would hand out an identifier no
+                     * other endpoint accepts.
+                     *
+                     * <p>调用者是谁，按本部署认识的那个身份来答。控制台在会话点上问一次，之后整个外壳都
+                     * 按这个答案走。它答 {@code username} 与 {@code role}，因为本部署的身份目录里就这两样
+                     * ——tier A 是声明式身份、没有用户表。控制台更宽的用户形状里还带一个数字 id 与一个邮箱；
+                     * 这里两者都不存在，硬造一个等于发一个别的端点都不认的标识符。
+                     */
+                    @GetMapping("/auth/me")
+                    public Map<String, Object> me(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal principal = principal(authorization, userId, role, oidcSubject);
+                        Map<String, Object> body = new LinkedHashMap<>();
+                        body.put("username", principal.userId());
+                        body.put("role", principal.role());
+                        return body;
+                    }
+
+                    /**
+                     * Sign in, and mint the session the rest of the surface already understands.
+                     *
+                     * <p>Every failure answers the same way — one message, one status — so a prober
+                     * learns nothing about which user ids this deployment knows. The password compare
+                     * runs whether or not the user exists, so the answer does not take a different
+                     * shape on the way out either.
+                     *
+                     * <p>登录，并铸出这个面其余部分<b>已经认得</b>的那枚会话。
+                     *
+                     * <p>每一种失败都同样作答——同一句话、同一个状态码——于是探测者无从知道本部署认识哪些
+                     * 用户 id。口令比较<b>无论用户是否存在都会跑</b>，所以答案在出口处也不呈现不同的形状。
+                     */
+                    @PostMapping("/auth/login")
+                    public Map<String, Object> login(@RequestBody Map<String, String> body) {
+                        if (demoPassword == null || demoPassword.isBlank()) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "login is not enabled on this deployment");
+                        }
+                        String username = body.get("username");
+                        String password = body.get("password");
+                        String subject = username == null ? null : directory.subjectOf(username).orElse(null);
+                        LocalIdentities.Entry entry = subject == null
+                                ? null
+                                : directory.lookup(subject).orElse(null);
+                        boolean passwordMatches = password != null && MessageDigest.isEqual(
+                                password.getBytes(StandardCharsets.UTF_8),
+                                demoPassword.getBytes(StandardCharsets.UTF_8));
+                        if (entry == null || !passwordMatches) {
+                            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                                    "invalid username or password");
+                        }
+
+                        Map<String, Object> claims = new LinkedHashMap<>();
+                        claims.put("sub", subject);
+                        claims.put("aud", delegationAudience);
+                        claims.put("iss", "keelbase");
+                        long now = Instant.now().getEpochSecond();
+                        String accessToken = DelegationToken.sign(claims, now, now + SESSION_TTL_SECONDS,
+                                delegationSecret);
+
+                        Map<String, Object> user = new LinkedHashMap<>();
+                        user.put("username", entry.userId());
+                        user.put("role", entry.role());
+
+                        Map<String, Object> result = new LinkedHashMap<>();
+                        result.put("accessToken", accessToken);
+                        // No refresh token is issued: an empty one is the honest answer, and the
+                        // console skips its refresh dance rather than retrying a rotation that does
+                        // not exist here.
+                        //
+                        // 不签发刷新令牌：空值才是诚实的答案，而控制台会跳过它的刷新流程，而不是反复重试
+                        // 一个这里并不存在的轮换。
+                        result.put("refreshToken", "");
+                        result.put("user", user);
+                        return result;
+                    }
+
+                    private Principal principal(String authorization, String userId, String role,
+                            String oidcSubject) {
+                        return identities.resolve(
+                                IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
                     }
                 }
-                """.formatted(pkg, pkg, pkg, pkg, pkg);
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
     }
 
     // ── the frozen wire surface: envelope (F4) and frontend contract (F5) ───────

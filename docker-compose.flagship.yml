@@ -26,6 +26,16 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${FLAGSHIP_PORT:-18086}:8080"
+    environment:
+      # The passphrase that turns on the generated application's login (JV-43). Left with an empty
+      # default on purpose: the application ships no passphrase of its own, so with this unset it
+      # refuses every login rather than opening one nobody configured. `demo-flagship-generated.sh`
+      # generates a value per run and exports it — a hand-run `compose up` simply has no login.
+      #
+      # 打开生成物登录面（JV-43）的口令。刻意留空默认值：应用自己不带口令，故未设时它**拒绝每一次登录**，
+      # 而不是开一个没人配过的登录。`demo-flagship-generated.sh` 每次运行现生成并导出——手动
+      # `compose up` 则干脆没有登录。
+      KEELBASE_DEMO_PASSWORD: "${KEELBASE_DEMO_PASSWORD:-}"
     volumes:
       - ./target/gen-flagship/data:/app/data
 

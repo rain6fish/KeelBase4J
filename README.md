@@ -208,7 +208,11 @@ governance wiring, depending only on the frozen protocol *library* and never on 
 runtime service. A generated application carries the identity seam, the contract-derived
 authorization (`GET /auth/me/permissions`, same path and shape as the runtime), Flyway-owned
 schema, and the confirmation store — so it makes the same governance decisions the protocol
-defines, without this repository in the loop.
+defines, without this repository in the loop. It can also be **signed into**: `POST /auth/login`
+and `GET /auth/me` let the runtime-neutral console reach its workbench against a generated
+application, and the session that login mints is the same delegation token the application already
+verifies. That surface is off unless `KEELBASE_DEMO_PASSWORD` is injected — an application nobody
+told to have a login does not get one.
 
 Regeneration is a **three-way merge** against what the generator produced last time
 (`.keelbase/baseline/`), so a hand edit survives anywhere in a file; a file the generator never

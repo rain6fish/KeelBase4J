@@ -307,6 +307,10 @@ provider, an identity provider) sit outside it.
   **Generated apps are a separate story:** they carry their own `IdentityResolver` + header adapter and
   do **not** ship Spring Security, so the runtime's token-authenticated entry and a generated app's
   header seam are **not** unified — a generated app is a self-contained artifact, not this deployment.
+  A generated app can also serve a **login surface of its own** (`POST /auth/login`, `GET /auth/me`),
+  which signs in the identities its `LocalIdentities` declares and mints the same delegation token it
+  verifies; it is **off unless a passphrase is injected**, and it is tier-A furniture rather than a
+  second authentication story — the separation above is unchanged.
 
 ## 6. Build & verification
 
