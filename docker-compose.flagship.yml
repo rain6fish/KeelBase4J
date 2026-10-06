@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# JV-24 — the flagship demo's container. One service: the **generated** application.
+#
+# Its build context is the generated project, which only exists after `scripts/demo-flagship-generated.sh`
+# has generated it — this file is that script's, not a way to run the demo by hand from a clean checkout.
+#
+# The database is a **bind mount**, not a named volume, on purpose: the harness seeds the same directory
+# from the host (the H2 file admits one process at a time, so the seed runs while the app is stopped), and
+# a bind mount lets both sides be the same files. What the mount buys is stated in the Dockerfile — the
+# data stays out of the container's writable layer — and the harness asserts it by restarting the
+# container and looking for the same rows.
+#
+# JV-24 —— 旗舰演示的容器。只有一个服务：那个**生成的**应用。
+#
+# 它的构建上下文就是生成出来的工程，而那个工程只有 `scripts/demo-flagship-generated.sh` 生成之后才存在
+# ——本文件是那个脚本的，不是「在一个干净检出上手动跑演示」的办法。
+#
+# 库用**绑定挂载**而不是具名卷，是有意的：harness 从宿主机往同一个目录灌种子（H2 文件一次只许一个进程，
+# 故种子在应用停着时跑），绑定挂载让两边**是同一批文件**。这个挂载换来的东西写在 Dockerfile 里——数据
+# 不在容器的可写层——而 harness 用**重启容器再找同样的行**来断言它。
+services:
+  app:
+    build:
+      context: ./target/gen-flagship
+      dockerfile: Dockerfile
+    ports:
+      - "${FLAGSHIP_PORT:-18086}:8080"
+    volumes:
+      - ./target/gen-flagship/data:/app/data
