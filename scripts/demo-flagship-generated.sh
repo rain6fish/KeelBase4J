@@ -198,9 +198,21 @@ if [ "$MODE" = container ]; then
     # The base is **relative** on purpose: nginx serves this build and proxies /api/ to the app, so the
     # browser talks to one origin and there is no CORS to arrange.
     #
+    # `MSYS_NO_PATHCONV=1` is load-bearing, and measured rather than assumed: Git Bash rewrites an
+    # assignment whose value looks like an absolute path, so `/api/v1` reached npm as
+    # `D:/Develop/Git/api/v1` and Vite baked *that* into the bundle. The console then called a file
+    # path, so the browser issued **no request at all** — a failure that looks like an application
+    # error and leaves nginx with nothing to log. (Plain prefix and `export` both still get rewritten;
+    # only this variable stops it, which is why the fix is here rather than a different shape.)
+    #
     # 基址**相对**是有意的：nginx 伺服这份构建、并把 /api/ 反代给应用，于是浏览器只跟一个源打交道，
     # 也就没有 CORS 要安排。
-    ( cd "$FRONTEND_DIR" && VITE_API_BASE=/api/v1 npm run build ) > "$ROOT/$GEN_DIR/web-build.log" 2>&1
+    #
+    # `MSYS_NO_PATHCONV=1` 是**关键**，且是实测不是假定：Git Bash 会改写「值看起来像绝对路径」的赋值，
+    # 于是 `/api/v1` 到 npm 手上已是 `D:/Develop/Git/api/v1`，Vite 把它烧进了产物。控制台随后去调一个
+    # 文件路径，浏览器**一条请求都不发**——这个故障看起来像应用出错，还让 nginx 无记录可查。（普通前缀与
+    # `export` 都会被改写，只有这个变量能挡住，所以修在这里、而不是换个写法。）
+    ( cd "$FRONTEND_DIR" && MSYS_NO_PATHCONV=1 VITE_API_BASE=/api/v1 npm run build ) > "$ROOT/$GEN_DIR/web-build.log" 2>&1
     rm -rf "$ROOT/$GEN_DIR/web"
     cp -r "$FRONTEND_DIR/dist" "$ROOT/$GEN_DIR/web"
     # The console is an **entry**, not the root of the build: `Web-Admin-Vue` emits `dist/admin/index.html`
@@ -214,6 +226,23 @@ if [ "$MODE" = container ]; then
       echo "  FAIL the front end build has no $ENTRY/index.html — see $ROOT/$GEN_DIR/web-build.log" >&2
       exit 1
     fi
+    # The bundle must carry the **relative** base, and this assertion is the one that can see it: the
+    # curl checks below bypass the bundle entirely, so a wrong base leaves every one of them green
+    # while the browser issues no request at all. It is not hypothetical — with the base rewritten to
+    # a Windows path the console called a file path and the demo was broken with the harness passing.
+    # The quote is what discriminates: `"D:/.../api/v1"` contains `/api/v1"` but not `"/api/v1"`.
+    #
+    # 产物必须带**相对**基址，而这条断言是唯一能看见它的：下面的 curl 断言根本不经过产物，所以基址错了
+    # 它们照样全绿，而浏览器**一条请求都不发**。这不是假想——基址被改写成 Windows 路径时，控制台去调
+    # 文件路径，演示是坏的、而 harness 通过。**引号**才是判别位：`"D:/.../api/v1"` 含 `/api/v1"`、
+    # 但不含 `"/api/v1"`。
+    if ! grep -rq '"/api/v1"' "$ROOT/$GEN_DIR/web/$ENTRY/assets" 2>/dev/null; then
+      echo "  FAIL the console bundle does not carry the relative API base" >&2
+      echo "       found instead: $(grep -rho '"[^"]*api/v1"' "$ROOT/$GEN_DIR/web/$ENTRY/assets" | sort -u | head -3 | tr '\n' ' ')" >&2
+      echo "       it was rewritten on the way to npm — see the MSYS note on the build line" >&2
+      exit 1
+    fi
+    echo "  ok   the console bundle carries the relative API base"
     # The console signs in for real (JV-43): the generated application serves `POST /auth/login` and
     # `GET /auth/me`, so nothing is injected into the page any more. What is asserted is the path the
     # browser walks — sign in as a demo identity with this run's passphrase, then read the identity and
