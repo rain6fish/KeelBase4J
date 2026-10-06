@@ -1,2 +1,3 @@
 cn.com.keelbase.springai.SpringAiPlannerAutoConfiguration
 cn.com.keelbase.springai.SpringAiChatReplierAutoConfiguration
+cn.com.keelbase.springai.GovernedTaskRunnerAutoConfiguration
