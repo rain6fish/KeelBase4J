@@ -114,7 +114,19 @@ public class SideEffectService {
         // The actor, not the effect's owner: an operator revoking somebody else's effect is exactly
         // the case the trace has to be able to name. Written after the row moves, so a revoke that
         // throws on the way (an unreachable target, say) leaves no line claiming it happened.
-        audit.append("tool_call", principal.userId(),
+        //
+        // The action is the contract's own `effect_revoke`, not `tool_call`: v2 added that value to
+        // the frozen vocabulary for this exact act — a revocation of a real AI side effect leaves a
+        // line, where before the status moved with no AI audit trail at all (the escape this closed).
+        // Writing `tool_call` for it kept the row inside the vocabulary but flattened a revocation
+        // into an ordinary call, which is what a reader of the audit — or a rate computed from it —
+        // could no longer tell apart.
+        //
+        // 动作取契约自己的 `effect_revoke`、不是 `tool_call`：v2 正是**为了这一动作**把该值加进冻结词表
+        // ——对**真实** AI 副作用的撤销要留一行，而在此之前状态变了却没有 AI 审计留痕（正是它堵上的那个
+        // 逃逸口）。写成 `tool_call` 虽然仍在词表内，却把一次撤销抹平成了普通调用——读审计的人、以及从审计
+        // 里算出来的率，从此分不出这一行是什么。
+        audit.append("effect_revoke", principal.userId(),
                 saved.getToolName() + " revoked (effect " + saved.getId() + ", "
                         + saved.getRevokeClass() + " -> " + saved.getRevokeStatus() + ")");
         return saved;

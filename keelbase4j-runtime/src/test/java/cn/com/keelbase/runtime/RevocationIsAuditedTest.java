@@ -68,7 +68,13 @@ class RevocationIsAuditedTest {
         assertEquals(before + 1, audit.count(), "the revocation gets a line of its own");
         AuditLog line = audit.findTopByOrderByIdDesc().orElseThrow();
         assertEquals("alice", line.getUserId(), "and the line says who undid it");
-        assertEquals("tool_call", line.getAction(), "in the frozen action vocabulary, which has no 'revoke'");
+        // The vocabulary's own value for this act, added in v2 for exactly it — not `tool_call`, which
+        // stayed inside the vocabulary but flattened a revocation into an ordinary call, leaving a
+        // reader (or a rate computed from these rows) unable to tell the two apart.
+        //
+        // 词表为**这一动作**在 v2 里给出的取值——不是 `tool_call`：后者虽仍在词表内，却把一次撤销抹平成
+        // 普通调用，读的人（以及从这些行算出来的率）从此分不出两者。
+        assertEquals("effect_revoke", line.getAction(), "the frozen vocabulary's own value for a revocation");
         assertTrue(line.getDetail().contains("revoked"),
                 "and says what happened: " + line.getDetail());
     }
