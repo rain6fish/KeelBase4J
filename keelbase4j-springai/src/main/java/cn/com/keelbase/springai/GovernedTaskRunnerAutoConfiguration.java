@@ -27,11 +27,22 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 @AutoConfigureAfter(ChatClientAutoConfiguration.class)
-@ConditionalOnBean({ChatClient.Builder.class, GovernedExecutionEngine.class})
-@ConditionalOnMissingBean(GovernedTaskRunner.class)
 public class GovernedTaskRunnerAutoConfiguration {
 
+    /**
+     * The conditions sit on the method rather than on the class, and that is the whole point of the
+     * shape: on an auto-configuration class they are evaluated before the beans other configurations
+     * contribute have been registered, so a chat client that arrives from one of them is not visible
+     * yet and the runner is silently skipped. On the method they are evaluated late enough to see it —
+     * the same lesson this repository already paid for once, on the other half of this seam.
+     *
+     * 条件放在**方法**上而不是**类**上，这个形状本身就是要点：挂在自动配置类上时，它们的求值**早于**别的
+     * 配置贡献的 bean 被注册，于是从那里来的 chat client 此刻还看不见，runner 就被**静默跳过**。放在方法上
+     * 则求值得够晚、看得见它——这条教训本仓已经在这条缝的另一半上付过一次学费。
+     */
     @Bean
+    @ConditionalOnBean({ChatClient.Builder.class, GovernedExecutionEngine.class})
+    @ConditionalOnMissingBean(GovernedTaskRunner.class)
     GovernedTaskRunner governedTaskRunner(ChatClient.Builder builder, ToolRegistry tools,
                                           GovernedExecutionEngine engine) {
         return new GovernedTaskRunner(builder.build(), tools, engine::execute);
