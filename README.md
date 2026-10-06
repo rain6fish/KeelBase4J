@@ -46,7 +46,7 @@ mvn test
 
 **The suite is green** — `mvn test` covers the protocol library, the runtime, the generator and the
 adapter, and the CI badge above is where the live state lives rather than a number written here. Then
-watch each claim in the next section actually happen — four scripts, no model required for the first three:
+watch each claim in the next section actually happen — five scripts, no model required for the first three:
 
 ```bash
 bash scripts/demo-generated-app.sh    # generate → build → run → walk the trust loop
@@ -55,6 +55,7 @@ bash scripts/demo-migration.sh        # change → additive migration → existi
 
 export DEEPSEEK_API_KEY=...           # the demo module also builds with -Popenai or -Pollama
 bash scripts/demo-springai.sh         # a real model on the planner seam
+bash scripts/demo-springai-task.sh    # a real model driving the framework's own multi-step loop
 ```
 
 Every script exits non-zero if an expected outcome is missing. None of them is a smoke test: each
@@ -119,6 +120,7 @@ column is where to look; the last column is the honest boundary of the claim.
 | A change carries the data already in the database | `demo-migration.sh` | Flyway owns the schema; `ddl-auto=validate` |
 | Regeneration merges the developer's edits | `demo-changeability.sh` | a **line-level** merge: it merges text, not meaning |
 | A real model routes, and the runtime still holds the write | `demo-springai.sh` (DeepSeek, real key) | needs a key; it is a human-run demo, not a CI gate |
+| A real model drives several governed steps, and a proposed write still waits | `demo-springai-task.sh` (DeepSeek, real key) | the model calls the tools, the framework's own loop sequences them, and every step passes the gate; human-run, not a CI gate |
 | The frontend's own modules drive this runtime | `demo-golden-path.sh` | the console's API modules against a live instance; the browser UI itself is the main repo's |
 
 Every claim above is measured on this checkout — `mvn test` plus the no-key demos, each of which

@@ -32,6 +32,7 @@ bash scripts/demo-changeability.sh  # 变更 → 再生成 → 手改存活 → 
 bash scripts/demo-migration.sh      # 变更 → 加性迁移 → 存量数据跟着走
 bash scripts/demo-golden-path.sh    # 前端自己的模块打本运行时（需主仓 Web-Admin-Vue 检出）
 bash scripts/demo-springai.sh       # 真模型上接缝（需 DEEPSEEK_API_KEY；无 key 时会明确报错退出）
+bash scripts/demo-springai-task.sh  # 真模型驱动框架自己的多步循环，走 POST /ai/task（同需 DEEPSEEK_API_KEY）
 bash scripts/check-bilingual-comments.sh  # 注释的双语形状（默认只报告；--strict 才拦；--self-test 自检）
 
 # 第三种方言（PostgreSQL）真跑一遍：迁移 + ddl-auto=validate，对真的 PG。

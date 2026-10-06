@@ -324,6 +324,7 @@ bash scripts/demo-golden-path.sh      # the frontend's own modules against this 
 bash scripts/demo-flagship-generated.sh --ui   # the flagship demo: seeded → containerised → the console signs in
 bash scripts/check-console-login.mjs  # ...and asserts that sign-in in a real browser (Node >= 22 + Chrome; DEMO_PASS=<the one the demo printed>)
 bash scripts/demo-springai.sh         # a real model on the planner seam (needs a model key)
+bash scripts/demo-springai-task.sh    # a real model driving the framework's own multi-step loop (needs a model key)
 ```
 
 CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-drift`

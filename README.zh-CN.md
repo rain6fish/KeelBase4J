@@ -35,7 +35,7 @@ KeelBase4J 是**载体**，不是第二个产品：它的存在，是让 Java/Sp
 mvn test
 ```
 
-**测试全绿**——`mvn test` 覆盖协议库、运行时、生成器与适配器；实时状态看上方 CI 徽章，而不是写在这里的一个数字。下面每个主张都能真跑出来——四个脚本，前三个不需要模型：
+**测试全绿**——`mvn test` 覆盖协议库、运行时、生成器与适配器；实时状态看上方 CI 徽章，而不是写在这里的一个数字。下面每个主张都能真跑出来——五个脚本，前三个不需要模型：
 
 ```bash
 bash scripts/demo-generated-app.sh    # 生成 → 构建 → 运行 → 走一遍信任闭环
@@ -44,6 +44,7 @@ bash scripts/demo-migration.sh        # 变更 → 加性迁移 → 存量数据
 
 export DEEPSEEK_API_KEY=...           # demo 模块也可用 -Popenai 或 -Pollama 构建
 bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
+bash scripts/demo-springai-task.sh    # 真模型驱动框架自己的多步循环
 ```
 
 任一预期结果缺失，脚本即非零退出。它们没有一个是冒烟测试——每个脚本都是下面某一条主张的证据。
@@ -93,6 +94,7 @@ bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
 | 变更携带库中已有的数据 | `demo-migration.sh` | Flyway 拥有 schema；`ddl-auto=validate` |
 | 再生成会合并开发者的手改 | `demo-changeability.sh` | **行级**合并：合并的是文本，不是语义 |
 | 真模型能路由，且运行时照样扣住写操作 | `demo-springai.sh`（DeepSeek 真 key） | 需要 key；是人跑的 demo，不是 CI 门禁 |
+| 真模型能驱动**多个**受治理步骤，且它提议的写照样在等 | `demo-springai-task.sh`（DeepSeek 真 key） | 模型调工具、**框架自己的循环**排步骤，而每一步都过闸；人跑的，不是 CI 门禁 |
 | 前端自己的模块能驱动本运行时 | `demo-golden-path.sh` | 控制台的 API 模块打真实例；浏览器界面本身属主仓 |
 
 以上每一条都在本检出上实测——一次 `mvn test` 加几个无需 key 的 demo，每个 demo 跑的时候会把自己检查的项打出来。
