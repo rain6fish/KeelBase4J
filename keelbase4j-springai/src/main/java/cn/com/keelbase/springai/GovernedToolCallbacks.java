@@ -34,7 +34,9 @@ import org.springframework.ai.tool.definition.ToolDefinition;
  * <p><b>What comes back is the outcome, not the declaration.</b> The model has to be told that an
  * action did not run; it is not told the level or the class in advance. A call that is waiting on a
  * person therefore reports that it is waiting — which is a result, and is the only way the loop can
- * stop honestly rather than pretend.
+ * stop honestly rather than pretend. The <em>token</em> is not among what it sees: the handle to go on
+ * belongs to the caller, which reads it from the engine's outcome, and a model holding it could carry
+ * on without the person's decision ever being made.
  *
  * <p>把运行时的工具当作框架的 tool callback 交出去 —— 这个类存在的意义就是守住那一行。
  *
@@ -99,14 +101,18 @@ public final class GovernedToolCallbacks {
 
         @Override
         public String call(String toolInput) {
-            ExecutionOutcome outcome = call.execute(tool.name(), args(toolInput), principal);
+            Map<String, Object> args = args(toolInput);
+            if (args == null) {
+                // Malformed, or not an object at all. Refused here rather than passed on as "no
+                // arguments": an empty call is a real call, and running one on the strength of a
+                // broken message is the silent kind of wrong.
+                return CanonicalJson.json(Map.of("status", "invalid_arguments"));
+            }
+            ExecutionOutcome outcome = call.execute(tool.name(), args, principal);
             Map<String, Object> said = new LinkedHashMap<>();
             said.put("status", outcome.status());
             if (outcome.data() != null) {
                 said.put("data", outcome.data());
-            }
-            if (outcome.token() != null) {
-                said.put("token", outcome.token());
             }
             if (outcome.error() != null) {
                 said.put("error", outcome.error());
@@ -114,13 +120,22 @@ public final class GovernedToolCallbacks {
             return CanonicalJson.json(said);
         }
 
+        /**
+         * The arguments as a command, or {@code null} when the input is not a JSON object at all —
+         * which is a refusal, not an empty argument list.
+         */
         private static Map<String, Object> args(String toolInput) {
             if (toolInput == null || toolInput.isBlank()) {
                 return Map.of();
             }
-            Object parsed = Json.parse(toolInput);
+            Object parsed;
+            try {
+                parsed = Json.parse(toolInput);
+            } catch (RuntimeException malformed) {
+                return null;
+            }
             if (!(parsed instanceof Map<?, ?> map)) {
-                return Map.of();
+                return null;
             }
             Map<String, Object> args = new LinkedHashMap<>();
             map.forEach((key, value) -> args.put(String.valueOf(key), value));

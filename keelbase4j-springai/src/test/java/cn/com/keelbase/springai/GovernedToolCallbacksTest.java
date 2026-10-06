@@ -105,12 +105,39 @@ class GovernedToolCallbacksTest {
     }
 
     @Test
-    void aCallWaitingOnAPersonReportsThatItIsWaiting() {
+    void aCallWaitingOnAPersonReportsThatItIsWaitingWithoutHandingOverTheToken() {
         String said = one((name, args, who) -> new ExecutionOutcome("pending_confirmation", null, "tok-1", null, null),
                 watched("create_followup")).call("{}");
 
         assertTrue(said.contains("pending_confirmation"), said);
-        assertTrue(said.contains("tok-1"), "the token is how the loop stops honestly instead of continuing: " + said);
+        assertFalse(said.contains("tok-1"),
+                "the token is the caller's handle to go on; a model holding it could continue without the decision: "
+                        + said);
+    }
+
+    @Test
+    void argumentsThatAreNotAnObjectAreRefusedRatherThanRunEmpty() {
+        List<Map<String, Object>> seen = new ArrayList<>();
+        String said = one((name, args, who) -> {
+            seen.add(args);
+            return ExecutionOutcome.executed(null, null);
+        }, watched("create_followup")).call("[1,2,3]");
+
+        assertTrue(said.contains("invalid_arguments"), said);
+        assertTrue(seen.isEmpty(), "a call with no arguments is a real call; a broken message is not one");
+        assertTrue(ranTools.isEmpty(), ranTools.toString());
+    }
+
+    @Test
+    void malformedJsonIsRefusedRatherThanThrownThroughTheLoop() {
+        List<Map<String, Object>> seen = new ArrayList<>();
+        String said = one((name, args, who) -> {
+            seen.add(args);
+            return ExecutionOutcome.executed(null, null);
+        }, watched("create_followup")).call("{\"customerId\":");
+
+        assertTrue(said.contains("invalid_arguments"), said);
+        assertTrue(seen.isEmpty(), "the engine must not be asked to run a call whose arguments did not parse");
     }
 
     @Test
