@@ -175,11 +175,29 @@ check "a caller cannot ask for the whole table" '"limit":100,' "$CAPPED"
 # `local_compensate` a class this application honours rather than one it merely claims.
 EFF=$(printf '%s' "$EFFECTS" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)
 check "a live effect reports a target that is not deleted" '"targetSoftDeleted":false' "$EFFECTS"
+# ...and the revocation leaves a line of its own, which is why the contract froze `effect_revoke`: a
+# status that moves with no AI audit trail was the escape that value closed. Counted rather than
+# matched, because the chain's length is what this application exposes — one more line after the
+# revoke than before it. (A revocation that wrote nothing would also leave `valid` true, which is
+# exactly the kind of silent change this assertion exists to catch.)
+#
+# ……而且撤销留一行自己的记录——契约冻结 `effect_revoke` 正是为此：状态动了却没有任何 AI 审计留痕，正是
+# 那个取值堵上的逃逸口。这里断**计数**而不是匹配文本，因为这个应用暴露出来的就是链的长度：撤销后比撤销前
+# 多一行。（一次什么都不写的撤销同样会让 `valid` 保持 true——这正是本断言要抓的那类静默变化。）
+CHAIN_BEFORE=$(curl -s "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
+check "the audit chain verifies before the revoke" '"valid":true' "$(curl -s "$BASE/audit/verify")"
 REVOKED=$(curl -s -X DELETE "$BASE/ai/tool-effects/$EFF" -H "Authorization: Bearer $ALICE")
 check "revoke marks the effect revoked" '"revokeStatus":"revoked"' "$REVOKED"
 AFTER_REVOKE=$(curl -s "$BASE/ai/tool-effects" -H "Authorization: Bearer $ALICE")
 check "and soft-deletes the row it created" '"targetSoftDeleted":true' "$AFTER_REVOKE"
 check "which is still there — deleted, not gone" '"targetExists":true' "$AFTER_REVOKE"
+CHAIN_AFTER=$(curl -s "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
+if [ "$CHAIN_AFTER" -eq "$((CHAIN_BEFORE + 1))" ] 2>/dev/null; then
+  echo "  ok   the revocation left one line on the audit chain ($CHAIN_BEFORE -> $CHAIN_AFTER)"
+else
+  echo "  FAIL the revocation left $((CHAIN_AFTER - CHAIN_BEFORE)) line(s), expected 1 ($CHAIN_BEFORE -> $CHAIN_AFTER)"
+  fail=1
+fi
 
 # ── the streaming channel, which is the console's own path ─────────────────────────────────────────
 # The drawer approves *while the stream is open* — that is what the long-lived connection is for, and it

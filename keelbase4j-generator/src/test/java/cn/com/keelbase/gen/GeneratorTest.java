@@ -266,6 +266,16 @@ class GeneratorTest {
         // and does not honour — a console button that only flips a flag.
         assertTrue(governance.contains("setDeletedAt(Instant.now())"),
                 "revoke soft-deletes the row the effect created");
+        // ...and it leaves a line on the chain, or the status would move with no AI audit trail — the
+        // escape the contract's `effect_revoke` value exists to close. Every other governance
+        // transition in this application already writes one; a revocation writing nothing is the one
+        // state change a reader could not find.
+        //
+        // ……而且它在链上留一行，否则状态动了却没有任何 AI 审计留痕——契约的 `effect_revoke` 正是为堵这个
+        // 逃逸口而存在。这个应用里其它每一次治理迁移都已经写行；一次撤销什么都不写，是**唯一一处读的人找不到**
+        // 的状态变化。
+        assertTrue(governance.contains("audit.append(\"effect_revoke\", principal.userId(),"),
+                "a revocation is audited, under the contract's own value for it");
         // The tool's *declared* result type, not its name: the console groups effects by what they made.
         String writeTool = Files.readString(
                 out.resolve("src/main/java/com/example/crm/ai/CreateFollowupTool.java"));

@@ -3665,6 +3665,18 @@ public class JavaGenerator {
                             %sRepository.save(row);
                         });
                         sideEffects.setRevoked(id);
+                        // A revocation leaves a line of its own, as every other governance transition in
+                        // this application does: the contract froze `effect_revoke` for exactly this act,
+                        // and the note that added it says what it closed — a status that moved with no AI
+                        // audit line at all. Written after the row moves, so a revoke that throws on the
+                        // way (an unwritable target, say) leaves no line claiming it happened.
+                        //
+                        // 撤销在链上留一行自己的记录，与这个应用里其它每一次治理迁移一样：契约**为这一
+                        // 动作**冻结了 `effect_revoke`，而加上它的那句说明写明了它堵的是什么——状态动了、
+                        // 却一条 AI 审计行都没有。这一行写在行移动**之后**，故中途抛异常（比如目标写不
+                        // 进去）不会留下「声称撤了」的行。
+                        audit.append("effect_revoke", principal.userId(),
+                                effect.toolName() + " revoked (effect " + id + ")");
                         // The console reads the outcome off `revokeStatus`, as the runtime's answer
                         // does, and that stays. `revoked` is added because the frozen `revokeResult`
                         // requires it — a consumer holding that object should not have to derive a
