@@ -8,11 +8,13 @@
 # governance beat itself is the sibling's subject; this script asserts only what the seed makes newly
 # observable: **each identity sees its own rows and not the other's**, on an application nobody hand-wrote.
 #
-# Two things about this artifact are worth knowing before reading the assertions, and both were measured
-# rather than assumed: the generated application ships **no login** (its auth controller serves the
-# permissions read only, so a caller proves itself with a delegation token), and its
-# `analyze_customer_risk` is a **stub** that computes nothing — so the seed deliberately plants no
-# "customer at risk", because there is no such signal to plant.
+# Three things about this artifact are worth knowing before reading the assertions, and all three were
+# measured rather than assumed: the generated application ships **no login** (its auth controller serves
+# the permissions read only, so a caller proves itself with a delegation token); its
+# `analyze_customer_risk` is a **stub** that computes nothing, so the seed deliberately plants no
+# "customer at risk" because there is no such signal to plant; and for the same reason the console, once
+# served against it, **renders but stops at its own login page** — it restores a session through
+# `GET /auth/me` and signs in through `POST /auth/login`, neither of which this application serves.
 #
 #   bash scripts/demo-flagship-generated.sh                # run it on the host, as a jar
 #   bash scripts/demo-flagship-generated.sh --container     # run it as the container, and prove the mount
@@ -35,7 +37,15 @@ cd "$ROOT"
 if [ -n "${JAVA_HOME:-}" ]; then PATH="$JAVA_HOME/bin:$PATH"; export PATH; fi
 
 MODE="host"
-[ "${1:-}" = "--container" ] && MODE="container"
+UI=0
+for arg in "$@"; do
+  case "$arg" in
+    --container) MODE="container" ;;
+    --ui) MODE="container"; UI=1 ;;   # the clickable demo needs the container's shared origin
+  esac
+done
+UI_AS="${UI_AS:-alice}"
+FRONTEND_DIR="${FRONTEND_DIR:-$ROOT/../KeelBase/Web-Admin-Vue}"
 
 GEN_DIR="target/gen-flagship"
 PORT="${PORT:-18085}"
@@ -169,8 +179,86 @@ if [ "$MODE" = container ]; then
   check "the seeded rows survive a container restart" '晨光科技' "$(get "$ALICE" customers)"
   check_absent "and the other identity still cannot see them" '晨光科技' "$(get "$BOB" customers)"
   [ "$fail" -eq 0 ] || { echo "  FAIL — the data did not survive the restart" >&2; exit 1; }
-  compose_down
   echo "  PASS — the generated application runs as a container, and its database lives on the mount"
+
+  if [ "$UI" = "1" ]; then
+    echo "== 6/6 build the front end, and serve it on the app's own origin =="
+    if [ ! -d "$FRONTEND_DIR" ]; then
+      echo "  FAIL no front end at $FRONTEND_DIR — set FRONTEND_DIR to the Web-Admin-Vue checkout" >&2
+      exit 1
+    fi
+    # The base is **relative** on purpose: nginx serves this build and proxies /api/ to the app, so the
+    # browser talks to one origin and there is no CORS to arrange.
+    #
+    # 基址**相对**是有意的：nginx 伺服这份构建、并把 /api/ 反代给应用，于是浏览器只跟一个源打交道，
+    # 也就没有 CORS 要安排。
+    ( cd "$FRONTEND_DIR" && VITE_API_BASE=/api/v1 npm run build ) > "$ROOT/$GEN_DIR/web-build.log" 2>&1
+    rm -rf "$ROOT/$GEN_DIR/web"
+    cp -r "$FRONTEND_DIR/dist" "$ROOT/$GEN_DIR/web"
+    # The console is an **entry**, not the root of the build: `Web-Admin-Vue` emits `dist/admin/index.html`
+    # (the deployed convention), so the page to inject into and the URL to open both carry its name.
+    #
+    # 控制台是一个**入口**、不是构建的根：`Web-Admin-Vue` 产出的是 `dist/admin/index.html`（部署约定），
+    # 故要注入的页面与要打开的地址都带着它的名字。
+    ENTRY="${UI_ENTRY:-admin}"
+    IDX="$ROOT/$GEN_DIR/web/$ENTRY/index.html"
+    if [ ! -f "$IDX" ]; then
+      echo "  FAIL the front end build has no $ENTRY/index.html — see $ROOT/$GEN_DIR/web-build.log" >&2
+      exit 1
+    fi
+    # The token the console would keep after signing in. It goes where the console looks for it —
+    # `admin_access_token`, raw string, measured — but **it does not sign you in**: this console restores
+    # a session only through `GET /auth/me`, and signs in only through `POST /auth/login`, and the
+    # generated application serves neither (its auth controller answers **`/auth/me/permissions` only**,
+    # because it authenticates delegated callers rather than people). Measured in a real browser: the
+    # console loads, renders, and stops at its login page having called no API at all. Closing that gap
+    # means adding a login surface to the generated application — a change to the product surface, which
+    # is why it is not done here.
+    #
+    # 控制台登录后会保存的那枚令牌。它被放到控制台会去找的地方——`admin_access_token`、原样字符串、实测
+    # ——但**它并不能让你登录**：这个控制台只通过 `GET /auth/me` 恢复会话、只通过 `POST /auth/login` 登录，
+    # 而生成物**两个都不提供**（它的认证控制器**只回答 `/auth/me/permissions`**，因为它认证的是被委托的
+    # 调用方、而不是人）。真浏览器实测：控制台加载、渲染、停在它自己的登录页上，**一条 API 都没调**。要
+    # 补上这个差，得给生成物加一层登录面——那是对**产品面**的改动，所以不在这里做。
+    TOK="$(mint "$UI_AS")"
+    if [ -z "$TOK" ]; then echo "  FAIL could not mint a token for $UI_AS" >&2; exit 1; fi
+    awk -v tok="$TOK" 'BEGIN{done=0} { if (!done && index($0, "</head>")) {
+        printf "<script>localStorage.setItem(\"admin_access_token\",\"%s\")</script>\n", tok; done=1 } print }' \
+      "$IDX" > "$IDX.tmp" && mv "$IDX.tmp" "$IDX"
+    grep -qF 'admin_access_token' "$IDX" || { echo "  FAIL the token stand-in was not injected into $IDX" >&2; exit 1; }
+
+    export FLAGSHIP_WEB_PORT="${FLAGSHIP_WEB_PORT:-18087}"
+    WEB="http://localhost:$FLAGSHIP_WEB_PORT"
+    docker compose -f "$COMPOSE" up -d
+    wait_ready "$WEB/api/v1"
+    check "the console is served"                         '200' "$(curl -s -o /dev/null -w '%{http_code}' "$WEB/$ENTRY/")"
+    # The short URL *redirects* to the console — that is what nginx.conf configures, so 302 is the
+    # assertion, and the check above proves where it lands.
+    #
+    # 短地址**重定向**到控制台——这是 nginx.conf 配的行为，故断言就是 302；而上面那条断言证明它落到哪。
+    check "the demo's short URL redirects to the console" '302' "$(curl -s -o /dev/null -w '%{http_code}' "$WEB/")"
+    check "and the page carries the token stand-in"       'admin_access_token' "$(cat "$IDX")"
+    # The path the browser will actually walk: the front end's own origin, the injected token, the API
+    # through the proxy — so this asserts the demo's wiring, not just that two ports answer.
+    check "and the same origin serves the API for $UI_AS" '晨光科技' "$(curl -s -H "Authorization: Bearer $TOK" "$WEB/api/v1/customers")"
+    [ "$fail" -eq 0 ] || { echo "  FAIL — see: docker compose -f docker-compose.flagship.yml logs web" >&2; exit 1; }
+
+    echo ""
+    echo "  The front end is served against the generated application — open this in a browser:"
+    echo "    $WEB/$ENTRY/            (it renders; it lands on its own login page — see the note above)"
+    echo "  The console cannot be signed into on this artifact: it wants /auth/me and /auth/login, which"
+    echo "  the generated application does not serve. Its pages are still reachable once a session exists;"
+    echo "  to look as $UI_AS by hand, paste this in the browser console and reload:"
+    echo "    localStorage.setItem('admin_access_token','$TOK'); location.reload()"
+    echo "  ($UI_AS's token; swap in another identity's the same way — the app answers for it.)"
+    echo "  Ctrl-C to stop."
+    if [ "${NO_WAIT:-0}" = "1" ]; then
+      echo "   NO_WAIT=1 — automated run: not waiting, and the stack is taken down below"
+    else
+      while true; do sleep 3600; done
+    fi
+  fi
+  compose_down
 else
   echo "== 5/5 boot and assert that each identity sees its own rows =="
   boot

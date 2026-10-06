@@ -28,3 +28,18 @@ services:
       - "${FLAGSHIP_PORT:-18086}:8080"
     volumes:
       - ./target/gen-flagship/data:/app/data
+
+  # The clickable half. It exists so the front end and the API share an origin — see scripts/flagship/nginx.conf
+  # — and it serves the front end's own build, mounted read-only from the generated project's `web/`.
+  #
+  # 可点的那一半。它存在的理由是让前端与接口**同源**（见 `scripts/flagship/nginx.conf`），而它伺服的是
+  # 前端自己的构建产物，从生成物工程的 `web/` 只读挂进来。
+  web:
+    image: nginx:alpine
+    ports:
+      - "${FLAGSHIP_WEB_PORT:-18087}:80"
+    volumes:
+      - ./target/gen-flagship/web:/usr/share/nginx/html:ro
+      - ./scripts/flagship/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
