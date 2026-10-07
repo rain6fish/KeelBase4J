@@ -12,9 +12,22 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-07
+
 **English**
 
 ### Added
+
+- **A model can drive several governed steps.** The Spring AI adapter hands the model the runtime's
+  tools and lets the framework's own calling loop sequence them, instead of asking for one plan and
+  handing it back. Every step still arrives at the engine, because the callbacks the loop invokes have
+  no other path — a call the gate blocks, or one waiting on a person, is reported as that rather than
+  executed anyway. A run reports what it did: the answer, each step with the tool it was an attempt
+  at, and the token of a step still waiting. The demo deployment exposes it as `POST /ai/task`, and
+  `scripts/demo-springai-task.sh` drives it against a real model over HTTP — which is also how the
+  claim was checked, since the question ("which callbacks does the framework actually invoke?") is
+  about a running deployment. The tool list the framework hands the model carries no risk level,
+  confirmation flag or revoke class: **measured**, not assumed.
 
 - **A generated application can be signed into.** `POST /auth/login` and `GET /auth/me` let the
   runtime-neutral console reach its workbench against a generated application, instead of stopping at
@@ -24,15 +37,83 @@ Each version is written in two blocks — English first, then Chinese — marked
   `KEELBASE_DEMO_PASSWORD` is injected**: no passphrase ships in the generated source or in
   `application.properties`, and with none set every attempt is refused.
 
+### Changed
+
+- **What this repository publishes has grown, and that is a boundary change rather than a packaging
+  one.** Until now only the parent pom and `keelbase4j-protocol` reached Maven Central, so a host that
+  embeds this runtime could resolve the protocol but had to build this repository locally to get the
+  core and the adapter. Those two are now published alongside it: `keelbase4j-core` and
+  `keelbase4j-springai` are a public API surface from this version on. The other four modules are
+  deliberately **not** published: `keelbase4j-runtime` and `keelbase4j-demo` are applications, and
+  `keelbase4j-generator` and `keelbase4j-mcp` are pieces a deployment composes for itself rather than
+  resolves. The protocol library itself did not change in this release.
+
+- **The response envelope can be told which packages to leave bare**, so a host whose own controllers
+  answer in a shape of their own does not have this runtime's envelope wrapped around them.
+
+### Fixed
+
+- **The generated application's tool catalogue and chain state no longer answer anonymous callers.**
+  `GET /ai/tools` and `GET /audit/verify` are now gated the way this runtime gates them; a plain user
+  gets a refusal rather than a `200`.
+
+- **A revocation in a generated application leaves a line on the audit chain**, and that chain's state
+  stops at a caller this runtime knows — which is what every other governance transition there already
+  did, and what the revocation path had been missing.
+
+- **A revocation is audited under the contract's own value for it**, rather than a generic one that
+  happened to be legal.
+
+- **The adapter keeps the confirmation token with the caller, and refuses malformed tool arguments**
+  instead of running the call with none.
+
+- **The multi-step runner's conditions sit on the bean method.** On the auto-configuration class they
+  were evaluated before the chat client other configurations contribute existed, so the runner was
+  silently absent from a context that had everything it needed.
+
 **中文**
 
 ### 新增
+
+- **模型可以驱动若干受治理的步骤。** Spring AI 适配器把运行时的工具交给模型，让**框架自己的调用循环**来排步骤，
+  而不是要一个计划、然后交回。每一步仍然到达引擎 —— 循环调的那些回调**没有别的路**：被闸拦下的、或在等人的调用，
+  都会被**如实报告**，而不是照样执行。一次运行会汇报它做了什么：答复、每一步**冲着哪个工具**去的、以及仍在等人的
+  那一个的 token。demo 部署把它作为 `POST /ai/task` 露出来，而 `scripts/demo-springai-task.sh` 用一个**真模型**
+  经 HTTP 驱动它 —— 这也正是当初核对它的方式：那个问题（「框架**真的**调了哪些回调」）问的是**一个跑着的部署**。
+  框架交给模型的工具列表里**没有**风险级、确认标记与撤销档：这是**量出来的**，不是想当然的。
 
 - **生成的应用可以被登录进去。** `POST /auth/login` 与 `GET /auth/me` 让运行时中立的控制台能在一个
   生成物上走进工作台，而不是停在它自己的登录页。登录签入的是 `LocalIdentities` 声明的那些身份，并铸出
   **同一枚**本应用已经在验的委托令牌——同一 secret、同一 audience——于是始终只有一条验证路径，而不是
   多出第二种要同步保持一致的令牌格式。它**在未注入 `KEELBASE_DEMO_PASSWORD` 时是关的**：生成物源码与
   `application.properties` 都不带口令，而未设时每一次尝试都会被拒绝。
+
+### 变更
+
+- **本仓发布的东西变多了，而这是一次边界变更、不是打包细节。** 先前只有父 pom 与 `keelbase4j-protocol`
+  会到 Maven Central，于是**嵌入本运行时的宿主**能解析协议，却必须先把本仓在本地构建一遍才拿得到 core 与适配器。
+  这两个现在与它一同发布：从本版起，`keelbase4j-core` 与 `keelbase4j-springai` 是**对外的 API 面**。
+  其余四个模块**有意不发布**：`keelbase4j-runtime` 与 `keelbase4j-demo` 是**应用**，而
+  `keelbase4j-generator` 与 `keelbase4j-mcp` 是**部署自己拼进去的部件**，不是从仓库里解析来的。
+  协议库本身在这一版没有变化。
+
+- **响应信封可以被声明「哪些包原样作答」**，于是一个自带控制器、按自己的形状作答的宿主，不会发现自己的正文被套上
+  本运行时的信封。
+
+### 修复
+
+- **生成物的工具名录与链状态不再答匿名调用者。** `GET /ai/tools` 与 `GET /audit/verify` 现在按本运行时的方式加闸；
+  普通用户拿到的是拒绝，而不是 `200`。
+
+- **生成物里的撤销在审计链上留一行**，且那条链的状态停在**本运行时认识的调用者**那里 —— 那是那里**每一次别的治理迁移**
+  早就在做的事，而撤销那条路一直缺着它。
+
+- **撤销按契约给它自己的取值留痕**，而不是用一个**合法但泛化**的取值。
+
+- **适配器把确认令牌留在调用方那一侧，并拒掉形状不对的工具参数**，而不是拿空参数去跑那次调用。
+
+- **多步 runner 的条件放在 bean 方法上。** 挂在自动配置**类**上时，它们的求值早于别的配置贡献的 chat client 存在，
+  于是 runner 在一个**什么都不缺**的上下文里**一声不响地缺席**。
 
 ## [0.1.1] - 2026-10-05
 
@@ -191,7 +272,10 @@ application depends on.
 - **Published to Maven Central**: the parent pom and `keelbase4j-protocol` (with its sources, javadoc
   and the test jar it attaches) — the artifact a generated application resolves. The runtime,
   generator, adapter and demo are a deployment and studio-side tooling; they opt out of deployment in
-  the `release` profile of their own poms.
+  the `release` profile of their own poms. **[Corrected 2026-10-07: that last clause is not true —
+  no module has ever declared `maven.deploy.skip` in its own pom (`git grep deploy.skip v0.1.0` finds
+  only a comment). What publishes has always been the *reactor*, and 0.1.2's `release.yml` header now
+  says so. The original wording is kept above.]**
 - The runtime's conversation store is a **transcript, not memory**: no embeddings, no retrieval, no
   memory policy.
 
@@ -228,9 +312,12 @@ application depends on.
 
 - **发布到 Maven Central 的**：父 pom 与 `keelbase4j-protocol`（含 sources、javadoc，以及它附带的
   test jar）——生成物要解析的那个 artifact。运行时、生成器、适配器与 demo 属部署与工作室侧工具，
-  在各自 pom 的 `release` profile 里声明不发布。
+  在各自 pom 的 `release` profile 里声明不发布。**[2026-10-07 更正：这后半句不成立 ——
+  **没有任何模块**在自己的 pom 里声明过 `maven.deploy.skip`（`git grep deploy.skip v0.1.0` 只剩一条注释）。
+  发布什么一直是由 **reactor** 决定的，0.1.2 的 `release.yml` 头注已按实况写明。原文保留在上。]**
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.1
 [0.1.0]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.0

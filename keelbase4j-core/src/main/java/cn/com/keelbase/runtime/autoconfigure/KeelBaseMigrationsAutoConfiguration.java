@@ -48,7 +48,7 @@ import org.springframework.context.annotation.Bean;
  * 一个覆写 `spring.flyway.locations` 的核心，会把那个选择夺走、并让宿主自己的迁移不被应用。这里只加一个位置，
  * Flyway 的其它决定一律不碰——与整个嵌入的形状一致：我们带来我们那份，部署方保留它自己的。
  *
- * <p>**方言是路径的一部分，不是文件的一部分。** 迁移住在 `db/keelbase-migration/<vendor>/` 下，vendor 按
+ * <p>**方言是路径的一部分，不是文件的一部分。** 迁移住在 `db/keelbase-migration/&lt;vendor&gt;/` 下，vendor 按
  * Boot 为 `spring.flyway.locations` 提供的 `{vendor}` 占位符同样的方式解析。这是唯一能保证「H2 的迁移不会被
  * 跑到宿主的 MySQL 上」的办法：两种方言在自增列与时间类型上不一致，所以一个文件不可能同时是两者，而跑错的那份
  * 会在**启动时**失败、不是在评审时。**两种方言现在都在**——`h2/` 给独立部署，`mysql/` 给宿主；某个方言没有

@@ -11,6 +11,9 @@
 #      conformance claim, but the same kind of gate: that rule was enforced by whoever happened to be
 #      reviewing, the interleaved shape went in twice in one session with nobody catching it, and a
 #      rule that depends on who is looking is not enforced.
+#   4. release-rehearsal — the publish set still builds under the release profile, sources and javadoc
+#      included. Also not a conformance claim, and for the same reason as 3: the release job's own
+#      check runs after the tag exists, which is the moment nothing can be undone.
 name: CI
 
 on:
@@ -75,3 +78,41 @@ jobs:
         run: bash scripts/check-bilingual-comments.sh --self-test
       - name: Every javadoc block is English and then Chinese
         run: bash scripts/check-bilingual-comments.sh --strict
+
+  release-rehearsal:
+    name: The publish set builds the way a release would build it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      # The release itself is checked at tag time, and that is too late to learn anything: a tag
+      # cannot be taken back, and the step that would have refused it runs in the job that already has
+      # the tag. So the same reactor is built here, on every push, under the release profile — the
+      # sources and javadoc jars Central requires included.
+      #
+      # This job exists because of what it found the first time it was run: the core's javadoc had
+      # never been generated anywhere, and could not be — a `<vendor>` in a comment was read as an
+      # HTML tag, and javadoc fails on that. Nothing before that point had ever asked it to try.
+      #
+      # `package`, not `verify`: signing belongs to the release job, which is the only place the key
+      # exists. The module list and the reason for it are the publish set's, in release.yml.
+      - name: Build the publish set, sources and javadoc included
+        run: mvn -B -ntp -Prelease -DskipTests -pl 'keelbase4j-springai,!keelbase4j-runtime' -am package
+      # The same count release.yml asserts, asserted here as well: there it is the last thing between
+      # a mistake and Maven Central, here it is the first thing that notices one.
+      - name: The publish set is still exactly four modules
+        run: |
+          set -euo pipefail
+          reactor=$(mvn -B -ntp -Prelease -DskipTests \
+                    -pl 'keelbase4j-springai,!keelbase4j-runtime' -am validate \
+                    | grep -cE "^\[INFO\] Building ")
+          echo "modules in the publish reactor: $reactor"
+          [ "$reactor" = "4" ] || {
+            echo "expected the parent pom, keelbase4j-protocol, keelbase4j-core and keelbase4j-springai" >&2
+            exit 1
+          }
+

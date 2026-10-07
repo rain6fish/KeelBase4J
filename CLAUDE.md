@@ -17,9 +17,11 @@ This repository only **consumes** both.
 4. **产物基线 Java 17**（`--release 17`）。
 5. **`keelbase4j-protocol` 零第三方依赖**（JDK only）；JUnit 仅 test scope。它正是生成物依赖的
    那个 artifact——往它上面加依赖，等于加到每一套生成应用上。runtime / generator 用 Spring 不受此限。
-6. **依赖方向单向**：`runtime → protocol`、`generator → protocol`、`springai → runtime`；**runtime 不被
-   任何模块依赖**。适配器（模型 provider、身份 provider）放 runtime **之外**并依赖它，反向依赖即破接缝。
-   适配器缺席时 runtime 照常起（默认规划器条件注册，见硬规则 7）。
+6. **依赖方向单向**（编译期）：`core → protocol`、`runtime → core`、`generator → protocol`、
+   `springai → core`、`mcp → core`、`demo → runtime + springai`。适配器（模型 provider、身份 provider）
+   放 core **之外**并依赖**它**——不是依赖 runtime：把应用的 boot 类拖到消费者的 classpath 上不是适配器该干的事
+   （`ADR-0017` D2）。`runtime` 只被 demo（与两个适配器的 **test** 依赖）依赖。适配器缺席时 runtime 照常起
+   （默认规划器条件注册，见硬规则 7）。
 7. **适配器不许替模型越权**：规划器只**提议**（`IntentPlan` = 工具名 + 参数），风险/确认/审计/撤销
    一律由运行时下游无条件施加；且**治理元数据（风险级、是否需确认、撤销档）不得发给模型**。
 
@@ -45,12 +47,15 @@ CI（`.github/workflows/ci.yml`）门禁三件事：`conformance`（`mvn verify`
 故解释器不对时会以自身失败、而不是以「报零」通过）。
 
 ⚠️ **打 `v*` tag 会触发发布**（`.github/workflows/release.yml`）：先复现向量、再查两仓漂移、再校验
-发布集合，然后把**父 pom 与 `keelbase4j-protocol`**签名上传到 Maven Central。发到 Central 收不回来，
-所以 tag 只打在**已推且 CI 绿**的提交上。
+发布集合，然后把**四个 artifact**（父 pom · `keelbase4j-protocol` · `keelbase4j-core` ·
+`keelbase4j-springai`）签名上传到 Maven Central。发到 Central 收不回来，所以 tag 只打在**已推且 CI 绿**的提交上。
 
 **发布集合 = reactor**（**不是** per-module 的 `deploy.skip`）：central-publishing 插件会把**构建里
-所有模块**打包上传，`maven.deploy.skip` 拦不住它——第一次发布就是这么把六个模块全带上、并在其中一个
-上失败的。所以 deploy 步用 `-pl keelbase4j-protocol -am` 限制 reactor，另有一道检查确认结果恰为两个。
+所有模块**打包上传，`maven.deploy.skip` 拦不住它——**没有任何模块声明它**，所以 deploy 步的 `-pl` 是
+这道题唯一的答案。第一次发布就是这么把六个模块全带上、并在其中一个上失败的。现在 deploy 步用
+`-pl 'keelbase4j-springai,!keelbase4j-runtime' -am` 限制 reactor，另有一道检查确认结果恰为四个：
+`-am` 保证依赖不会被忘掉，而 `runtime` 要**按名字排除**——它是**应用**、且 `-am` 会经适配器的**测试**
+依赖够到它。
 ⚠️ 手动跑 `mvn -Prelease deploy`（不带 `-pl`）会**把所有模块都发上去**。
 
 ## 提交约定

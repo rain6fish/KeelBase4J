@@ -1,8 +1,13 @@
 # Publish to Maven Central on a version tag (`git tag v0.1.0 && git push gitee v0.1.0 && git push origin v0.1.0`).
 #
-# What goes up: the parent pom and `keelbase4j-protocol` — the artifact a generated application
-# resolves. The runtime, generator, adapter and demo declare `maven.deploy.skip` in their own
-# `release` profiles, so `mvn -Prelease deploy` stages exactly those two.
+# What goes up: the parent pom, `keelbase4j-protocol`, `keelbase4j-core` and the Spring AI adapter —
+# the four a *host* resolves when it embeds this runtime. Until 0.1.2 only the first two did, so a
+# host could only get the core and the adapter by building this repository locally first; that is what
+# changed, and it is a boundary change rather than a packaging detail: those two are now a public API
+# surface. `-am` stays, so a dependency added later cannot quietly fall outside the set;
+# `keelbase4j-runtime` is excluded by name because `-am` reaches it through the adapter's *test*
+# dependency and it is an application, not something anyone resolves. The generator, the MCP adapter
+# and the demo are not in that closure at all.
 #
 # Required repository secrets (Settings → Secrets and variables → Actions):
 #   CENTRAL_TOKEN_USERNAME / CENTRAL_TOKEN_PASSWORD — Maven Central Portal user token
@@ -65,18 +70,20 @@ jobs:
       # A tag release cannot be taken back, so what it publishes is checked rather than assumed. The
       # set is the *reactor*, not a per-module deploy flag: the first attempt at this shipped every
       # module (and failed on one of them) because the publishing plugin bundles the whole reactor,
-      # and `maven.deploy.skip` never applied to it. So the deploy below restricts the reactor, and
-      # this step checks that restriction is still in effect — exactly two modules, the parent pom and
-      # the protocol library, which is the artifact a generated application resolves. The parent
-      # travels with it because a child pom whose parent is absent cannot be resolved by a consumer.
-      - name: Publishing only the parent pom and the protocol library
+      # and `maven.deploy.skip` never applied to it — no module declares it, which is why the deploy
+      # step's `-pl` is the only thing standing between this job and the whole reactor. So the deploy
+      # below restricts the reactor, and this step checks that restriction is still in effect —
+      # exactly four modules: the parent pom, the protocol library, the core and the adapter. The
+      # parent travels with them because a child pom whose parent is absent cannot be resolved.
+      - name: Publishing only the parent pom, the protocol library, the core and the adapter
         run: |
           set -euo pipefail
-          reactor=$(mvn -B -Prelease -DskipTests -pl keelbase4j-protocol -am validate \
+          reactor=$(mvn -B -Prelease -DskipTests \
+                    -pl 'keelbase4j-springai,!keelbase4j-runtime' -am validate \
                     | grep -cE "^\[INFO\] Building ")
           echo "modules in the publish reactor: $reactor"
-          [ "$reactor" = "2" ] || {
-            echo "expected exactly the parent pom and keelbase4j-protocol — check the deploy step's -pl/-am" >&2
+          [ "$reactor" = "4" ] || {
+            echo "expected the parent pom, keelbase4j-protocol, keelbase4j-core and keelbase4j-springai — check the deploy step's -pl/-am" >&2
             exit 1
           }
 
@@ -116,5 +123,5 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           mvn -B -Prelease deploy -DskipTests \
-            -pl keelbase4j-protocol -am \
+            -pl 'keelbase4j-springai,!keelbase4j-runtime' -am \
             -Dgpg.keyname="${{ secrets.GPG_KEY_ID }}" -Dgpg.passphrase="$GPG_PASSPHRASE"
