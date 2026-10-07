@@ -131,6 +131,17 @@ printf '{"message":"%s"}' "$MESSAGE" > "$BODY_FILE"
 #
 # 真模型不确定：它可能这次凭已知直接作答、下次才用工具，而一次这样的作答**说明不了**循环行不行 —— 而循环
 # 正是本演示要看的。所以最多再问两次，并报出用了几次。
+# Counting has to be anchored on the step objects themselves, not on the body as a whole: a tool's
+# payload can carry the very keys being counted. A call the gate blocks answers with the authorization
+# reasons, and that object has a "tool" of its own — so counting raw "tool":" occurrences reported three
+# steps for a run that took two. These two read only what the route emits per step.
+#
+# 计数必须锚在**步骤对象本身**上、而不是整个 body：工具的载荷里会带上**正在数的那些键**。被闸拒掉的那一步
+# 回的是授权依据，而那个对象**自带一个 `"tool"`** —— 于是裸数 `"tool":"` 的写法，会把一次**两步**的运行报成
+# 三步。下面两个只读路由**按步**吐出来的那一段。
+step_statuses() { printf '%s' "$1" | grep -o '"outcome":{"status":"[^"]*"' | sed 's/.*"status":"//; s/"$//' || true; }
+step_tools() { printf '%s' "$1" | grep -o '{"tool":"[^"]*","outcome"' | sed 's/^{"tool":"//; s/","outcome"$//' || true; }
+
 ATTEMPTS=0
 RES=""
 BODY=""
@@ -140,7 +151,7 @@ for attempt in 1 2 3; do
     -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
     --data-binary "@$BODY_FILE")
   BODY="$(cat /tmp/springai-task.json)"
-  STEPS="$(printf '%s' "$BODY" | grep -o '"tool":"[^"]*"' | grep -c . || true)"
+  STEPS="$(step_statuses "$BODY" | grep -c . || true)"
   if [ "$RES" = "200" ] && [ "$STEPS" -ge 2 ] \
      && printf '%s' "$BODY" | grep -qF '"status":"pending_confirmation"'; then
     break
@@ -153,8 +164,8 @@ check "the deployment answered the task (HTTP 200)" "200" "$RES"
 check "the model answered" '"answer":"' "$BODY"
 printf '%s' "$BODY" | grep -qF '"answer":null' && { echo "  FAIL the answer is empty"; fail=1; }
 
-TOOLS="$(printf '%s' "$BODY" | grep -o '"tool":"[^"]*"' | sed 's/^"tool":"//; s/"$//' | tr '\n' ' ')"
-STATUSES="$(printf '%s' "$BODY" | grep -o '"status":"[^"]*"' | sed 's/^"status":"//; s/"$//')"
+TOOLS="$(step_tools "$BODY" | tr '\n' ' ')"
+STATUSES="$(step_statuses "$BODY")"
 STEPS="$(printf '%s' "$STATUSES" | grep -c . || true)"
 echo "   steps: $STEPS  [$TOOLS]"
 echo "   statuses: $(printf '%s' "$STATUSES" | tr '\n' ' ')"
