@@ -3,6 +3,8 @@ package cn.com.keelbase.springai;
 
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import cn.com.keelbase.runtime.identity.Principal;
+import cn.com.keelbase.runtime.pipeline.TaskRun;
+import cn.com.keelbase.runtime.pipeline.TaskRunner;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,10 +23,14 @@ import org.springframework.ai.chat.client.ChatClient;
  * other path: each one is a front door to {@code GovernedCall}, and a call that the gate blocks, or
  * that is waiting on a person, is reported as that rather than executed anyway.
  *
- * <p><b>The run reports what the engine was asked and what it said</b> — every step, in order, naming the
- * tool it was an attempt at, plus the last token still waiting on a person. That is what makes the
+ * <p><b>The run reports what the engine was asked and what it said</b> — every step, in order, naming
+ * the tool it was an attempt at, plus the last token still waiting on a person. That is what makes the
  * loop's behaviour inspectable without reading a transcript, and it is how a step that a human must
  * approve is carried back to the caller instead of being left inside the model's context.
+ *
+ * <p>It implements {@link TaskRunner} and defines none of that vocabulary itself: a run's shape belongs
+ * to the seam, and the route that answers with it belongs to the runtime. This class is what runs; the
+ * runtime is where a caller asks.
  *
  * <p>一条消息变成一个**框架可以走若干受治理步骤**去完成的任务。
  *
@@ -37,8 +43,11 @@ import org.springframework.ai.chat.client.ChatClient;
  * <p>**这次运行会汇报「引擎被问了什么、它说了什么」**——每一步按序，并带上它是**冲着哪个工具**去的，外加最后
  * 一个仍在等人的 token。这让循环的行为**不必读转写就能检查**，也让「需要人点头的那一步」被**带回调用方**，而不是
  * 留在模型的上下文里。
+ *
+ * <p>它实现 {@link TaskRunner}，而**不自己定义那套词汇**：一次运行的形状属于**接缝**，用它的那条路由属于**运行时**。
+ * 这个类是**跑什么**，运行时是**在哪儿问**。
  */
-public final class GovernedTaskRunner {
+public final class GovernedTaskRunner implements TaskRunner {
 
     private final ChatClient chatClient;
     private final ToolRegistry tools;
@@ -51,40 +60,12 @@ public final class GovernedTaskRunner {
         this.call = call;
     }
 
-    /**
-     * One step the loop took: the tool it asked for, and what the engine said about that call.
-     *
-     * <p>The tool's name is carried rather than inferred from the outcome, because an outcome does not
-     * know which tool produced it — and a run that reports three results without saying what they were
-     * three attempts at is not a report anyone can check against an audit chain.
-     *
-     * <p>循环走过的一步：它要的那个工具，以及引擎对那次调用说了什么。
-     *
-     * <p>工具的**名字**是被带上的、不是从结果里推的——结果并不知道自己是哪个工具产生的；而一次运行若只报
-     * 三个结果、不说它们是三次**什么的**尝试，那就不是一份能和审计链对得上的报告。
-     */
-    public record Step(String tool, ExecutionOutcome outcome) {
-    }
-
-    /**
-     * What a run did: the model's answer, every governed call the loop made in order, and the token of
-     * the last call still waiting on a person — {@code null} when nothing is waiting.
-     *
-     * <p>这次运行做了什么：模型的答复、循环按序做的每一次受治理调用、以及最后一个仍在等人的调用的
-     * token —— 没有人在等时为 {@code null}。
-     */
-    public record TaskRun(String answer, List<Step> calls, String pendingToken) {
-
-        public TaskRun {
-            calls = List.copyOf(calls);
-        }
-    }
-
+    @Override
     public TaskRun run(String message, Principal principal) {
-        List<Step> seen = new ArrayList<>();
+        List<TaskRun.Step> seen = new ArrayList<>();
         GovernedToolCallbacks.GovernedCall recording = (toolName, args, who) -> {
             ExecutionOutcome outcome = call.execute(toolName, args, who);
-            seen.add(new Step(toolName, outcome));
+            seen.add(new TaskRun.Step(toolName, outcome));
             return outcome;
         };
 

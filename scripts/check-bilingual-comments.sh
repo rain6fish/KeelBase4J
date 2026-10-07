@@ -172,7 +172,15 @@ for arg in "$@"; do
   esac
 done
 
-FILES="$(git ls-files '*.java')"
+# Tracked files, minus those the working tree no longer has. A deletion that has not been committed
+# yet is still in the index, and the scanner was handed a path it could not open — after which it
+# reported zero, which reads exactly like a clean pass. That is the one answer a gate must never give
+# by accident, so the list is filtered down to what is actually there.
+#
+# 已在版本控制里的文件，**减去工作树已经没有的那些**。一次尚未提交的删除仍留在索引里，扫描器于是拿到一个
+# 打不开的路径 —— 而它随后报了「零」，**读起来与一次干净通过一模一样**。那正是门禁**绝不能*意外*给出的**
+# 那个答案，所以这份清单按「实际还在不在」过滤。
+FILES="$(git ls-files '*.java' | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done)"
 FILE_COUNT="$(printf '%s\n' "$FILES" | grep -c .)"
 
 REPORT="$(scan $FILES)"

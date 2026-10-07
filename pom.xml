@@ -13,7 +13,7 @@
 
   <groupId>cn.com.keelbase</groupId>
   <artifactId>keelbase4j</artifactId>
-  <version>0.1.2</version>
+  <version>0.1.3</version>
   <packaging>pom</packaging>
 
   <name>KeelBase4J</name>

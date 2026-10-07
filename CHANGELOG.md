@@ -12,6 +12,74 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-07
+
+**English**
+
+### Added
+
+- **The multi-step path has a seam of its own, and a route.** `TaskRunner` joins `ToolCallPlanner` as
+  this runtime's second AI seam: one message, and the framework's own calling loop takes as many
+  governed steps as it needs — with every step still arriving at the engine, because the callbacks it
+  invokes have no other path. The seam and `POST /ai/task` live in the runtime rather than in an
+  adapter, so a host that embeds this runtime gets the route without adding one of its own, and the
+  deployments that drive it share **one** implementation instead of one each.
+
+- **A deployment with no orchestration adapter is told so, not refused.** `POST /ai/task` answers
+  `available: false` with a reason and a next step, as a 200 — the shape this runtime already uses
+  where a deployment lacks something (`/auth/oauth/providers` answers an empty list). Two cheaper
+  answers are both wrong: a 5xx reaches the caller as "服务器内部错误" and says nothing about what is
+  missing, and an empty run would claim that a run happened.
+
+- **The Spring AI adapter drives that seam.** `GovernedToolCallbacks` hands the model the runtime's
+  tools as callbacks whose only path is the engine, and the model is shown name and description only —
+  no risk level, no confirmation flag, no revoke class. `GovernedTaskRunner` implements `TaskRunner`,
+  and a run reports every step in order with the tool it was an attempt at, plus the token of a step
+  still waiting on a person.
+
+### Changed
+
+- **A run's shape is the seam's, not an adapter's.** `TaskRun` and its `Step` moved from the adapter
+  into the runtime: what a route answers with belongs to the runtime that answers. For anyone who
+  compiled against the adapter's own copy in 0.1.2 — published hours before this — that is a source
+  break: the type is gone and the list accessor is now `steps()` rather than `calls()`.
+
+- **This release is driven by a test rather than only by a demo.** The loop now has one that runs
+  without a model — a stand-in that *advertises* tool calling behind a client that carries the
+  tool-calling advisor — so "the framework's call reaches the engine, and what it said comes back in
+  the run" is checked on every push. That pair is not incidental: a stub that does not advertise the
+  capability has its tools stripped from the request, and a client without the advisor never sends
+  them, which is what a previous attempt at this was measuring without knowing it.
+
+**中文**
+
+### 新增
+
+- **多步路径有了自己的接缝，也有了自己的路由。** `TaskRunner` 与 `ToolCallPlanner` 并列成为本运行时的**第二条**
+  AI 接缝：一句话进去，由**框架自己的调用循环**走完它需要的若干受治理步骤 —— 而每一步仍然到达引擎，因为它调用的
+  那些回调**没有别的路**。接缝与 `POST /ai/task` 都住在**运行时**而不是某个适配器里，于是嵌入本运行时的宿主
+  **不必自己再加一条**，而驱动它的那些部署**共用一份实现**、不是各写一份。
+
+- **没有编排适配器的部署会被如实告知，而不是被拒。** `POST /ai/task` 答 `available: false` 加一个原因与下一步，
+  状态 200 —— 这正是本运行时在「部署缺了某样东西」时已经在用的形状（`/auth/oauth/providers` 答空列表）。
+  两个看起来更省事的答案都错：5xx 到调用方手上是「服务器内部错误」、**说不出缺了什么**，而一次空的运行会
+  **声称跑过**。
+
+- **Spring AI 适配器驱动这条接缝。** `GovernedToolCallbacks` 把运行时的工具当作回调交给模型，而那些回调**唯一的
+  路径**是引擎；模型只看见 name 与 description —— 没有风险级、没有确认标记、没有撤销档。`GovernedTaskRunner`
+  实现 `TaskRunner`，而一次运行会**按序**汇报每一步、带上它冲的是哪个工具，以及某个仍在等人的步骤的 token。
+
+### 变更
+
+- **一次运行的形状属于接缝，不属于适配器。** `TaskRun` 与它的 `Step` 从适配器搬进了运行时：一条路由拿来作答的形状，
+  属于**作答的那个运行时**。对**按 0.1.2 适配器自己那份**编译过的人来说 —— 那一版几小时前才发布 —— 这是一处
+  **源码级破坏**：类型没了，取列表的访问器也从 `calls()` 变成了 `steps()`。
+
+- **这一版由测试驱动，而不只是由 demo 驱动。** 那条循环现在有一条**不需要模型**的测试 —— 一个**声明了** tool calling
+  的替身，站在一个**带 tool-calling advisor** 的 client 后面 —— 于是「框架的那次调用到达引擎、而它说的话被报回运行」
+  在**每次 push** 上都被检查。这两个条件不是可有可无的：不声明该能力的 stub，工具会被从请求上**摘掉**；而不带 advisor
+  的 client **根本发不出它们** —— 先前那几次尝试量的正是这件事，只是当时不知道。
+
 ## [0.1.2] - 2026-10-07
 
 **English**
@@ -317,7 +385,8 @@ application depends on.
   发布什么一直是由 **reactor** 决定的，0.1.2 的 `release.yml` 头注已按实况写明。原文保留在上。]**
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.1
 [0.1.0]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.0

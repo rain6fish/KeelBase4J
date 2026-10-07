@@ -157,15 +157,18 @@ Read this section before quoting anything above.
 
 ## Modules
 
-Five Maven modules with a **one-way** dependency edge: `runtime` and `generator` depend on
-`protocol`, never the reverse; nothing depends on the runtime.
+Seven Maven modules with a **one-way** dependency edge, and every edge points at the core or the
+protocol: `core` → `protocol`, `runtime` → `core`, `generator` → `protocol`, `springai` → `core`,
+`mcp` → `core`, `demo` → `runtime` + `springai`. Nothing points back.
 
 | Module | What | Depends on |
 |---|---|---|
 | `keelbase4j-protocol` | The frozen protocol — canonical JSON, audit hash chain, delegation token, risk levels, governance binding, confirmation lifecycle, and the permission/authorization wire contracts | **nothing** (JDK only) |
-| `keelbase4j-runtime` | The governed runtime — AI operations run inside the trust loop | `protocol`, Spring Boot |
+| `keelbase4j-core` | The embeddable core — the trust loop, the governance surface and the security chain, assembled by one auto-configuration so a host can carry it | `protocol` |
+| `keelbase4j-runtime` | The governed runtime — AI operations run inside the trust loop | `core`, Spring Boot |
 | `keelbase4j-generator` | Business request → Business Spec → standalone Spring Boot source | `protocol` |
-| `keelbase4j-springai` | Adapter — implements the runtime's `ToolCallPlanner` seam with Spring AI; inert unless a model is configured | `runtime` |
+| `keelbase4j-springai` | Adapter — implements the runtime's **two** AI seams with Spring AI (`ToolCallPlanner`, one plan per message; `TaskRunner`, the framework's own multi-step loop); inert unless a model is configured | `core` |
+| `keelbase4j-mcp` | Adapter — the tools an MCP server advertises, governed exactly like the ones compiled in | `core` |
 | `keelbase4j-demo` | Runnable deployment — runtime + adapter + **one** provider, chosen by Maven profile (`deepseek` default, `openai`, `ollama`) | `runtime`, `springai` |
 
 `keelbase4j-protocol` is the artifact a **generated application depends on**, which is why it is
@@ -174,7 +177,7 @@ silently carried Spring Security, and a generated app inheriting its auto-config
 every endpoint. An adapter — a model provider, an identity provider — belongs **outside** the
 runtime and depends on it.
 
-The runtime serves fourteen routes, all mounted under the reference's `/api/v1` prefix
+The runtime serves fifteen routes, all mounted under the reference's `/api/v1` prefix
 (`server.servlet.context-path`), so a runtime-neutral frontend keeps one base URL and no
 per-runtime branch:
 
@@ -182,6 +185,7 @@ per-runtime branch:
 |---|---|---|
 | POST | `/ai/chat` | planner → governed tool call |
 | POST | `/ai/chat/stream` · `/admin/ai/chat/stream` | the same turn over SSE; the `/admin` path requires the admin role |
+| POST | `/ai/task` | the same message as a task the framework may take several governed steps to finish; answers `available: false` where no orchestration adapter is deployed |
 | POST | `/ai/confirmations/{token}` | `approve` (executes) or `decline` (writes nothing) |
 | GET | `/ai/tool-effects` | recorded side effects |
 | DELETE | `/ai/tool-effects/{id}` | revoke → local compensation (soft delete) |

@@ -118,24 +118,28 @@ bash scripts/demo-springai-task.sh    # 真模型驱动框架自己的多步循�
 
 ## 模块
 
-五个 Maven 模块，依赖**单向**：`runtime` 与 `generator` 依赖 `protocol`，绝不反向；没有任何模块依赖 runtime。
+七个 Maven 模块，依赖**单向**，且每一条都指向 core 或 protocol：`core` → `protocol`、`runtime` → `core`、
+`generator` → `protocol`、`springai` → `core`、`mcp` → `core`、`demo` → `runtime` + `springai`。没有反向的。
 
 | 模块 | 内容 | 依赖 |
 |---|---|---|
 | `keelbase4j-protocol` | 冻结的协议——规范 JSON、审计哈希链、委托令牌、风险级、治理绑定、确认生命周期，以及权限/授权线缆契约 | **无**（仅 JDK） |
-| `keelbase4j-runtime` | 受治理的运行时——AI 操作在信任闭环内运行 | `protocol`、Spring Boot |
+| `keelbase4j-core` | 可嵌入的 core——信任闭环、治理面与安全链，由一个自动配置装配，好让宿主带得走 | `protocol` |
+| `keelbase4j-runtime` | 受治理的运行时——AI 操作在信任闭环内运行 | `core`、Spring Boot |
 | `keelbase4j-generator` | 业务描述 → Business Spec → 可独立运行的 Spring Boot 源码 | `protocol` |
-| `keelbase4j-springai` | 适配器——用 Spring AI 实现运行时的 `ToolCallPlanner` 接缝；未配模型时完全惰性 | `runtime` |
+| `keelbase4j-springai` | 适配器——用 Spring AI 实现运行时的**两条** AI 接缝（`ToolCallPlanner`：一条消息一个计划；`TaskRunner`：框架自己的多步循环）；未配模型时完全惰性 | `core` |
+| `keelbase4j-mcp` | 适配器——一个 MCP 服务端宣称的工具，受治理的方式与编译进来的那些**完全一致** | `core` |
 | `keelbase4j-demo` | 可运行部署——运行时 + 适配器 + **一个** provider，由 Maven profile 选（默认 `deepseek`，另有 `openai`、`ollama`） | `runtime`、`springai` |
 
 `keelbase4j-protocol` 正是**生成物所依赖**的那个 artifact，所以它保持零第三方依赖：当它与运行时共用一份 jar 时，那个库悄悄带上了 Spring Security，而继承了其自动配置的生成应用把所有端点都锁死了。适配器——模型 provider、身份 provider——属于运行时**之外**，依赖它，而不是反过来。
 
-运行时服务十四条路由，全部挂在参照实现的 `/api/v1` 前缀下（`server.servlet.context-path`），这样一套 runtime-neutral 前端只保留一个 base URL，不需要按 runtime 分支：
+运行时服务十五条路由，全部挂在参照实现的 `/api/v1` 前缀下（`server.servlet.context-path`），这样一套 runtime-neutral 前端只保留一个 base URL，不需要按 runtime 分支：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | POST | `/ai/chat` | 规划器 → 受治理的工具调用 |
 | POST | `/ai/chat/stream` · `/admin/ai/chat/stream` | 同一回合的 SSE 形态；`/admin` 那条要求管理角色 |
+| POST | `/ai/task` | 同一句话，当作**框架可以走若干受治理步骤**去完成的任务；没部署编排适配器时答 `available: false` |
 | POST | `/ai/confirmations/{token}` | `approve`（执行）或 `decline`（什么都不写） |
 | GET | `/ai/tool-effects` | 已记录的副作用 |
 | DELETE | `/ai/tool-effects/{id}` | 撤销 → 本地补偿（软删除） |

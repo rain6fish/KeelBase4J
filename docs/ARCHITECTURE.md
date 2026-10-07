@@ -74,10 +74,10 @@ boundary.
 | `governance` | `GovernanceService` (risk → gate), confirmation store + entity, `ConfirmationSweeper` (the offline window closing), `ConfirmationWatchers` (the in-process registry that carries a decision to an open stream) |
 | `effect` | `SideEffect` + record/revoke (content-derived idempotency, class-aware revoke) |
 | `audit` | `AuditService` — hash-chained AI audit + verify, appends serialized on a database row lock (`AuditChainHead`) |
-| `pipeline` | The AI seam: `ToolCallPlanner` (an SPI a model-driven pipeline implements) · `IntentPlan` (tool + args, and nothing else) · `ChatReplier` (what to say back, the second seam, with `DeterministicReplier` as its default) · `RuleBasedPlanner` + `RuleBasedPlannerAutoConfiguration` (the default, so the loop is reproducible without a model). The default is registered `@ConditionalOnMissingBean`, so a deployment that declares its own planner simply replaces it — no `@Primary`, no exclusion list, no edit here. |
+| `pipeline` | The AI seams: `ToolCallPlanner` (one plan per message — an SPI a model-driven pipeline implements) · `TaskRunner` (the other shape: the framework's own loop takes as many governed steps as it needs, and every step still reaches the engine; this runtime ships **no** implementation, so a deployment without one is told the capability is absent) · `IntentPlan` / `TaskRun` (their vocabularies: tool + args; and answer + steps + the token of a step still waiting) · `ChatReplier` (what to say back, with `DeterministicReplier` as its default) · `RuleBasedPlanner` + `RuleBasedPlannerAutoConfiguration` (the default, so the loop is reproducible without a model). The default is registered `@ConditionalOnMissingBean`, so a deployment that declares its own planner simply replaces it — no `@Primary`, no exclusion list, no edit here. |
 | `engine` | `GovernedExecutionEngine` — the loop: gate → confirm → execute → audit → effect |
 | `conversation` | The transcript behind `conversationId`: `ConversationStore` + `ConversationMessage` — turns and nothing more (no embeddings, no retrieval, no memory policy) |
-| `web` | REST: chat in both shapes (`/ai/chat`, `/ai/chat/stream` with `/admin/ai/chat/stream` behind the admin role), confirmations, tool-effects, `/audit/verify`, the identity surface (`/auth/me`, `/auth/me/permissions`, `/auth/oauth/providers`, `/auth/login-stats`), `/customers`, `/app/capabilities`, `/app/provenance`. Mapped at the root but mounted under `/api/v1` (`server.servlet.context-path`) — the reference's prefix, which is what lets one runtime-neutral frontend talk to this runtime without rebasing |
+| `web` | REST: chat in both shapes (`/ai/chat`, `/ai/chat/stream` with `/admin/ai/chat/stream` behind the admin role), the multi-step entry (`/ai/task`, which answers `available: false` where no orchestration adapter is deployed), confirmations, tool-effects, `/audit/verify`, the identity surface (`/auth/me`, `/auth/me/permissions`, `/auth/oauth/providers`, `/auth/login-stats`), `/customers`, `/app/capabilities`, `/app/provenance`. Mapped at the root but mounted under `/api/v1` (`server.servlet.context-path`) — the reference's prefix, which is what lets one runtime-neutral frontend talk to this runtime without rebasing |
 
 #### 3.2.1 Two answers that are this runtime's own
 
@@ -116,6 +116,9 @@ KeelBase4J deployment present at all.
 |---|---|
 | `SpringAiToolCallPlanner` | Implements the runtime's `ToolCallPlanner` seam with Spring AI's `ChatClient` |
 | `SpringAiPlannerAutoConfiguration` | Puts that planner on the seam — **only** when a model is configured |
+| `GovernedToolCallbacks` | The runtime's tools, handed to the framework as tool callbacks whose only path is the engine; the model is shown name and description only |
+| `GovernedTaskRunner` | Implements the `TaskRunner` seam: the framework's own tool-calling loop drives, and the run reports every step in order |
+| `GovernedTaskRunnerAutoConfiguration` | Puts that runner on the seam — on its own, not beside the planner, whose condition would otherwise take the runner down with it |
 
 This module is an **adapter**, and the arrow points one way: it depends on the runtime; the runtime
 does not know it exists (CLAUDE.md 硬规则 6). It carries no provider dependency either — which model
@@ -221,14 +224,14 @@ verifiable.
 
 | Artifact | Version | Contents |
 |---|---|---|
-| `cn.com.keelbase:keelbase4j-protocol` | 0.1.2 | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on, and one of the four published to Maven Central. |
-| `cn.com.keelbase:keelbase4j-core` | 0.1.2 | The embeddable core — the trust loop, the governance surface and the security chain, assembled by one auto-configuration so a host can carry it. **Depends on the protocol**; the adapter and the application over it depend on this. |
-| `cn.com.keelbase:keelbase4j-runtime` | 0.1.2 | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
-| `cn.com.keelbase:keelbase4j-generator` | 0.1.2 | The generator (studio side). |
-| `cn.com.keelbase:keelbase4j-springai` | 0.1.2 | The Spring AI adapter — **depends on the core**, not on the runtime (an adapter has no business dragging an application's boot class onto a consumer's classpath, ADR-0017 D2); only the demo deployment depends on it. |
-| `cn.com.keelbase:keelbase4j-mcp` | 0.1.2 | The MCP adapter — the tools a server advertises, governed like the ones compiled in. |
-| `cn.com.keelbase:keelbase4j-demo` | 0.1.2 | The runnable demo deployment — runtime + adapter + one provider, chosen by Maven profile. |
-| `cn.com.keelbase:keelbase4j` | 0.1.2 | The parent/aggregator (`pom`). |
+| `cn.com.keelbase:keelbase4j-protocol` | 0.1.3 | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on, and one of the four published to Maven Central. |
+| `cn.com.keelbase:keelbase4j-core` | 0.1.3 | The embeddable core — the trust loop, the governance surface and the security chain, assembled by one auto-configuration so a host can carry it. **Depends on the protocol**; the adapter and the application over it depend on this. |
+| `cn.com.keelbase:keelbase4j-runtime` | 0.1.3 | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
+| `cn.com.keelbase:keelbase4j-generator` | 0.1.3 | The generator (studio side). |
+| `cn.com.keelbase:keelbase4j-springai` | 0.1.3 | The Spring AI adapter — **depends on the core**, not on the runtime (an adapter has no business dragging an application's boot class onto a consumer's classpath, ADR-0017 D2); only the demo deployment depends on it. |
+| `cn.com.keelbase:keelbase4j-mcp` | 0.1.3 | The MCP adapter — the tools a server advertises, governed like the ones compiled in. |
+| `cn.com.keelbase:keelbase4j-demo` | 0.1.3 | The runnable demo deployment — runtime + adapter + one provider, chosen by Maven profile. |
+| `cn.com.keelbase:keelbase4j` | 0.1.3 | The parent/aggregator (`pom`). |
 
 Four of these are published: `keelbase4j-protocol`, `keelbase4j-core`, `keelbase4j-springai` and the
 parent pom. The first is what a generated application resolves; the core and the adapter were added in
