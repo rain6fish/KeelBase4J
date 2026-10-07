@@ -3625,14 +3625,12 @@ public class JavaGenerator {
                 import java.util.List;
                 import java.util.Map;
                 import java.util.Optional;
-                import org.springframework.http.HttpStatus;
                 import org.springframework.web.bind.annotation.DeleteMapping;
                 import org.springframework.web.bind.annotation.GetMapping;
                 import org.springframework.web.bind.annotation.PathVariable;
                 import org.springframework.web.bind.annotation.RequestHeader;
                 import org.springframework.web.bind.annotation.RequestParam;
                 import org.springframework.web.bind.annotation.RestController;
-                import org.springframework.web.server.ResponseStatusException;
 
                 /**
                  * The governance surface: the recorded side effects of AI writes, the revoke path, and
@@ -3789,24 +3787,26 @@ public class JavaGenerator {
                                 : Optional.empty();
                     }
 
-                    // The chain's own state is administration too: how much this system recorded, and
-                    // whether it still verifies, is the runtime's admin surface, and a plain caller
-                    // reading it would be reading a count of other people's activity.
+                    // Resolving is the whole gate here: this application says "a caller it knows" by
+                    // asking the identity seam, which refuses an anonymous or unverifiable one. No role
+                    // is consulted, and that is deliberate — the runtime serves this to any
+                    // authenticated caller, its security chain being what keeps anonymous requests out,
+                    // so an administrator-only rule here would be narrower than the surface it mirrors.
+                    // (The frontend's own spec is what settled it: it asks as a plain caller, which is
+                    // what a rule this endpoint does not have on the runtime would have refused.)
                     //
-                    // 链自身的状态同样属于**管理面**：本系统记了多少、还可不可验，是运行时的管理面；普通
-                    // 调用者去读它，读的就是**别人活动的计数**。
+                    // 这里**解析本身就是全部的门**：本应用通过「问身份缝」来表达「它认识的调用者」，而身份缝
+                    // 会拒绝匿名或不可验的调用者。**不查角色是有意的**——运行时把这条端点伺服给**任何已认证**
+                    // 的调用者（挡住匿名的是它的安全链），所以在这里立一条「仅管理员」会比它所镜像的那个面
+                    // **更窄**。（这件事是**前端自己的 spec 定的**：它以普通调用者发问，而运行时上这条端点
+                    // 没有的那条规则，本来就会把它拒掉。）
                     @GetMapping("/audit/verify")
                     public Map<String, Object> verify(
                             @RequestHeader(value = "Authorization", required = false) String authorization,
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
                             @RequestHeader(value = "X-User-Role", required = false) String role,
                             @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
-                        Principal principal =
-                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
-                        if (!principal.isManager()) {
-                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                                    "the chain's state is administration");
-                        }
+                        identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
                         return Map.of("valid", audit.verify(), "checked", audit.size());
                     }
                 }

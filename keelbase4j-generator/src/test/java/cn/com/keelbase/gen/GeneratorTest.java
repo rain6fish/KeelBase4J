@@ -295,9 +295,23 @@ class GeneratorTest {
         // 名录与链自身的状态是运行时的管理面，这里同样加闸——普通调用者被拒，而不是被告知。两个文件都断言，
         // 因为「每个控制器一条端点」正是二者之一会被漏掉的那种形状。
         assertTrue(ai.contains("if (!principal.isManager()) {"),
-                "the tool catalogue is gated, as it is in the runtime");
-        assertTrue(governance.contains("if (!principal.isManager()) {"),
-                "and so is the chain's own state");
+                "the tool catalogue is gated at administrator, matching the carrier that serves it");
+        // The chain's state stops one step earlier, and that is the point: it asks who is calling and
+        // stops there, because the runtime serves it to any authenticated caller. An administrator-only
+        // rule here would be narrower than the surface it mirrors — and the frontend's own spec, which
+        // asks as a plain caller, is what caught the first attempt at writing it the other way.
+        //
+        // 链的状态停在**更早一步**，而这正是要点：它问「谁在调」，然后停在那里——因为运行时把这条端点伺
+        // 服给**任何已认证**的调用者。在这里立「仅管理员」会比它所镜像的那个面**更窄**——而把它写成另一种
+        // 的第一版，正是被**前端自己的 spec**（以普通调用者发问）逮住的。
+        int verifyAt = governance.indexOf("public Map<String, Object> verify(");
+        assertTrue(verifyAt > 0, "the chain's state is served at all");
+        String verifyBody = governance.substring(verifyAt,
+                governance.indexOf("return Map.of(\"valid\"", verifyAt));
+        assertTrue(verifyBody.contains("@RequestHeader(value = \"Authorization\""),
+                "it asks who is calling before it answers");
+        assertFalse(verifyBody.contains("isManager"),
+                "and stops there rather than at administrator, as the runtime does");
         // The tool's *declared* result type, not its name: the console groups effects by what they made.
         String writeTool = Files.readString(
                 out.resolve("src/main/java/com/example/crm/ai/CreateFollowupTool.java"));

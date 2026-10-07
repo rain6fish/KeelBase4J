@@ -148,13 +148,21 @@ APPROVED=$(curl -s -X POST "$BASE/ai/confirmations/$TOKEN" -H 'Content-Type: app
   -H "Authorization: Bearer $ALICE" -d '{"decision":"approve"}')
 check "approve executes and records an effect" '"effectId"' "$APPROVED"
 
-VERIFY=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify")
+VERIFY=$(curl -s -H "Authorization: Bearer $ALICE" "$BASE/audit/verify")
 check "audit chain verifies" '"valid":true' "$VERIFY"
-# The chain's own state is administration, not a public statistic: the length and validity of what
-# this system recorded is something the runtime hands to an admin, and so is it here.
+# The chain's own state is for a caller this application knows — "authenticated", not "administrator":
+# that is the posture the runtime has (its security chain keeps anonymous requests out and stops
+# there), and a narrower rule here would be a different surface wearing the same path. Anonymous is
+# what must not get in, so that is what these ask. Written this way after the frontend's own spec —
+# which calls it as a plain caller — refused the administrator-only first attempt.
 #
-# 链自身的状态属于**管理面**，不是公开统计：本系统记了多少、可不可验，运行时交到 admin 手里，这里亦然。
-check "the chain's state is closed to a plain user" '403' \
+# 链自身的状态是给**本应用认识的调用者**的——是「**已认证**」而不是「管理员」：那是运行时的姿态（它的安全链
+# 把匿名请求挡在外面，到此为止），而在这里立一条更窄的规则，就是同一个路径上的**另一个面**。真正不该进来
+# 的是**匿名**，所以下面断言问的就是它。这样写，是因为**前端自己的 spec**（以普通调用者调用）把最初那版
+# 「仅管理员」驳回了。
+check "the chain's state refuses an anonymous caller" '401' \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/audit/verify")"
+check "and answers a caller this application knows" '200' \
   "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/audit/verify")"
 
 # The identity seam and the contract-derived decision, on the generated artifact.
@@ -217,14 +225,14 @@ check "a live effect reports a target that is not deleted" '"targetSoftDeleted":
 # ……而且撤销留一行自己的记录——契约冻结 `effect_revoke` 正是为此：状态动了却没有任何 AI 审计留痕，正是
 # 那个取值堵上的逃逸口。这里断**计数**而不是匹配文本，因为这个应用暴露出来的就是链的长度：撤销后比撤销前
 # 多一行。（一次什么都不写的撤销同样会让 `valid` 保持 true——这正是本断言要抓的那类静默变化。）
-CHAIN_BEFORE=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
-check "the audit chain verifies before the revoke" '"valid":true' "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify")"
+CHAIN_BEFORE=$(curl -s -H "Authorization: Bearer $ALICE" "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
+check "the audit chain verifies before the revoke" '"valid":true' "$(curl -s -H "Authorization: Bearer $ALICE" "$BASE/audit/verify")"
 REVOKED=$(curl -s -X DELETE "$BASE/ai/tool-effects/$EFF" -H "Authorization: Bearer $ALICE")
 check "revoke marks the effect revoked" '"revokeStatus":"revoked"' "$REVOKED"
 AFTER_REVOKE=$(curl -s "$BASE/ai/tool-effects" -H "Authorization: Bearer $ALICE")
 check "and soft-deletes the row it created" '"targetSoftDeleted":true' "$AFTER_REVOKE"
 check "which is still there — deleted, not gone" '"targetExists":true' "$AFTER_REVOKE"
-CHAIN_AFTER=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
+CHAIN_AFTER=$(curl -s -H "Authorization: Bearer $ALICE" "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
 if [ "$CHAIN_AFTER" -eq "$((CHAIN_BEFORE + 1))" ] 2>/dev/null; then
   echo "  ok   the revocation left one line on the audit chain ($CHAIN_BEFORE -> $CHAIN_AFTER)"
 else
