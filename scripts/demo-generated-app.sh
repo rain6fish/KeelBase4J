@@ -77,9 +77,14 @@ stop_app
 APP_PID=$!
 trap stop_app EXIT
 
+# The self-description is what a readiness probe asks for: the tool catalogue is an admin surface now
+# (a plain caller is refused), and probing it would be asking a question most callers may not ask.
+#
+# 就绪探针问的是**自述面**：工具名录现在是管理面（普通调用者会被拒），拿它来探活等于问一个大多数调用者
+# 都不许问的问题。
 for _ in $(seq 1 60); do
   sleep 1
-  curl -s -o /dev/null "$BASE/ai/tools" && break
+  curl -s -o /dev/null "$BASE/app/capabilities" && break
 done
 
 # This app verifies the frozen delegation token, the way the runtime does, so a caller proves who it is
@@ -111,8 +116,16 @@ post_chat() { # token body
     -H "Authorization: Bearer $1" --data-binary @-
 }
 
-TOOLS=$(curl -s "$BASE/ai/tools")
+TOOLS=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/ai/tools")
 check "tools exposed (R1/R3)" '"riskLevel":"R3"' "$TOOLS"
+# The catalogue is the runtime's admin surface rather than a public one, and it is the same list the
+# runtime gates — so it is gated here too: a plain user is refused, not shown it. Asserted as a status
+# because the failure mode this guards is silence, not a wrong body.
+#
+# 这份名录是**运行时的管理面**、不是公开面；运行时把这份列表挡在角色之后，这里同样挡：普通用户被拒，
+# 而不是被告知。用**状态码**断言，因为这里要防的失败形态是**静默**、不是一个错的响应体。
+check "the tool catalogue is closed to a plain user" '403' \
+  "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/ai/tools")"
 
 # The chat entry takes a *message* and answers the conversation shape the runtime answers — the same
 # fields, so one frontend reads either. The reply is not from a model and says so, and conversationId
@@ -135,8 +148,14 @@ APPROVED=$(curl -s -X POST "$BASE/ai/confirmations/$TOKEN" -H 'Content-Type: app
   -H "Authorization: Bearer $ALICE" -d '{"decision":"approve"}')
 check "approve executes and records an effect" '"effectId"' "$APPROVED"
 
-VERIFY=$(curl -s "$BASE/audit/verify")
+VERIFY=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify")
 check "audit chain verifies" '"valid":true' "$VERIFY"
+# The chain's own state is administration, not a public statistic: the length and validity of what
+# this system recorded is something the runtime hands to an admin, and so is it here.
+#
+# 链自身的状态属于**管理面**，不是公开统计：本系统记了多少、可不可验，运行时交到 admin 手里，这里亦然。
+check "the chain's state is closed to a plain user" '403' \
+  "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/audit/verify")"
 
 # The identity seam and the contract-derived decision, on the generated artifact.
 PERMS=$(curl -s "$BASE/auth/me/permissions" -H "Authorization: Bearer $ALICE")
@@ -184,14 +203,14 @@ check "a live effect reports a target that is not deleted" '"targetSoftDeleted":
 # ……而且撤销留一行自己的记录——契约冻结 `effect_revoke` 正是为此：状态动了却没有任何 AI 审计留痕，正是
 # 那个取值堵上的逃逸口。这里断**计数**而不是匹配文本，因为这个应用暴露出来的就是链的长度：撤销后比撤销前
 # 多一行。（一次什么都不写的撤销同样会让 `valid` 保持 true——这正是本断言要抓的那类静默变化。）
-CHAIN_BEFORE=$(curl -s "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
-check "the audit chain verifies before the revoke" '"valid":true' "$(curl -s "$BASE/audit/verify")"
+CHAIN_BEFORE=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
+check "the audit chain verifies before the revoke" '"valid":true' "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify")"
 REVOKED=$(curl -s -X DELETE "$BASE/ai/tool-effects/$EFF" -H "Authorization: Bearer $ALICE")
 check "revoke marks the effect revoked" '"revokeStatus":"revoked"' "$REVOKED"
 AFTER_REVOKE=$(curl -s "$BASE/ai/tool-effects" -H "Authorization: Bearer $ALICE")
 check "and soft-deletes the row it created" '"targetSoftDeleted":true' "$AFTER_REVOKE"
 check "which is still there — deleted, not gone" '"targetExists":true' "$AFTER_REVOKE"
-CHAIN_AFTER=$(curl -s "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
+CHAIN_AFTER=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')
 if [ "$CHAIN_AFTER" -eq "$((CHAIN_BEFORE + 1))" ] 2>/dev/null; then
   echo "  ok   the revocation left one line on the audit chain ($CHAIN_BEFORE -> $CHAIN_AFTER)"
 else

@@ -46,9 +46,13 @@ start_app() { # log-file
   ( cd "$ROOT/$GEN_DIR" && exec java -jar "$(ls "$ROOT/$GEN_DIR"/target/*.jar | head -1)" \
       --server.port="$PORT" ) > "$1" 2>&1 &
   APP_PID=$!
+  # The self-description, not the tool catalogue: the catalogue is an admin surface now, and a
+  # readiness probe should ask a question any caller may ask.
+  #
+  # 探自述面、不是工具名录：名录现在是管理面，而就绪探针该问任何调用者都能问的问题。
   for _ in $(seq 1 60); do
     sleep 1
-    curl -s -o /dev/null "$BASE/ai/tools" && return 0
+    curl -s -o /dev/null "$BASE/app/capabilities" && return 0
   done
   echo "  FAIL the generated app did not start"
   fail=1

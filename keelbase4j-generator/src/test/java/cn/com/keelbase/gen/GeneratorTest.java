@@ -276,6 +276,16 @@ class GeneratorTest {
         // 的状态变化。
         assertTrue(governance.contains("audit.append(\"effect_revoke\", principal.userId(),"),
                 "a revocation is audited, under the contract's own value for it");
+        // The catalogue and the chain's own state are the runtime's admin surfaces, and they are gated
+        // here too — a plain caller is refused rather than shown them. Asserted on both files, because
+        // "one endpoint per controller" is exactly the shape where one of the two gets forgotten.
+        //
+        // 名录与链自身的状态是运行时的管理面，这里同样加闸——普通调用者被拒，而不是被告知。两个文件都断言，
+        // 因为「每个控制器一条端点」正是二者之一会被漏掉的那种形状。
+        assertTrue(ai.contains("if (!principal.isManager()) {"),
+                "the tool catalogue is gated, as it is in the runtime");
+        assertTrue(governance.contains("if (!principal.isManager()) {"),
+                "and so is the chain's own state");
         // The tool's *declared* result type, not its name: the console groups effects by what they made.
         String writeTool = Files.readString(
                 out.resolve("src/main/java/com/example/crm/ai/CreateFollowupTool.java"));

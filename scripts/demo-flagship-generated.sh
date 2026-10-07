@@ -110,7 +110,11 @@ wait_ready() { # base — the app needs a moment to apply migrations and bind th
   local base="$1" attempt
   for attempt in $(seq 1 90); do
     sleep 1
-    if curl -s -o /dev/null "$base/ai/tools"; then return 0; fi
+    # The self-description, not the tool catalogue: the catalogue is an admin surface now, and a
+    # readiness probe should ask a question any caller may ask.
+    #
+    # 探自述面、不是工具名录：名录现在是管理面，而就绪探针该问任何调用者都能问的问题。
+    if curl -s -o /dev/null "$base/app/capabilities"; then return 0; fi
   done
   echo "  FAIL the application did not answer at $base within 90s" >&2
   return 1

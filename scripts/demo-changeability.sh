@@ -89,7 +89,11 @@ stop_app
 ( cd "$ROOT/$GEN_DIR" && exec java -jar "$JAR" --server.port="$PORT" ) > "$ROOT/$GEN_DIR/app.log" 2>&1 &
 APP_PID=$!
 trap stop_app EXIT
-for _ in $(seq 1 60); do sleep 1; curl -s -o /dev/null "$BASE/ai/tools" && break; done
+# Probing the self-description, not the tool catalogue: the catalogue is an admin surface now (a plain
+# caller is refused), and a readiness probe should ask a question any caller may ask.
+#
+# 探的是**自述面**、不是工具名录：名录现在是管理面（普通调用者会被拒），而就绪探针该问的是**任何调用者都可以问**的问题。
+for _ in $(seq 1 60); do sleep 1; curl -s -o /dev/null "$BASE/app/capabilities" && break; done
 
 # The generated app verifies the frozen delegation token; carol is a manager because its directory says so.
 ALICE="$(mint alice)"

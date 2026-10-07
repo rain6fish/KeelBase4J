@@ -461,8 +461,11 @@ public class JavaGenerator {
         sb.append("verified against the frozen contract with `keelbase.delegation.secret` and\n");
         sb.append("`keelbase.delegation.audience` (set `DELEGATION_SECRET` / `DELEGATION_AUDIENCE`, or edit\n");
         sb.append("`application.properties`). Nothing runs anonymously on the governance surface: a request\n");
-        sb.append("without a valid token is a 401. The one exception is `POST /auth/login` itself, and only\n");
-        sb.append("where this deployment turns it on.\n\n");
+        sb.append("without a valid token is a 401, and the surfaces the runtime keeps for an admin — the tool\n");
+        sb.append("catalogue and the chain's own state — are closed to everyone else. Two things ask for no\n");
+        sb.append("token at all: `POST /auth/login` itself, and only where this deployment turns it on; and the\n");
+        sb.append("`/app/*` self-description endpoints, which name this deployment rather than any caller and\n");
+        sb.append("are what a readiness probe should ask.\n\n");
         sb.append("`POST /auth/login` and `GET /auth/me` are the console's session point — who the caller is,\n");
         sb.append("settled before what they may do. Login is **off unless you set `KEELBASE_DEMO_PASSWORD`**\n");
         sb.append("(no default; nothing is written into the source): with a passphrase set, one of the declared\n");
@@ -2903,8 +2906,27 @@ public class JavaGenerator {
                         this.identities = identities;
                     }
 
+                    // The catalogue is administration, not a public list: it is the same surface the
+                    // runtime hands only to an admin, and a caller who may not govern these tools has no
+                    // business enumerating them. Refused rather than filtered — there is no subset of
+                    // this list a plain caller is entitled to. (The readiness probes in the demo scripts
+                    // ask /app/capabilities instead: a probe should ask what any caller may ask.)
+                    //
+                    // 这份名录属于**管理面**、不是公开列表：运行时只把它交给管理员，而一个无权治理这些工具的
+                    // 调用者也没有理由去清点它们。**拒绝**而不是过滤——这份列表里没有一个子集是普通调用者有权看
+                    // 到的。（演示脚本里的就绪探针改问 `/app/capabilities`：探针该问**任何调用者都能问**的东西。）
                     @GetMapping("/ai/tools")
-                    public List<Map<String, Object>> tools() {
+                    public List<Map<String, Object>> tools(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal principal =
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        if (!principal.isManager()) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "the tool catalogue is administration");
+                        }
                         return registry.all().stream().map(tool -> {
                             Map<String, Object> view = new LinkedHashMap<>();
                             view.put("name", tool.name());
@@ -3567,12 +3589,14 @@ public class JavaGenerator {
                 import java.util.List;
                 import java.util.Map;
                 import java.util.Optional;
+                import org.springframework.http.HttpStatus;
                 import org.springframework.web.bind.annotation.DeleteMapping;
                 import org.springframework.web.bind.annotation.GetMapping;
                 import org.springframework.web.bind.annotation.PathVariable;
                 import org.springframework.web.bind.annotation.RequestHeader;
                 import org.springframework.web.bind.annotation.RequestParam;
                 import org.springframework.web.bind.annotation.RestController;
+                import org.springframework.web.server.ResponseStatusException;
 
                 /**
                  * The governance surface: the recorded side effects of AI writes, the revoke path, and
@@ -3729,8 +3753,24 @@ public class JavaGenerator {
                                 : Optional.empty();
                     }
 
+                    // The chain's own state is administration too: how much this system recorded, and
+                    // whether it still verifies, is the runtime's admin surface, and a plain caller
+                    // reading it would be reading a count of other people's activity.
+                    //
+                    // 链自身的状态同样属于**管理面**：本系统记了多少、还可不可验，是运行时的管理面；普通
+                    // 调用者去读它，读的就是**别人活动的计数**。
                     @GetMapping("/audit/verify")
-                    public Map<String, Object> verify() {
+                    public Map<String, Object> verify(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal principal =
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        if (!principal.isManager()) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "the chain's state is administration");
+                        }
                         return Map.of("valid", audit.verify(), "checked", audit.size());
                     }
                 }
