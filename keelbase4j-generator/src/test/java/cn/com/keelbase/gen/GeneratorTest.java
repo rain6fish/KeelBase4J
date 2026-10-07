@@ -177,6 +177,18 @@ class GeneratorTest {
                 "the session is the token the app already verifies, not a second format");
         assertTrue(authController.contains("${keelbase.demo.password:}"),
                 "the passphrase arrives from the environment, with no default in the source");
+        // The console's login page makes two calls before anyone signs in, and the page swallows a
+        // failure from either — so an endpoint that is absent and one that answers nothing look alike
+        // from inside the page. They are not alike from outside, and the runtime answers both for that
+        // reason. This is the other half of the login surface JV-43 built.
+        //
+        // 控制台的登录页在**没人登录前**发两个请求，而页面会吞掉两者任何一个的失败——于是「端点不存在」与
+        // 「端点答空」从页面里看长得一样。从外面看它们**不一样**，运行时同样作答正是为此。这是 JV-43 建的
+        // 那个登录面的**另一半**。
+        assertTrue(authController.contains("@GetMapping(\"/auth/oauth/providers\")"),
+                "the provider list answers — empty, not absent");
+        assertTrue(authController.contains("@PostMapping(\"/auth/login-stats\")"),
+                "and so does the visit ping");
         assertTrue(Files.readString(out.resolve("src/main/java/com/example/crm/identity/LocalIdentities.java"))
                         .contains("subjectOf("),
                 "the login path resolves a typed user id to the subject the rest of the chain uses");

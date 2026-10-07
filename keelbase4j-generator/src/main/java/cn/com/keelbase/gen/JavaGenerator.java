@@ -462,10 +462,11 @@ public class JavaGenerator {
         sb.append("`keelbase.delegation.audience` (set `DELEGATION_SECRET` / `DELEGATION_AUDIENCE`, or edit\n");
         sb.append("`application.properties`). Nothing runs anonymously on the governance surface: a request\n");
         sb.append("without a valid token is a 401, and the surfaces the runtime keeps for an admin — the tool\n");
-        sb.append("catalogue and the chain's own state — are closed to everyone else. Two things ask for no\n");
-        sb.append("token at all: `POST /auth/login` itself, and only where this deployment turns it on; and the\n");
-        sb.append("`/app/*` self-description endpoints, which name this deployment rather than any caller and\n");
-        sb.append("are what a readiness probe should ask.\n\n");
+        sb.append("catalogue and the chain's own state — are closed to everyone else. Two kinds of request ask\n");
+        sb.append("for no token at all: the login page's own courtesy calls (`POST /auth/login`, where this\n");
+        sb.append("deployment turns it on; the visit ping; and the provider list it reads before anyone has\n");
+        sb.append("signed in), and the `/app/*` self-description endpoints, which name this deployment rather\n");
+        sb.append("than any caller and are what a readiness probe should ask.\n\n");
         sb.append("`POST /auth/login` and `GET /auth/me` are the console's session point — who the caller is,\n");
         sb.append("settled before what they may do. Login is **off unless you set `KEELBASE_DEMO_PASSWORD`**\n");
         sb.append("(no default; nothing is written into the source): with a passphrase set, one of the declared\n");
@@ -3015,6 +3016,7 @@ public class JavaGenerator {
                 import java.security.MessageDigest;
                 import java.time.Instant;
                 import java.util.LinkedHashMap;
+                import java.util.List;
                 import java.util.Map;
                 import org.springframework.beans.factory.annotation.Value;
                 import org.springframework.http.HttpStatus;
@@ -3212,6 +3214,40 @@ public class JavaGenerator {
                         result.put("refreshToken", "");
                         result.put("user", user);
                         return result;
+                    }
+
+                    /**
+                     * The console's login page calls these two before anyone has signed in, and both
+                     * answer a fact about this deployment rather than a placeholder.
+                     *
+                     * <p>Answering matters as much as the answer: the console is built to swallow a
+                     * failure here, so an absent endpoint and an empty one look the same page-side —
+                     * while outside they are different things, and a deployment that answers "none"
+                     * should not be indistinguishable from one that answers nothing at all. The runtime
+                     * serves both for the same reason and with the same reasoning.
+                     *
+                     * <p>Both are honest rather than stubbed. This application has no provider registry
+                     * and no sink for a visit's address, so "no federated providers" and "nothing was
+                     * recorded" are true descriptions of it. Claiming either would be the stub.
+                     *
+                     * <p>控制台在**没有人登录之前**就调这两条，而两条答的都是这个部署的**事实**、不是占位符。
+                     *
+                     * <p>**作答**与**答什么**同样要紧：控制台在这两处**本就吞掉失败**，于是「端点不存在」与
+                     * 「端点答空」在页面那一侧长得一样——而在外面它们是两回事，一个答「没有」的部署不该与一个
+                     * 什么都不答的部署**无从分辨**。运行时同样伺服这两条，理由与推理一致。
+                     *
+                     * <p>两条都是**诚实**、不是桩：本应用既没有 provider 注册表、也没有落访客地址的地方，故
+                     * 「无联邦登录」与「什么都没记下」是对它**真实**的描述。声称相反的才是桩。
+                     */
+                    @GetMapping("/auth/oauth/providers")
+                    public Map<String, Object> oauthProviders() {
+                        return Map.of("enabledProviders", List.of(), "providers", List.of(),
+                                "groups", Map.of());
+                    }
+
+                    @PostMapping("/auth/login-stats")
+                    public Map<String, Object> loginStats() {
+                        return Map.of("ok", false);
                     }
 
                     private Principal principal(String authorization, String userId, String role,

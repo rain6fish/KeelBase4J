@@ -164,6 +164,20 @@ check "role is the contract's vocabulary" '"role":"user"' "$PERMS"
 ANON=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/auth/me/permissions")
 check "no token => 401 (nothing runs anonymously)" "401" "$ANON"
 
+# The console's login page calls these two before anyone has signed in, and each answers a fact about
+# this deployment rather than a placeholder: it has no federated providers and no sink for a visit's
+# address, so it says exactly that. Absent would be a different thing — the page swallows a failure
+# here, so from inside the page an absent endpoint and an empty one are indistinguishable, which is
+# the whole reason the runtime answers them too.
+#
+# 控制台的登录页在**没人登录之前**就调这两条，而两条各自答的是这个部署的**事实**、不是占位符：它没有
+# 联邦登录、也没有落访客地址的地方，于是就这么说。**缺席**是另一回事——页面在这两处会吞掉失败，于是从
+# 页面里看，「端点不存在」与「端点答空」无从分辨；这也正是运行时同样作答的全部理由。
+check "the provider list answers, empty rather than absent" '"enabledProviders":[]' \
+  "$(curl -s "$BASE/auth/oauth/providers")"
+check "and the visit ping answers without claiming a record" '"ok":false' \
+  "$(curl -s -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/auth/login-stats")"
+
 # ── the capability surface, as this app actually serves it ───────────────────────────────────────
 # F5's own rule is that the shell reads this *before* it holds a token, so it is fetched without one.
 # Nothing else checks the served payload: the unit test pins the file that produces it, not the JSON.
