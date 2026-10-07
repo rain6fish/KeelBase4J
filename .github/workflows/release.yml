@@ -67,6 +67,15 @@ jobs:
       - name: Vendored snapshot must match its sources
         run: scripts/sync-vectors.sh --check --contract contract-repo --main main-repo
 
+      # The publish reactor excludes `keelbase4j-runtime`, and the adapter nonetheless has a *test*
+      # dependency on it — so a build that compiles tests would look for
+      # `cn.com.keelbase:keelbase4j-runtime:jar:<version>` in Maven Central, where it does not exist
+      # and never will. Not a theory: that is exactly how the first run of the rehearsal job failed,
+      # and it is why this step exists. Installing it into the runner's throwaway repository is what
+      # lets the publish set stay at four modules while the adapter still compiles its tests.
+      - name: Install the module the publish set builds against but does not publish
+        run: mvn -B -ntp -DskipTests install -pl keelbase4j-runtime -am
+
       # A tag release cannot be taken back, so what it publishes is checked rather than assumed. The
       # set is the *reactor*, not a per-module deploy flag: the first attempt at this shipped every
       # module (and failed on one of them) because the publishing plugin bundles the whole reactor,

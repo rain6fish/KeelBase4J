@@ -100,6 +100,13 @@ jobs:
       #
       # `package`, not `verify`: signing belongs to the release job, which is the only place the key
       # exists. The module list and the reason for it are the publish set's, in release.yml.
+      #
+      # The install comes first, and the reason is the one the release job writes down: the adapter has
+      # a *test* dependency on the runtime, which the publish set excludes, so a build that compiles
+      # tests would go looking for it in Maven Central. This job exists to find that kind of thing —
+      # it found this one, on its first run.
+      - name: Install the module the publish set builds against but does not publish
+        run: mvn -B -ntp -DskipTests install -pl keelbase4j-runtime -am
       - name: Build the publish set, sources and javadoc included
         run: mvn -B -ntp -Prelease -DskipTests -pl 'keelbase4j-springai,!keelbase4j-runtime' -am package
       # The same count release.yml asserts, asserted here as well: there it is the last thing between

@@ -55,7 +55,11 @@ CI（`.github/workflows/ci.yml`）门禁三件事：`conformance`（`mvn verify`
 这道题唯一的答案。第一次发布就是这么把六个模块全带上、并在其中一个上失败的。现在 deploy 步用
 `-pl 'keelbase4j-springai,!keelbase4j-runtime' -am` 限制 reactor，另有一道检查确认结果恰为四个：
 `-am` 保证依赖不会被忘掉，而 `runtime` 要**按名字排除**——它是**应用**、且 `-am` 会经适配器的**测试**
-依赖够到它。
+依赖够到它。**⚠ 排除它有一个代价，发布与彩排都要先付**：适配器**编译测试**时仍要解析那个 artifact，而被排除的
+它在 reactor 里不存在 ⇒ Maven 会去 **Central** 找 `keelbase4j-runtime:jar:0.1.2` 并**失败**（那里没有、也永远
+不会有）。所以两步都**先**跑 `mvn -DskipTests install -pl keelbase4j-runtime -am`，把它装进运行器本机仓库。
+**这不是理论**：彩排任务第一次跑就是这么红的，而**本机那次「通过」只是被 `~/.m2` 里同版本的旧 artifact 救的**
+—— 干净条件下同一个命令当场失败。
 ⚠️ 手动跑 `mvn -Prelease deploy`（不带 `-pl`）会**把所有模块都发上去**。
 
 ## 提交约定
