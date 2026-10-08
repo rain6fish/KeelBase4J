@@ -10,6 +10,10 @@ import java.util.stream.Collectors;
  * One argument a tool declares, so the runtime can refuse a bad proposal before a human is asked to
  * approve it.
  *
+ * <p>A declaration is four things: the key the tool reads out of its argument map, the type of the
+ * value under it, a description in the words a model should see, and whether a proposal that leaves it
+ * out is refused.
+ *
  * <p><b>Why the tool declares it and not the caller.</b> A tool reads its arguments out of a map, and
  * until this type existed nothing said which keys it reads: a model that named one of them differently
  * produced a proposal that looked well-formed, became a confirmation row, and only failed inside
@@ -23,6 +27,9 @@ import java.util.stream.Collectors;
  *
  * 一个工具声明的**一个入参**，好让运行时在请人批准之前就拒掉一份坏提议。
  *
+ * <p>一份声明是四样东西：工具从它的参数 map 里读的**那个键** · 键下的**值的类型** · 一段**模型该看到的
+ * 描述** · 以及**漏掉它是否拒**。
+ *
  * <p><b>为什么由工具声明、而不是由调用方。</b>工具从一个 map 里读它的参数，而在这个类型存在之前，
  * **没有任何东西说过它读哪些键**：模型把其中一个名字写错，产出的提议看上去完好、变成一行待确认，直到
  * {@code execute} 里才失败 —— 那已经是**有人点过批准之后**，而且什么都没写进去。声明放在这里，是因为
@@ -31,11 +38,6 @@ import java.util.stream.Collectors;
  * <p><b>类型词表是协议的，不是本类的。</b>下面五个名字就是
  * {@code ai-tool-inventory.schema.json} 早就在用的那套工具参数取值 —— 于是这里的声明可以**不经翻译**
  * 渲染到那条 wire 形状上。
- *
- * @param name the key the tool reads out of its argument map
- * @param type one of {@link #STRING}, {@link #NUMBER}, {@link #BOOLEAN}, {@link #ARRAY}, {@link #OBJECT}
- * @param description what the argument means, in the words a model should see
- * @param required whether a proposal without it is refused
  */
 public record ToolParameter(String name, String type, String description, boolean required) {
 
