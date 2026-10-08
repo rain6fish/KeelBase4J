@@ -12,6 +12,61 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-08
+
+**English**
+
+### Added
+
+- **A tool declares the arguments it reads, and the gate checks every proposal against that
+  declaration.** `AiTool.parameters()` — a `default` returning an empty list, so nothing compiled
+  against an earlier version breaks — and `ToolParameter`: a name, a type drawn from the vocabulary the
+  conformance vectors already use, a description, and whether it is required. The engine checks in
+  `execute`, after the block decision and before any confirmation row exists: an argument the tool does
+  not read, or a required one left out, is refused with `invalid_arguments`, an audit line, and no row
+  for a person to answer. The refusal is an outcome rather than an exception because the framework's
+  own tool-calling loop hands it back to the model, which is what lets it correct itself and propose
+  again.
+
+- **The declared arguments are also what the model is shown.** `GovernedToolCallbacks` builds the tool
+  definition's `inputSchema` from them, and the plain planner's catalogue lists them beside each tool.
+  Until this, a tool reached the model as an object with no stated properties, so the model had to
+  guess the names — and the guess is what produced a confirmation somebody approved and an execution
+  that wrote nothing.
+
+- **The MCP adapter forwards the input schema it has always held.** `McpSchema.JsonSchema` was captured
+  and never passed on; once arguments are checked, an adapter that keeps it to itself refuses every MCP
+  call for carrying arguments the tool is not known to read.
+
+### Changed
+
+- **A tool that declares nothing is not checked.** The empty default is deliberate: a deployment's own
+  tools and every generated application keep working untouched, and a tool that has not yet said what
+  it reads is not silently read as taking no arguments.
+
+**中文**
+
+### 新增
+
+- **工具声明它读哪些入参，闸口拿这份声明核对每一份提议。** `AiTool.parameters()` —— 一个
+  `default`、返回空表，故对着更早版本编译的东西一个都不破 —— 与 `ToolParameter`：名字、类型（取自
+  conformance 向量早已在用的那套词表）、描述、以及是否必填。引擎在 `execute` 里核对，位置在 block 判定
+  **之后**、任何确认行存在**之前**：工具不读的参数、漏掉的必填参数，都以 `invalid_arguments` 被拒、留一行
+  审计、**不产生等人回答的行**。拒绝是**结果**而不是异常，因为框架自己的工具调用循环会把它交回模型 ——
+  那正是模型能自己改对、再来一次的原因。
+
+- **这份声明同时也是给模型看的东西。** `GovernedToolCallbacks` 按它生成工具定义的 `inputSchema`，朴素
+  规划器的目录也在每个工具旁列出它。在此之前，工具是以一个**没有声明任何属性**的对象到达模型的，模型只能
+  去猜名字 —— 而那个猜测，正是「一条被人批准的确认 + 一次什么都没写的执行」的来源。
+
+- **MCP 适配器转发它一直握着的 input schema。** `McpSchema.JsonSchema` 此前被捕获、却从未转出去；在入参
+  已受校验之后，一个把它留给自己的适配器会让**每一次 MCP 调用**都因「带了工具不知会读的参数」而被拒。
+
+### 变更
+
+- **什么都没声明的工具不被校验。** 空默认是刻意的：部署自己的工具、以及每一套生成应用，都原样继续工作；
+  而一个还没说过自己读什么的工具，**不会被悄悄读成「不接受任何参数」**。
+
 ## [0.1.3] - 2026-10-07
 
 **English**
