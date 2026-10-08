@@ -42,6 +42,12 @@ public class AnalyzeCustomerRiskTool implements AiTool {
     }
 
     @Override
+    public List<ToolParameter> parameters() {
+        return List.of(ToolParameter.required("customerId", ToolParameter.NUMBER,
+                "the customer whose risk is being assessed"));
+    }
+
+    @Override
     public ToolResult execute(Map<String, Object> args, Principal principal) {
         Long customerId = asLong(args.get("customerId"));
         // The tool boundary does not trust the caller's arguments — not even a model planner's, whose

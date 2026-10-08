@@ -40,6 +40,8 @@ public class DeterministicReplier implements ChatReplier {
                             + "written yet.";
             case "executed" -> "Done — it ran, and the side effect is recorded.";
             case "requires_approval" -> "That needs approval before it can run.";
+            case "invalid_arguments" -> "I proposed a call whose arguments did not match the tool, so "
+                    + "nothing was proposed to you: " + (outcome.error() == null ? "" : outcome.error());
             case "blocked" -> "That was blocked by the risk policy, so nothing ran.";
             case "declined" -> "You declined it, so nothing was written.";
             case "error" -> "It failed: " + (outcome.error() == null ? "no detail given" : outcome.error());

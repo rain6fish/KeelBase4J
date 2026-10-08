@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.tool.AiTool;
+import cn.com.keelbase.runtime.tool.ToolParameter;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import cn.com.keelbase.runtime.tool.ToolResult;
 import java.util.ArrayList;
@@ -72,6 +73,69 @@ class GovernedToolCallbacksTest {
 
     private static Principal caller() {
         return new Principal("7", "user");
+    }
+
+    /** A tool that says which arguments it reads — what stops a model having to guess their names. */
+    private AiTool declaring(String name) {
+        return new AiTool() {
+            @Override
+            public String name() {
+                return name;
+            }
+
+            @Override
+            public String description() {
+                return "记住一件事";
+            }
+
+            @Override
+            public String riskLevel() {
+                return "R4";
+            }
+
+            @Override
+            public List<ToolParameter> parameters() {
+                return List.of(
+                        ToolParameter.required("content", ToolParameter.STRING, "the note to keep"),
+                        ToolParameter.optional("customerId", ToolParameter.NUMBER, "who it is about"));
+            }
+
+            @Override
+            public ToolResult execute(Map<String, Object> args, Principal principal) {
+                ranTools.add(name);
+                return ToolResult.ok(Map.of("id", 1));
+            }
+        };
+    }
+
+    @Test
+    void theModelIsShownTheArgumentsTheToolDeclares() {
+        ToolDefinition definition = one((name, args, who) -> ExecutionOutcome.executed(null, null),
+                declaring("remember")).getToolDefinition();
+
+        String schema = definition.inputSchema();
+        assertTrue(schema.contains("\"content\""), "the required argument must reach the model: " + schema);
+        assertTrue(schema.contains("\"customerId\""), "and so must the optional one: " + schema);
+        assertTrue(schema.contains("\"required\""), "which of them is required has to travel too: " + schema);
+        assertFalse(schema.contains("\"additionalProperties\":true"),
+                "a tool that declares its arguments is not shown as open-ended: " + schema);
+
+        // The declaration is not governance metadata, so it may travel — and the metadata still may not.
+        String shown = definition.name() + " | " + definition.description() + " | " + schema;
+        for (String governed : List.of("R4", "risk", "confirm", "revoke", "compensate")) {
+            assertFalse(shown.toLowerCase().contains(governed.toLowerCase()),
+                    "the model must not be shown governance metadata, but the definition carried: " + governed);
+        }
+    }
+
+    @Test
+    void aToolThatDeclaresNothingIsStillShownAnOpenSchema() {
+        ToolDefinition definition = one((name, args, who) -> ExecutionOutcome.executed(null, null),
+                watched("create_followup")).getToolDefinition();
+
+        assertTrue(definition.inputSchema().contains("\"additionalProperties\":true"),
+                "a tool written before arguments were declarable states nothing, and its schema says so "
+                        + "rather than claiming it takes no arguments: " + definition.inputSchema());
     }
 
     @Test

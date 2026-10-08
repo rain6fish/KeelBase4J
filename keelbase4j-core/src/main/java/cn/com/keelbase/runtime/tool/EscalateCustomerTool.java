@@ -9,6 +9,7 @@ import cn.com.keelbase.runtime.domain.FollowUp;
 import cn.com.keelbase.runtime.domain.FollowUpRepository;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
@@ -71,6 +72,12 @@ public class EscalateCustomerTool implements AiTool {
     @Override
     public String resultType() {
         return "follow_up";
+    }
+
+    @Override
+    public List<ToolParameter> parameters() {
+        return List.of(ToolParameter.required("customerId", ToolParameter.NUMBER,
+                "the customer to escalate"));
     }
 
     @Override

@@ -17,11 +17,16 @@ import cn.com.keelbase.runtime.governance.GovernanceService;
 import cn.com.keelbase.runtime.identity.OperatorIdentity;
 import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.tool.AiTool;
+import cn.com.keelbase.runtime.tool.ToolParameter;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import cn.com.keelbase.runtime.tool.ToolResult;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -75,6 +80,18 @@ public class GovernedExecutionEngine {
     public ExecutionOutcome execute(String toolName, Map<String, Object> args, Principal principal) {
         AiTool tool = registry.require(toolName);
         GateDecision decision = governance.decide(tool, principal);
+        if (decision != GateDecision.BLOCK) {
+            // The arguments are checked here, on the one path every planner's proposal travels, and
+            // after the block check rather than before it: telling a model its arguments are wrong
+            // invites it to try again, and a blocked tool is one that retrying cannot fix.
+            //
+            // 参数就在**所有规划器的提议都会走的那一条路**上校验，且排在 block 检查**之后**而不是之前：
+            // 告诉模型「你的参数不对」等于请它再来一次，而被策略挡住的工具是**再试也修不好**的。
+            Optional<ExecutionOutcome> malformed = refuseInvalidArguments(tool, args, principal);
+            if (malformed.isPresent()) {
+                return malformed.get();
+            }
+        }
         switch (decision) {
             case BLOCK:
                 audit.append("tool_call", principal.userId(), toolName + " blocked (risk policy)");
@@ -104,6 +121,63 @@ public class GovernedExecutionEngine {
             default:
                 return run(tool, args, principal);
         }
+    }
+
+    /**
+     * Refuse a proposal that names arguments its tool does not read, or omits ones it requires.
+     *
+     * <p><b>Why here, and not inside the tool.</b> A tool can only report the arguments it happened to
+     * read: the one it was handed under a name it does not use looks to it like an argument that was
+     * never sent, and the first is indistinguishable from a caller who simply left it out. Checked
+     * against the tool's own declaration, both are visible at once, and they are visible <em>before</em>
+     * a confirmation row exists — so a malformed proposal reaches no approver and no reviewer has to
+     * work out why an approved write did nothing.
+     *
+     * <p>What it writes is an audit line and a status, not an exception: a refusal the model cannot see
+     * is a refusal it cannot act on, and the native tool-calling loop hands this outcome straight back
+     * to the model, which is what lets it correct the name and propose again.
+     *
+     * <p><b>A tool that declares nothing is not checked</b> — see {@link AiTool#parameters()}. That is
+     * what keeps this additive; a tool opts in by declaring.
+     *
+     * 拒掉一份写了工具不读的参数、或漏了它必填参数的提议。
+     *
+     * <p><b>为什么在这里、而不是在工具里。</b>工具只能报告**它恰好读到的**那些参数：以它不用的名字塞给它的
+     * 那个键，在它看来和**一个从没被送来的参数**没有区别 —— 而这两者与「调用方只是漏了它」也分不开。拿工具的
+     * **自己的声明**来比，两者**一次同时可见**，而且是在**确认行存在之前**就可见 —— 于是坏提议见不到任何审批人，
+     * 也没有复核者需要去琢磨「为什么一条被批准的写什么都没做」。
+     *
+     * <p>它留下的是**一行审计 + 一个状态**，不是异常：模型**看不见**的拒绝，它也**无法据此改正**；而原生的
+     * 工具调用循环会把这个 outcome 原样交回模型 —— 这正是它能改对名字、再来一次的原因。
+     *
+     * <p><b>什么都没声明的工具不校验</b> —— 见 {@link AiTool#parameters()}。那正是本次改动**只是加性**的原因：
+     * 工具靠**声明**来加入校验。
+     */
+    private Optional<ExecutionOutcome> refuseInvalidArguments(AiTool tool, Map<String, Object> args,
+                                                              Principal principal) {
+        List<ToolParameter> declared = tool.parameters();
+        if (declared.isEmpty()) {
+            return Optional.empty();
+        }
+        Set<String> known = ToolParameter.namesOf(declared);
+        List<String> problems = new ArrayList<>();
+        for (String required : ToolParameter.requiredOf(declared)) {
+            if (args.get(required) == null) {
+                problems.add("`" + required + "` is required");
+            }
+        }
+        for (String sent : args.keySet()) {
+            if (!known.contains(sent)) {
+                problems.add("`" + sent + "` is not an argument of " + tool.name());
+            }
+        }
+        if (problems.isEmpty()) {
+            return Optional.empty();
+        }
+        String detail = String.join("; ", problems)
+                + " (expected: " + ToolParameter.describe(declared) + ")";
+        audit.append("tool_call", principal.userId(), tool.name() + " refused: " + detail);
+        return Optional.of(new ExecutionOutcome("invalid_arguments", null, null, null, detail));
     }
 
     /**

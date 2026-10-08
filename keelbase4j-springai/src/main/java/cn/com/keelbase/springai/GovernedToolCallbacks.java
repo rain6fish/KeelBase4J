@@ -6,6 +6,7 @@ import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.tool.AiTool;
+import cn.com.keelbase.runtime.tool.ToolParameter;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -25,10 +26,13 @@ import org.springframework.ai.tool.definition.ToolDefinition;
  * goes to {@link GovernedCall}, which is the engine. Risk level, the confirmation requirement, the
  * audit entry and the revoke path are still applied there and are still not negotiable by the caller.
  *
- * <p><b>What the model is shown is name and description only.</b> {@link AiTool} carries more — {@code
- * riskLevel}, {@code requiresConfirmation}, {@code revokeClass} — and its javadoc says server-side
- * only; the definition built here is where that is honoured. Once the framework generates the schema,
- * that restraint is no longer obvious from the outside, so it is asserted in the tests rather than
+ * <p><b>What the model is shown is the tool's own declaration: its name, its description, and the
+ * arguments it declares.</b> {@link AiTool} carries more — {@code riskLevel}, {@code
+ * requiresConfirmation}, {@code revokeClass} — and its javadoc says server-side only; the definition
+ * built here is where that is honoured. The declared arguments are not governance metadata: they are
+ * the only statement anywhere of what the tool reads, and withholding them is what let a model name an
+ * argument freely and find out only after somebody approved it. Once the framework generates the schema,
+ * the restraint is no longer obvious from the outside, so it is asserted in the tests rather than
  * assumed.
  *
  * <p><b>What comes back is the outcome, not the declaration.</b> The model has to be told that an
@@ -45,9 +49,11 @@ import org.springframework.ai.tool.definition.ToolDefinition;
  * ——所以回调必须是**引擎的前门**、而不是绕过它的路：每次调用都进 {@link GovernedCall}，那就是引擎。风险级、
  * 确认要求、审计条目与撤销路径仍在那里施加，仍不是调用方能谈的。
  *
- * <p>**给模型看的只有 name 与 description。** {@link AiTool} 还带着 {@code riskLevel} /
- * {@code requiresConfirmation} / {@code revokeClass}，其 javadoc 写明「仅服务端」；这里构建的定义就是兑现
- * 那句话的地方。一旦 schema 由框架生成，这份克制**从外面看不出来**了，所以它被**断言**而不是被假定。
+ * <p>**给模型看的是工具自己的声明：它的名字、描述，以及它声明的入参。** {@link AiTool} 还带着
+ * {@code riskLevel} / {@code requiresConfirmation} / {@code revokeClass}，其 javadoc 写明「仅服务端」；
+ * 这里构建的定义就是兑现那句话的地方。而入参声明**不是**治理元数据 —— 它是**这个工具读什么**的唯一陈述，
+ * 把它扣下来，正是模型得以随便给参数起名、并直到有人点过批准才发现的缘故。一旦 schema 由框架生成，这份克制
+ * **从外面看不出来**了，所以它被**断言**而不是被假定。
  *
  * <p>**回给模型的是结果，不是声明。** 模型必须知道某个动作没跑成；它**不预先**被告知级别与类别。因此一次
  * 「在等人」的调用会如实回报「在等人」——那是**结果**，也是循环能诚实收尾、而不是假装继续的唯一办法。
@@ -55,13 +61,62 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 public final class GovernedToolCallbacks {
 
     /**
-     * A permissive object schema, because a tool declares no parameters of its own yet: it receives a
-     * map and validates what it reads. Tightening this is a change to {@link AiTool}, not to this
-     * adapter — until then the model gets no guidance from the schema, which is a known cost.
+     * What a tool that declares no arguments is shown as: an object with nothing stated about it.
+     *
+     * <p>It is the same statement the engine makes when it does not check such a tool's arguments, and
+     * it is deliberately not {@code "no arguments allowed"} — a tool written before arguments were
+     * declarable keeps working, and its schema says the truth about it: nothing is known here.
      */
-    private static final String INPUT_SCHEMA = "{\"type\":\"object\",\"additionalProperties\":true}";
+    private static final String UNCONSTRAINED_SCHEMA = "{\"type\":\"object\",\"additionalProperties\":true}";
 
     private GovernedToolCallbacks() {
+    }
+
+    /**
+     * The tool's declared arguments, as the JSON schema the framework hands the model.
+     *
+     * <p>Which is the half that <em>prevents</em> the mistake rather than catching it: before this, the
+     * model was shown a tool with no stated arguments and had to guess the names, and guessing is what
+     * produced a confirmation somebody approved and an execution that wrote nothing.
+     *
+     * <p>Built through {@link CanonicalJson} rather than by concatenating strings, so the escaping is
+     * the protocol's own — a description containing a quote would otherwise emit a schema no parser
+     * accepts.
+     *
+     * 工具的**已声明入参**，就是框架交给模型的那份 JSON schema。
+     *
+     * <p>这是**防止**出错、而不只是接住它的那一半：在此之前，模型看到的是一个**没有声明任何参数**的工具，
+     * 只能去猜名字 —— 而猜，正是「一条被人批准的确认 + 一次什么都没写的执行」的来源。
+     *
+     * <p>经 {@link CanonicalJson} 构建、而不是拼字符串，转义才是**协议自己的** —— 描述里带一个引号，
+     * 拼出来的就会是一份没有解析器接受的 schema。
+     */
+    private static String inputSchema(AiTool tool) {
+        List<ToolParameter> parameters = tool.parameters();
+        if (parameters.isEmpty()) {
+            return UNCONSTRAINED_SCHEMA;
+        }
+        Map<String, Object> properties = new LinkedHashMap<>();
+        List<String> required = new ArrayList<>();
+        for (ToolParameter parameter : parameters) {
+            Map<String, Object> property = new LinkedHashMap<>();
+            property.put("type", parameter.type());
+            if (parameter.description() != null && !parameter.description().isBlank()) {
+                property.put("description", parameter.description());
+            }
+            properties.put(parameter.name(), property);
+            if (parameter.required()) {
+                required.add(parameter.name());
+            }
+        }
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("properties", properties);
+        if (!required.isEmpty()) {
+            schema.put("required", required);
+        }
+        schema.put("additionalProperties", false);
+        return CanonicalJson.json(schema);
     }
 
     /** One callback per registered tool, all of them answering through {@code call}. */
@@ -95,7 +150,7 @@ public final class GovernedToolCallbacks {
             return ToolDefinition.builder()
                     .name(tool.name())
                     .description(tool.description())
-                    .inputSchema(INPUT_SCHEMA)
+                    .inputSchema(inputSchema(tool))
                     .build();
         }
 

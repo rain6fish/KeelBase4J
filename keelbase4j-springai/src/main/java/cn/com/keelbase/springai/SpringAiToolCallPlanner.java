@@ -5,9 +5,11 @@ import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.runtime.pipeline.IntentPlan;
 import cn.com.keelbase.runtime.pipeline.ToolCallPlanner;
 import cn.com.keelbase.runtime.tool.AiTool;
+import cn.com.keelbase.runtime.tool.ToolParameter;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.StringJoiner;
@@ -65,14 +67,30 @@ public final class SpringAiToolCallPlanner implements ToolCallPlanner {
     }
 
     /**
-     * The catalogue the model is allowed to see: names and descriptions, and deliberately nothing
-     * about what happens to a call once it has been proposed.
+     * The catalogue the model is allowed to see: names, descriptions and the arguments each tool
+     * declares, and deliberately nothing about what happens to a call once it has been proposed.
+     *
+     * <p>The arguments are the tool's own declaration, which is not governance metadata — it is what
+     * the tool reads, and a model that cannot see it has to guess the names. Guessing is what this
+     * route is not: the plan's arguments are handed to the engine as data, and a name the tool does not
+     * read is now refused there rather than failing after an approval.
+     *
+     * 模型**允许看到**的目录：名字、描述，以及每个工具声明的**入参**；而关于一次调用被提议之后会发生什么，
+     * 刻意什么都不给。
+     *
+     * <p>入参来自工具**自己的声明**，它不是治理元数据 —— 它是「这个工具读什么」，看不见它的模型只能去猜
+     * 名字。这条路不是靠猜的：计划里的参数是**当数据**交给引擎的，而工具不读的名字如今**在那里**就被拒，
+     * 而不是等到批准之后才失败。
      */
     private String system() {
         StringBuilder sb = new StringBuilder(INSTRUCTIONS);
         sb.append("\nAvailable tools:\n");
         for (AiTool tool : tools.all()) {
             sb.append("- ").append(tool.name()).append(": ").append(tool.description()).append('\n');
+            List<ToolParameter> parameters = tool.parameters();
+            if (!parameters.isEmpty()) {
+                sb.append("  args: ").append(ToolParameter.describe(parameters)).append('\n');
+            }
         }
         return sb.toString();
     }
