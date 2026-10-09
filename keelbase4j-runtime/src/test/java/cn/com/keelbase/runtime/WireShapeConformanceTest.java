@@ -90,23 +90,20 @@ class WireShapeConformanceTest {
         WireSchemas.assertConformsTo(body, "error-body");
     }
 
-    // Three shapes this audit measured and left out of the suite rather than pinning as expected
-    // failures: `/ai/chat`'s `data` carries `status` (and `data`/`token`/`effectId`/`error`) that
-    // `chat-response` does not declare; `/audit/verify`'s `data` omits the `chain` that
-    // `audit-chain-verification` requires; and a `/ai/tool-effects` item matches neither branch of
-    // `side-effect-revoke` v3 — it carries `argsHash` but not the trace's snapshots, and not the
-    // item's `change`/`compensationGroup`/`parentEffectId`. All three are measured, and all three
-    // are the same question — whether this runtime is meant to answer the object the registry
-    // names on those surfaces — which is a decision rather than an omission. The evidence is in
-    // `KeelBase-Private/KeelBase4J/JV-46-覆盖图_2026-10-09.md` §9.
+    // One shape this audit measured and left out of the suite rather than pinning as an expected
+    // failure: `/ai/chat`'s `data` carries `status` (and `data`/`token`/`effectId`/`error`) that
+    // `chat-response` does not declare. That one is not an omission: `docs/wire-object-endpoints.md`
+    // declares the surface as this runtime's own object, while the contract files `chat-response`
+    // under the title naming that path — the two statements disagree, and which gives way is a
+    // decision that spans the lines rather than a change to make here. The other two shapes have
+    // been answered: the effect item conforms below, and so does the audit chain.
     //
-    // 这个盘点**量过、但没写进套件**的三个形状（写成「预期失败」会把一个未裁的问题钉死）：
-    // `/ai/chat` 的 `data` 带了 `chat-response` 未声明的 `status`（同类还有 `data`/`token`/`effectId`/`error`）；
-    // `/audit/verify` 的 `data` 缺 `audit-chain-verification` 要求的 `chain`；`/ai/tool-effects` 的每一项
-    // **两个分支都不满足** —— 它带 `argsHash`，却不带 trace 的两个快照、也不带 item 的
-    // `change`/`compensationGroup`/`parentEffectId`。三处是**同一个问题**（本仓在这些面上要不要答契约
-    // 命名的那个对象），是**决定**而不是遗漏。证据见
-    // `KeelBase-Private/KeelBase4J/JV-46-覆盖图_2026-10-09.md` §9。
+    // 这个盘点**量过、但没写进套件**的一个形状（写成「预期失败」会把一个未裁的问题钉死）：
+    // `/ai/chat` 的 `data` 带了 `chat-response` 未声明的 `status`（同类还有
+    // `data`/`token`/`effectId`/`error`）。那一条**不是遗漏**：`docs/wire-object-endpoints.md` 把这条面
+    // **声明为**本运行时自己的对象，而契约把 `chat-response` 登记在**指名那条路径**的标题之下 ——
+    // 两句话不一致，而**哪一句让步是跨线的决定**、不是这里能改的。另外两个形状**都已答掉**：
+    // tool-effect 的项在下文符合，审计链也符合。
 
     @Value("${keelbase.delegation.secret}")
     String delegationSecret;
@@ -143,5 +140,14 @@ class WireShapeConformanceTest {
         for (Object item : items) {
             WireSchemas.assertConformsTo(item, "my-confirmation-item");
         }
+    }
+    @Test
+    void theAuditChainAnswerMatchesTheFrozenObject() {
+        // Read as an administrator: the answer carries the rows themselves, which is who the chain is
+        // for (`AuditController`), and the corpus replays the object with `actor: admin`.
+        Object data = dataOf(rest.exchange(URI.create("/audit/verify"), HttpMethod.GET,
+                new HttpEntity<>(asCaller("carol")), String.class));
+
+        WireSchemas.assertConformsTo(data, "audit-chain-verification");
     }
 }

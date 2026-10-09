@@ -85,9 +85,11 @@ class TrustLoopTest {
         assertNotNull(approved.effectId(), "a write must record a side effect");
         assertEquals(1, followUps.findByCustomerIdAndDeletedAtIsNull(aliceCustomer).size());
 
-        // 4. Audit chain is intact.
+        // 4. Audit chain is intact — read as an administrator, because that is who the chain is for:
+        // the answer carries the rows themselves now, and the corpus replays this object with
+        // `actor: admin` (see `AuditController`).
         ResponseEntity<Map> verify = rest.exchange("/audit/verify", HttpMethod.GET,
-                entity("alice", null), Map.class);
+                entity("carol", null), Map.class);
         assertEquals(200, verify.getStatusCode().value());
         Map<String, Object> verifyData = Envelopes.data(verify.getBody());
         assertEquals(Boolean.TRUE, verifyData.get("valid"), "audit hash chain must verify");

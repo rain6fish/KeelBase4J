@@ -1,0 +1,25 @@
+-- Whether an audit row records a call that did not go the way the caller asked.
+--
+-- The frozen `audit-chain-verification` asks for it on every row it lists, and the reference records
+-- it (its audit entity carries `isError`, set where a request is declined or an execution fails).
+-- This runtime recorded the fact only inside `detail`'s prose, which is why the object could not be
+-- answered at all: a chain without that column is a chain the contract does not name.
+--
+-- **It is deliberately not part of the hashed payload.** The hash covers `action`, `userId` and
+-- `detail`, and `verify()` recomputes it from those; folding this column in would make every row
+-- written before it unverifiable and report a deployment's own history as a broken chain. The cost is
+-- stated rather than hidden: this column is not tamper-evident. Folding it in is a change to make
+-- when a deployment can accept that its existing chain is re-signed, not a side effect of adding a
+-- column.
+--
+-- 一条审计行**是否记着一次没按调用方所求发生的调用**。
+--
+-- 冻结的 `audit-chain-verification` 对它列出的**每一行**都要这个值，而参照实现也记它（它的审计实体带
+-- `isError`，在请求被拒或执行失败处置真）。本运行时此前把这个事实只记在 `detail` 的**散文**里 —— 那正是
+-- 这个对象**根本答不了**的缘故：一条没有那一列的链，是契约**不曾命名**的链。
+--
+-- **它刻意不进哈希载荷。** 哈希覆盖 `action`、`userId`、`detail`，而 `verify()` 正是拿这三样重算的；
+-- 把这一列折进去，会让**它之前写下的每一行都验不过**、并把一个部署**自己的历史**报成断链。代价写出来、
+-- 不藏：**这一列不是防篡改的**。折进去应当在「一个部署能接受它既有链被重签」时**单独做**，而不是加一列的
+-- 附带效果。
+ALTER TABLE ai_audit_logs ADD COLUMN is_error BOOLEAN NOT NULL DEFAULT false;

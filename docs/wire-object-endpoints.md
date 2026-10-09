@@ -11,7 +11,8 @@ replaying the same corpus is what surfaced the need for this: see `docs/ARCHITEC
 
 | wire object | this runtime's surface | notes |
 |---|---|---|
-| `audit-chain-verification` | `GET /api/v1/audit/verify` | `{valid, checked, brokenIndex}` — the frozen object without `chain[]` |
+| `audit-chain-verification` | `GET /api/v1/audit/verify` | the frozen object, `chain` included — **administrators only**, as the object's own implementation gates it |
+| `ai-audit-log-row` | `GET /api/v1/audit/logs` | one row per audit record, filtered by `userId` / `since` / `isError` — **administrators only**; the reference's `agentId` / `orgId` / `denied` filters are **refused** rather than ignored (see below) |
 | `side-effect-revoke` — an effect | `GET /api/v1/ai/tool-effects` | list envelope `{total, page, limit, items}` |
 | `side-effect-revoke` — revoke result | `DELETE /api/v1/ai/tool-effects/{id}` | `{effectId, resultType, revokeClass, revokeStatus, revoked}` |
 | `permission-capability-list` | `GET /api/v1/auth/me/permissions` | what this identity may do, and on what basis |
@@ -46,6 +47,23 @@ call by the facts `executed` / `requiresConfirmation` and never names `status`, 
 若要符合，会一路够到主仓的 `golden-path.e2e.spec.ts` —— 它读的正是本运行时这条答案上的那几个字段。
 **不存疑的一点是**：语料**两种都满意** —— 它按 `executed` / `requiresConfirmation` 这两个**事实**判一次工具调用，
 **从不点名** `status`、`token` 或 `effectId`。
+
+**The audit rows are readable now, and one of the filters is a refusal by design.** The chain could be
+appended to and verified but not read, so "which rows did this caller leave in this period" had no
+answer. `GET /audit/logs` answers it in the frozen `ai-audit-log-row` shape — the six fields this
+runtime has, and only those. The fields the object declares that this runtime does not record
+(conversations, agent and delegation identity, token counts, feedback, an authorisation verdict) are
+**absent** rather than sent as nulls: absence says "this deployment has no such concept", while a null
+claims the row could have carried a value. The reference's query also filters on agent, organisation
+and an authorisation-verdict view; this runtime records none of those, and a filter that is accepted
+and not applied returns a list that **looks filtered and is not** — so those are refused, not ignored.
+
+**审计行现在读得回来了，而其中一个筛选按设计是「拒绝」。** 链能追加、能校验，却**读不回来**，于是
+「这个调用方在这一段时间里留下了哪几行」**没有答案**。`GET /audit/logs` 按冻结的 `ai-audit-log-row` 形状答它 ——
+本运行时**有的那六个字段**，也**只有**那六个。对象声明了、而本运行时不记的那些字段（会话、agent 与委托身份、
+token 计数、反馈、授权结论）是**缺席**的、不是发成 null：**缺席**说的是「本部署没有这个概念」，而 null 会**主张**
+这一行本可以带一个值。参照实现那条查询还按 agent、组织与一个授权结论视图筛选，本运行时**一个都不记** —— 而一个
+**被接受却没被施加**的筛选回出来的是一份**看着像筛过、其实没有**的列表，所以那三个是**被拒绝**、不是被忽略。
 
 ## Not served
 

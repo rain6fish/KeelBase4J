@@ -94,7 +94,13 @@ public class GovernedExecutionEngine {
         }
         switch (decision) {
             case BLOCK:
-                audit.append("tool_call", principal.userId(), toolName + " blocked (risk policy)");
+                // Whether a row is an error is whether the call went the way the caller asked — the
+                // rule the reference uses (`!approved`, `!result.success`). A refusal, a block and a
+                // decline are all "no"; a call merely waiting on a person is not.
+                //
+                // 一行是不是「错误」，看的是这次调用**有没有按调用方所求发生** —— 参照实现用的就是这条规则
+                // （`!approved`、`!result.success`）。拒绝、拦截、否决都是「没有」；而只是在等人的调用不是。
+                audit.append("tool_call", principal.userId(), toolName + " blocked (risk policy)", true);
                 return new ExecutionOutcome("blocked", governance.reasons(tool).toWire(), null, null,
                         "blocked by risk policy");
             case REQUIRE_APPROVAL: {
@@ -176,7 +182,7 @@ public class GovernedExecutionEngine {
         }
         String detail = String.join("; ", problems)
                 + " (expected: " + ToolParameter.describe(declared) + ")";
-        audit.append("tool_call", principal.userId(), tool.name() + " refused: " + detail);
+        audit.append("tool_call", principal.userId(), tool.name() + " refused: " + detail, true);
         return Optional.of(new ExecutionOutcome("invalid_arguments", null, null, null, detail));
     }
 
@@ -401,7 +407,7 @@ public class GovernedExecutionEngine {
 
     /** The decline tail. Nothing is written, and whoever is watching is told the same way. */
     private ExecutionOutcome performDecline(ConfirmationRequest req, Principal principal, String via) {
-        audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined (" + via + ")");
+        audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined (" + via + ")", true);
         ExecutionOutcome outcome =
                 new ExecutionOutcome(ConfirmationLifecycle.DECLINED, null, null, null, null);
         watchers.decided(req.getToken(), decision(ConfirmationLifecycle.DECLINE, req.getToolName(), outcome));
@@ -478,7 +484,7 @@ public class GovernedExecutionEngine {
                 claims.release(principal, tool.name(), argsJson);
             }
             audit.append("tool_call", principal.userId(),
-                    tool.name() + " refused: " + refused.getMessage());
+                    tool.name() + " refused: " + refused.getMessage(), true);
             throw refused;
         }
         Long effectId = null;
@@ -492,7 +498,8 @@ public class GovernedExecutionEngine {
             claims.settle(principal, tool.name(), argsJson, effectId);
         }
         audit.append("tool_call", principal.userId(),
-                tool.name() + " -> " + (result.success() ? "ok" : "fail: " + result.error()));
+                tool.name() + " -> " + (result.success() ? "ok" : "fail: " + result.error()),
+                !result.success());
         return result.success()
                 ? ExecutionOutcome.executed(result.data(), effectId)
                 : new ExecutionOutcome("error", null, null, null, result.error());
