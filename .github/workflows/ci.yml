@@ -13,7 +13,8 @@
 #      reviewing, the interleaved shape went in twice in one session with nobody catching it, and a
 #      rule that depends on who is looking is not enforced.
 #   4. release-rehearsal — the publish set still builds under the release profile, sources and javadoc
-#      included. Also not a conformance claim, and for the same reason as 3: the release job's own
+#      included, on the baseline JDK and on 25 (javadoc is the part most likely to disagree with a newer
+#      one). Also not a conformance claim, and for the same reason as 3: the release job's own
 #      check runs after the tag exists, which is the moment nothing can be undone.
 name: CI
 
@@ -100,14 +101,33 @@ jobs:
         run: bash scripts/check-bilingual-comments.sh --strict
 
   release-rehearsal:
-    name: The publish set builds the way a release would build it
+    name: The publish set builds the way a release would build it (JDK ${{ matrix.java }})
     runs-on: ubuntu-latest
+    # The same two legs as conformance, and here they earn their keep for a different reason: this is the
+    # job that runs javadoc, and javadoc's doclint is the thing most likely to disagree with a newer JDK —
+    # it is stricter with every release. That this is not hypothetical is what the note below records: the
+    # job exists because javadoc had never been asked to run anywhere, and it failed the first time it was.
+    # The publish itself stays on 17 (release.yml), so the 25 leg claims only that the release profile —
+    # sources and javadoc included — builds there.
+    #
+    # fail-fast is off for the same reason as in conformance: a red 17 leg must not hide what 25 said.
+    #
+    # 与 conformance 同样的两条腿；在这里它另有价值：这是个跑 javadoc 的 job，而 javadoc 的 doclint 恰恰是
+    # 最可能与更新的 JDK 不合的东西 —— 它每个版本都更严。说它不是假设，就是下面那段注记记的事：这个 job 的
+    # 存在本身，就是因为 javadoc 此前从没被要求跑过，而第一次跑就失败了。发布本身仍留在 17（release.yml），
+    # 故 25 那条腿只声明：release profile（含 sources 与 javadoc）在那边构建得出来。
+    #
+    # fail-fast 同样关掉：17 红了不该把 25 说的话藏起来。
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['17', '25']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ matrix.java }}
           cache: maven
       # The release itself is checked at tag time, and that is too late to learn anything: a tag
       # cannot be taken back, and the step that would have refused it runs in the job that already has

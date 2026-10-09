@@ -340,7 +340,8 @@ CI (`.github/workflows/ci.yml`): `conformance` (`mvn verify`, on **JDK 17 and JD
 still built for 17, so the second leg claims only that the build and the tests run on a newer JDK) +
 `vector-drift` (diff the vendored vectors against the sources they are refreshed from) +
 `bilingual-comments` (javadoc blocks read English and then Chinese) + `release-rehearsal` (the publish set
-builds under the release profile, sources and javadoc included). Publishing runs on a `v*` tag
+builds under the release profile, sources and javadoc included — on JDK 17 and JDK 25 as well, javadoc
+being the part most likely to disagree with a newer one). Publishing runs on a `v*` tag
 (`.github/workflows/release.yml`): the parent pom and `keelbase4j-protocol` are signed and uploaded to
 Maven Central, which is why a generated project can resolve its dependency without a local install.
 
