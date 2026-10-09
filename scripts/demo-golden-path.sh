@@ -36,7 +36,21 @@ SECRET="${DELEGATION_SECRET:-cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdc
 
 echo "== 1/3 build and start the runtime =="
 mvn -q -B -DskipTests install
-java -jar keelbase4j-runtime/target/keelbase4j-runtime-0.1.0-exec.jar --server.port="$PORT" \
+# The version moves with every release, so the artifact is found rather than named here. A name
+# written into this line goes stale at the next bump and takes the whole demo with it, which is
+# exactly what happened: the line said `…-0.1.0-exec.jar` against a `0.1.4` build, and the script
+# died at `unable to access jarfile` without ever reaching the spec it exists to run.
+#
+# 版本随每次发版走，故产物是**找出来**的、不是在这里**点名**的。写死在这一行的名字会在下一次抬版本时过期、
+# 并把整条 demo 一起带走 —— 这一行正是这么坏的：它写着 `…-0.1.0-exec.jar` 却对着一份 `0.1.4` 的构建，
+# 脚本在 `unable to access jarfile` 上就死了，**根本没走到它存在的意义那一步（跑那份 spec）**。
+JAR="$(ls "$ROOT"/keelbase4j-runtime/target/keelbase4j-runtime-*-exec.jar 2>/dev/null | head -1 || true)"
+if [ -z "$JAR" ]; then
+  echo "cannot find the runtime's executable jar under keelbase4j-runtime/target" >&2
+  echo "the build above should have produced one; check its output" >&2
+  exit 2
+fi
+java -jar "$JAR" --server.port="$PORT" \
   > "$ROOT/keelbase4j-runtime/target/golden-path.log" 2>&1 &
 APP_PID=$!
 
