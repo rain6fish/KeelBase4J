@@ -28,6 +28,9 @@ This repository only **consumes** both.
 ## 构建与验证
 
 ```bash
+bash scripts/release-gate.sh        # 一条命令跑全部确定性验证（本机约 9 分钟），末尾一行 PASS/FAIL 汇总
+                                    # 覆盖：mvn verify · 快照漂移(按 pin) · 双语注释 · 三个生成物 demo · release 发布集合
+                                    # LLM_ENV=1 时再加两个适配器 demo（需模型 key）
 mvn test                            # 协议一致性 + 生成器 + 运行时 + 适配器
 bash scripts/demo-generated-app.sh  # 生成 → 构建 → 独立运行 → 信任闭环
 bash scripts/demo-changeability.sh  # 变更 → 再生成 → 手改存活 → 新规则生效
