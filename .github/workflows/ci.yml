@@ -2,7 +2,8 @@
 #
 # The point of this repository is that a Java implementation reproduces the language-neutral
 # vectors of the KeelBase AI Governance Protocol. CI proves exactly that, on every push:
-#   1. conformance — the implementation still reproduces the vendored vectors;
+#   1. conformance — the implementation still reproduces the vendored vectors, on the baseline JDK and
+#      on the newest JDK this repository claims to run on;
 #   2. vector-drift — the vendored vectors still match the copies they are refreshed from: the
 #      contract repository, at the version this repository answers for, plus the main repo's scenario
 #      packs, which are not part of the contract. They must never be hand-edited here; a divergence
@@ -24,14 +25,33 @@ on:
 
 jobs:
   conformance:
-    name: Protocol conformance
+    name: Protocol conformance (JDK ${{ matrix.java }})
     runs-on: ubuntu-latest
+    # Two legs, and the second one is the point. The artifacts are built for 17 (`--release 17`, the
+    # baseline this repository promises the applications it generates), but nothing here had ever *run*
+    # on a newer JDK — so "it works on 25" was a claim nobody was checking, and a claim nobody checks is
+    # a claim that rots. The leg asserts what it says and no more: the build and the tests run on 25. It
+    # does not move the baseline, and it does not build the artifacts for 25.
+    #
+    # fail-fast is off so that a red 17 leg still reports what 25 did: the two legs answer different
+    # questions, and cancelling one hides the answer to the other.
+    #
+    # 两条腿，第二条才是重点。产物按 17 构建（`--release 17`，本仓对它生成的应用所承诺的基线），但此前
+    # 从没有任何东西**在更新的 JDK 上跑过** —— 于是「25 上能用」是一句没人核的话，而没人核的话会烂掉。这条腿
+    # 只断言它说的：构建与测试在 25 上跑通。它不抬基线，也不为 25 构建产物。
+    #
+    # fail-fast 关掉，是为了 17 红了之后 25 的结果照常报出来：两条腿回答的是不同的问题，取消其一等于把另一个
+    # 的答案藏起来。
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['17', '25']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ matrix.java }}
           cache: maven
       - name: Reproduce the frozen protocol vectors
         run: mvn -B -ntp verify

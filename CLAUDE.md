@@ -42,9 +42,11 @@ bash scripts/check-bilingual-comments.sh  # 注释的双语形状（默认只报
 KEELBASE_PG_URL=jdbc:postgresql://localhost:5432/keelbase mvn test -Dtest=PostgresMigrationTest
 ```
 
-CI（`.github/workflows/ci.yml`）门禁三件事：`conformance`（`mvn verify`）+ `vector-drift`
+CI（`.github/workflows/ci.yml`）门禁四件事：`conformance`（`mvn verify`，**跑 JDK 17 与 JDK 25 两条腿**
+—— 产物仍按 17 构建，第二条腿只声明「构建与测试在新 JDK 上跑通」，不抬基线）+ `vector-drift`
 （`sync-vectors.sh --check`）+ `bilingual-comments`（`check-bilingual-comments.sh --strict`；先跑 `--self-test`，
-故解释器不对时会以自身失败、而不是以「报零」通过）。
+故解释器不对时会以自身失败、而不是以「报零」通过）+ `release-rehearsal`（发布集合在 release profile 下构建，
+含 sources 与 javadoc）。
 
 ⚠️ **打 `v*` tag 会触发发布**（`.github/workflows/release.yml`）：先复现向量、再查两仓漂移、再校验
 发布集合，然后把**四个 artifact**（父 pom · `keelbase4j-protocol` · `keelbase4j-core` ·

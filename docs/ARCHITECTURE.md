@@ -336,8 +336,11 @@ bash scripts/demo-springai.sh         # a real model on the planner seam (needs 
 bash scripts/demo-springai-task.sh    # a real model driving the framework's own multi-step loop (needs a model key)
 ```
 
-CI (`.github/workflows/ci.yml`): `conformance` (JDK 17, `mvn verify`) + `vector-drift`
-(diff the vendored vectors against the sources they are refreshed from). Publishing runs on a `v*` tag
+CI (`.github/workflows/ci.yml`): `conformance` (`mvn verify`, on **JDK 17 and JDK 25** — the artifacts are
+still built for 17, so the second leg claims only that the build and the tests run on a newer JDK) +
+`vector-drift` (diff the vendored vectors against the sources they are refreshed from) +
+`bilingual-comments` (javadoc blocks read English and then Chinese) + `release-rehearsal` (the publish set
+builds under the release profile, sources and javadoc included). Publishing runs on a `v*` tag
 (`.github/workflows/release.yml`): the parent pom and `keelbase4j-protocol` are signed and uploaded to
 Maven Central, which is why a generated project can resolve its dependency without a local install.
 
