@@ -43,72 +43,12 @@ class PermissionWireTest {
 
     // ── the vendored contract ────────────────────────────────────────────────────────────────────
 
-    /** The registry: contract id → schema file. */
-    private static Map<String, Object> registry() {
-        return Vectors.map(Vectors.read("wire-schema-registry.json"));
-    }
-
-    /**
-     * The frozen schema for a contract id. A top-level contract is registered under {@code objects}
-     * with its version; a contract the registry classifies as a <em>support schema</em> is named
-     * directly and lives in the v1 tree.
-     */
-    private static Map<String, Object> schemaFor(String id) {
-        for (Object o : Vectors.list(registry(), "objects")) {
-            Map<String, Object> entry = Vectors.map(o);
-            if (id.equals(entry.get("id"))) {
-                return Vectors.map(Vectors.read(
-                        "schemas/" + entry.get("version") + "/" + entry.get("schema")));
-            }
-        }
-        for (Object s : Vectors.list(registry(), "supportSchemas")) {
-            if (s.equals(id + ".schema.json")) {
-                return Vectors.map(Vectors.read("schemas/v1/" + s));
-            }
-        }
-        throw new IllegalStateException("contract is not in the vendored registry: " + id);
-    }
-
-    /**
-     * Validate a wire value against a frozen schema, recursively.
-     *
-     * <p>Deliberately small — it enforces the three things this conformance is about: every
-     * {@code required} property is present; an object declared {@code additionalProperties:false}
-     * carries nothing else; and a value is drawn from the schema's {@code enum}. Anything the
-     * schema leaves open stays open here too.
-     */
-    private static void assertConforms(Object value, Map<String, Object> schema) {
-        if (schema.containsKey("$ref")) {
-            assertConforms(value, Vectors.map(Vectors.read("schemas/v1/" + schema.get("$ref"))));
-            return;
-        }
-        if (schema.get("enum") instanceof List<?> allowed && value != null) {
-            assertTrue(allowed.contains(value), "value outside the frozen enum: " + value);
-            return;
-        }
-        if (value instanceof Map<?, ?> wire) {
-            Map<String, Object> properties = schema.get("properties") instanceof Map<?, ?> p
-                    ? Vectors.map(p) : Map.of();
-            if (schema.get("required") instanceof List<?> required) {
-                for (Object r : required) {
-                    assertTrue(wire.containsKey(r), "required property missing: " + r);
-                }
-            }
-            if (Boolean.FALSE.equals(schema.get("additionalProperties"))) {
-                assertEquals(properties.keySet(), wire.keySet(),
-                        "additionalProperties:false — the wire carries exactly the schema's properties");
-            }
-            for (Object key : wire.keySet()) {
-                if (properties.get(key) instanceof Map<?, ?> sub) {
-                    assertConforms(wire.get(key), Vectors.map(sub));
-                }
-            }
-        } else if (value instanceof List<?> items && schema.get("items") instanceof Map<?, ?> item) {
-            for (Object v : items) {
-                assertConforms(v, Vectors.map(item));
-            }
-        }
-    }
+    // The schemas, and the check this test holds the carriers to, moved to `WireSchemas` (same
+    // package, published in the protocol test-jar) so the runtime's tests can apply the same check
+    // to what its own endpoints produce, instead of this file being the only place that has one.
+    //
+    // schema 与这条测试拿来衡量 carrier 的检查，已搬到 `WireSchemas`（同包、随 protocol 的 test-jar
+    // 发布），好让运行时的测试能拿**同一份检查**去量它自己的端点产出 —— 而不是只有本文件有。
 
     /** Serialize, re-parse, re-serialize — the canonical bytes must be stable. */
     private static void assertRoundTrips(Map<String, Object> wire) {
@@ -126,7 +66,7 @@ class PermissionWireTest {
 
         Map<String, Object> wire = allowed.toWire();
 
-        assertConforms(wire, schemaFor("permission-decision"));
+        WireSchemas.assertConforms(wire, WireSchemas.schemaFor("permission-decision"));
         assertEquals("read", wire.get("action"));
         assertEquals("Customer", wire.get("subject"));
         assertEquals(Boolean.TRUE, wire.get("allowed"));
@@ -172,7 +112,7 @@ class PermissionWireTest {
 
         Map<String, Object> wire = list.toWire();
 
-        assertConforms(wire, schemaFor("permission-capability-list"));
+        WireSchemas.assertConforms(wire, WireSchemas.schemaFor("permission-capability-list"));
         assertTrue(PermissionCapabilityList.ROLES.contains(wire.get("role")),
                 "role is the contract vocabulary user|admin");
         assertRoundTrips(wire);
@@ -199,7 +139,7 @@ class PermissionWireTest {
 
         Map<String, Object> wire = scope.toWire();
 
-        assertConforms(wire, schemaFor("org-membership-scope"));
+        WireSchemas.assertConforms(wire, WireSchemas.schemaFor("org-membership-scope"));
         assertTrue(OrgMembershipScope.ROLES.contains(wire.get("role")));
         Map<?, ?> org = (Map<?, ?>) wire.get("org");
         assertTrue(org.containsKey("description"), "description is required — emitted as null, not absent");
@@ -216,7 +156,7 @@ class PermissionWireTest {
 
         Map<String, Object> wire = reasons.toWire();
 
-        assertConforms(wire, schemaFor("authorization"));
+        WireSchemas.assertConforms(wire, WireSchemas.schemaFor("authorization"));
         assertEquals("R5", wire.get("riskLevel"), "riskLevel comes from the frozen R0–R5 enum via $ref");
         assertTrue(GovernanceBinding.DENY_CHECKS.contains(
                         ((Map<?, ?>) ((List<?>) wire.get("checks")).get(0)).get("name")),
@@ -233,7 +173,7 @@ class PermissionWireTest {
         AuthorizationReasons withPolicy = new AuthorizationReasons("t", "R1", "auto", false, List.of(),
                 new AuthorizationReasons.Policy("rev-1"));
         Map<String, Object> wire = withPolicy.toWire();
-        assertConforms(wire, schemaFor("authorization"));
+        WireSchemas.assertConforms(wire, WireSchemas.schemaFor("authorization"));
         assertEquals(Map.of("revision", "rev-1"), wire.get("policy"));
     }
 
@@ -247,7 +187,7 @@ class PermissionWireTest {
             // schemaFor throws when a contract is not in the vendored registry — the failure this
             // test exists to make loud, because a missing contract silently reverts to a hand-written
             // expectation.
-            assertTrue(schemaFor(id).containsKey("properties") || schemaFor(id).containsKey("$ref"),
+            assertTrue(WireSchemas.schemaFor(id).containsKey("properties") || WireSchemas.schemaFor(id).containsKey("$ref"),
                     id + " resolved to something that is not a schema");
         }
     }
