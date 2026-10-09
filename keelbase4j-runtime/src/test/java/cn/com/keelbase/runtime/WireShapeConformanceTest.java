@@ -2,17 +2,28 @@
 package cn.com.keelbase.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.protocol.Json;
+import cn.com.keelbase.runtime.domain.Customer;
+import cn.com.keelbase.runtime.domain.CustomerRepository;
 import cn.com.keelbase.protocol.Vectors;
 import cn.com.keelbase.protocol.WireSchemas;
+import java.net.URI;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -48,6 +59,14 @@ class WireShapeConformanceTest {
     @Autowired
     TestRestTemplate rest;
 
+    @Autowired
+    CustomerRepository customers;
+
+    /** A customer the caller owns — a write cannot run without one, and the lookup happens on approval. */
+    private Long aCustomerOf(String owner) {
+        return customers.save(new Customer("Conformance Co", "low", owner)).getId();
+    }
+
     @Test
     void aSuccessfulResponseCarriesTheFrozenEnvelope() {
         ResponseEntity<String> response = rest.getForEntity("/app/capabilities", String.class);
@@ -69,5 +88,60 @@ class WireShapeConformanceTest {
                 "the refusal must be authorisation, not a missing route");
         Map<String, Object> body = Vectors.map(Json.parse(response.getBody()));
         WireSchemas.assertConformsTo(body, "error-body");
+    }
+
+    // Three shapes this audit measured and left out of the suite rather than pinning as expected
+    // failures: `/ai/chat`'s `data` carries `status` (and `data`/`token`/`effectId`/`error`) that
+    // `chat-response` does not declare; `/audit/verify`'s `data` omits the `chain` that
+    // `audit-chain-verification` requires; and a `/ai/tool-effects` item matches neither branch of
+    // `side-effect-revoke` v3 — it carries `argsHash` but not the trace's snapshots, and not the
+    // item's `change`/`compensationGroup`/`parentEffectId`. All three are measured, and all three
+    // are the same question — whether this runtime is meant to answer the object the registry
+    // names on those surfaces — which is a decision rather than an omission. The evidence is in
+    // `KeelBase-Private/KeelBase4J/JV-46-覆盖图_2026-10-09.md` §9.
+    //
+    // 这个盘点**量过、但没写进套件**的三个形状（写成「预期失败」会把一个未裁的问题钉死）：
+    // `/ai/chat` 的 `data` 带了 `chat-response` 未声明的 `status`（同类还有 `data`/`token`/`effectId`/`error`）；
+    // `/audit/verify` 的 `data` 缺 `audit-chain-verification` 要求的 `chain`；`/ai/tool-effects` 的每一项
+    // **两个分支都不满足** —— 它带 `argsHash`，却不带 trace 的两个快照、也不带 item 的
+    // `change`/`compensationGroup`/`parentEffectId`。三处是**同一个问题**（本仓在这些面上要不要答契约
+    // 命名的那个对象），是**决定**而不是遗漏。证据见
+    // `KeelBase-Private/KeelBase4J/JV-46-覆盖图_2026-10-09.md` §9。
+
+    @Value("${keelbase.delegation.secret}")
+    String delegationSecret;
+
+    private HttpHeaders asCaller(String user) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(TestTokens.forUser(user, delegationSecret));
+        return headers;
+    }
+
+    /** The {@code data} of a successful call, unwrapped from the envelope this same test pins. */
+    private Object dataOf(ResponseEntity<String> response) {
+        assertEquals(200, response.getStatusCode().value(), "the probe must be served: " + response);
+        return Vectors.map(Json.parse(response.getBody())).get("data");
+    }
+
+    private Object getData(String path, String user) {
+        return dataOf(rest.exchange(URI.create(path), HttpMethod.GET,
+                new HttpEntity<>(asCaller(user)), String.class));
+    }
+
+    @Test
+    void everyConfirmationTheCallerIsShownMatchesTheFrozenItem() {
+        // One proposed write, so the list has something in it; then the list itself, which is the
+        // shape a console renders.
+        rest.postForEntity("/ai/chat", new HttpEntity<>(
+                Map.of("message", "给客户建一条跟进记录", "customerId", aCustomerOf("alice")), asCaller("alice")), String.class);
+
+        Object data = getData("/ai/my/confirmations", "alice");
+
+        List<?> items = (List<?>) data;
+        assertFalse(items.isEmpty(), "the caller was shown nothing to conform to");
+        for (Object item : items) {
+            WireSchemas.assertConformsTo(item, "my-confirmation-item");
+        }
     }
 }
