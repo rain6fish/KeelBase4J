@@ -1294,21 +1294,66 @@ public class JavaGenerator {
                 package %s.ai;
 
                 import cn.com.keelbase.protocol.AuditChain;
+                import java.time.Instant;
                 import java.util.ArrayList;
                 import java.util.LinkedHashMap;
                 import java.util.List;
                 import java.util.Map;
+                import java.util.Objects;
                 import org.springframework.beans.factory.annotation.Value;
                 import org.springframework.stereotype.Component;
 
-                /** A hash-chained AI audit log (in-process; single-instance). */
+                /**
+                 * A hash-chained AI audit log (in-process; single-instance).
+                 *
+                 * <p>It answers three things, because a record that could only be written and checked is
+                 * one nobody can ask anything of: rows are appended, the chain is verified, and the rows
+                 * are read back — the last in the frozen {@code ai-audit-log-row} shape, which asks for
+                 * two fields the chain itself does not carry.
+                 *
+                 * <p><b>Those two sit beside the chain, not inside it.</b> The hash covers {@code action},
+                 * {@code userId} and {@code detail} and nothing else — that is the frozen
+                 * {@code audit-payload} — so folding {@code isError} or {@code createdAt} in would make
+                 * every row already written unverifiable. {@code isError} records a fact this application
+                 * does not defend against tampering with; the other way is worse, because it would report
+                 * the application's own history as a broken chain.
+                 *
+                 * <p><b>Which rows count as errors.</b> Whether the call went the way the caller asked:
+                 * a block and a decline are not it, and neither is a proposal merely waiting on a person.
+                 * An execution is recorded as one line whose outcome this application does not
+                 * distinguish, its tools answering with a result rather than throwing — so a failed
+                 * execution is not marked here, and that is stated rather than guessed at.
+                 *
+                 * 一份哈希成链的 AI 审计日志（进程内；单实例）。
+                 *
+                 * <p>它答三件事，因为一份**只能写、只能校验**的记录，是**没人能对它发问**的记录：行被追加、链被
+                 * 校验、行被**读回来** —— 最后一件按冻结的 {@code ai-audit-log-row} 形状，而它要**两个链本身
+                 * 不带的字段**。
+                 *
+                 * <p><b>那两个字段在链**旁边**、不在链**里面**。</b> 哈希覆盖 {@code action}、{@code userId}
+                 * 与 {@code detail}，此外什么都没有 —— 那是冻结的 {@code audit-payload} —— 所以把
+                 * {@code isError} 或 {@code createdAt} 折进去，会让**已经写下的每一行**都验不过。
+                 * {@code isError} 记的是一个**本应用不为它防篡改**的事实；另一条路更糟，因为它会把应用**自己的
+                 * 历史**报成断链。
+                 *
+                 * <p><b>哪些行算错误。</b>看的是这次调用**有没有按调用方所求发生**：拦截与否决都不是，**只是在等人**
+                 * 的提议也不是。一次执行记成一行、而本应用**不区分它的结果**（它的工具以**结果**作答、不抛异常）——
+                 * 故一次失败的执行在这里**不被标记**；这一点是**说出来**的，不是猜的。
+                 */
                 @Component
                 public class AuditChainStore {
 
-                    public record Row(int id, String prevHash, String hash) {
+                    /**
+                     * One row as it was written: what was recorded, who did it, when, whether it went the
+                     * way the caller asked, and the two hashes tying it to its predecessor.
+                     *
+                     * 一行，按它被写下的样子：记了什么、谁做的、什么时候、这件事有没有按调用方所求发生，以及把它
+                     * 与前一行绑在一起的两个哈希。
+                     */
+                    public record Row(int id, String action, String userId, String detail, Instant createdAt,
+                                      boolean isError, String prevHash, String hash) {
                     }
 
-                    private final List<Map<String, Object>> payloads = new ArrayList<>();
                     private final List<Row> rows = new ArrayList<>();
                     private final String key;
 
@@ -1317,25 +1362,40 @@ public class JavaGenerator {
                         this.key = key;
                     }
 
+                    /** A row for something that went the way the caller asked it to. */
                     public synchronized void append(String action, String userId, String detail) {
-                        Map<String, Object> payload = new LinkedHashMap<>();
-                        payload.put("action", action);
-                        payload.put("userId", userId);
-                        payload.put("detail", detail);
+                        append(action, userId, detail, false);
+                    }
+
+                    /** The same, saying whether this row is one of the calls that did not. */
+                    public synchronized void append(String action, String userId, String detail,
+                                                    boolean isError) {
                         String prev = rows.isEmpty() ? null : rows.get(rows.size() - 1).hash();
-                        String hash = AuditChain.hash(key, prev, payload);
-                        payloads.add(payload);
-                        rows.add(new Row(rows.size() + 1, prev, hash));
+                        String hash = AuditChain.hash(key, prev, payload(action, userId, detail));
+                        rows.add(new Row(rows.size() + 1, action, userId, detail, Instant.now(), isError,
+                                prev, hash));
+                    }
+
+                    /**
+                     * The rows, oldest first — the order the chain was built in. A copy, so a caller
+                     * reading the chain cannot append to it by holding on to the list.
+                     *
+                     * 那些行，最早的在前 —— 也就是链被建立起来的顺序。是**副本**，故读链的调用方**不能**靠持有这个
+                     * 列表往链上追加。
+                     */
+                    public synchronized List<Row> rows() {
+                        return List.copyOf(rows);
                     }
 
                     public synchronized boolean verify() {
                         for (int i = 0; i < rows.size(); i++) {
                             Row row = rows.get(i);
                             String prev = i == 0 ? null : rows.get(i - 1).hash();
-                            if (!java.util.Objects.equals(prev, row.prevHash())) {
+                            if (!Objects.equals(prev, row.prevHash())) {
                                 return false;
                             }
-                            if (!AuditChain.hash(key, prev, payloads.get(i)).equals(row.hash())) {
+                            if (!AuditChain.hash(key, prev, payload(row.action(), row.userId(), row.detail()))
+                                    .equals(row.hash())) {
                                 return false;
                             }
                         }
@@ -1344,6 +1404,15 @@ public class JavaGenerator {
 
                     public synchronized int size() {
                         return rows.size();
+                    }
+
+                    /** The hashed payload — and the only three fields the chain covers. */
+                    private static Map<String, Object> payload(String action, String userId, String detail) {
+                        Map<String, Object> payload = new LinkedHashMap<>();
+                        payload.put("action", action);
+                        payload.put("userId", userId);
+                        payload.put("detail", detail);
+                        return payload;
                     }
                 }
                 """.formatted(pkg);
@@ -1386,7 +1455,13 @@ public class JavaGenerator {
                         AiTool tool = registry.require(toolName);
                         String decision = gate.decide(tool);
                         if ("BLOCK".equals(decision)) {
-                            audit.append("tool_call", userId, toolName + " blocked");
+                            // Whether a row is an error is whether the call went the way the caller asked —
+                            // the rule the runtime applies. A block is a "no"; a proposal merely waiting on
+                            // a person is not.
+                            //
+                            // 一行是不是错误，看的是这次调用**有没有按调用方所求发生** —— 运行时用的就是这条规则。
+                            // 拦截是一个「没有」；**只是在等人**的提议不是。
+                            audit.append("tool_call", userId, toolName + " blocked", true);
                             return status("blocked");
                         }
                         if ("ALLOW".equals(decision)) {
@@ -1419,7 +1494,12 @@ public class JavaGenerator {
                     /** Decline — the token is consumed and nothing is written. */
                     public Map<String, Object> decline(String token, String userId) {
                         ConfirmationStore.Pending pending = confirmations.claim(token, userId);
-                        audit.append("tool_confirmation", userId, pending.toolName() + " declined");
+                        // A decline is the caller not getting what they asked for, so it is an error row —
+                        // and the one that says a human said no, which is what an operator comes looking for.
+                        //
+                        // 否决就是调用方**没拿到所求**，故它是一行错误 —— 也是「有人说了不」的那一行，而正是
+                        // 操作者会来找的那一行。
+                        audit.append("tool_confirmation", userId, pending.toolName() + " declined", true);
                         watchers.decided(token, decision("decline", pending.toolName(), null));
                         return Map.of("status", "declined");
                     }
@@ -3621,16 +3701,22 @@ public class JavaGenerator {
                 import %s.identity.IdentityResolver;
                 import %s.identity.Principal;
                 import java.time.Instant;
+                import java.time.LocalDate;
+                import java.time.ZoneOffset;
+                import java.time.format.DateTimeParseException;
+                import java.util.ArrayList;
                 import java.util.LinkedHashMap;
                 import java.util.List;
                 import java.util.Map;
                 import java.util.Optional;
+                import org.springframework.http.HttpStatus;
                 import org.springframework.web.bind.annotation.DeleteMapping;
                 import org.springframework.web.bind.annotation.GetMapping;
                 import org.springframework.web.bind.annotation.PathVariable;
                 import org.springframework.web.bind.annotation.RequestHeader;
                 import org.springframework.web.bind.annotation.RequestParam;
                 import org.springframework.web.bind.annotation.RestController;
+                import org.springframework.web.server.ResponseStatusException;
 
                 /**
                  * The governance surface: the recorded side effects of AI writes, the revoke path, and
@@ -3647,6 +3733,9 @@ public class JavaGenerator {
 
                     /** The console pages through this list; it cannot ask for the whole table. */
                     private static final int MAX_PAGE_SIZE = 100;
+
+                    /** The reference's own audit query answers 50 rows by default and caps a page at 200. */
+                    private static final int MAX_AUDIT_PAGE_SIZE = 200;
 
                     /** The result type whose rows this application can look up — its write tool's. */
                     private static final String RESULT_TYPE = %s;
@@ -3800,6 +3889,136 @@ public class JavaGenerator {
                     // 的调用者（挡住匿名的是它的安全链），所以在这里立一条「仅管理员」会比它所镜像的那个面
                     // **更窄**。（这件事是**前端自己的 spec 定的**：它以普通调用者发问，而运行时上这条端点
                     // 没有的那条规则，本来就会把它拒掉。）
+                    /**
+                     * The rows on the chain, filtered by caller and by period — the read surface the
+                     * chain did not have, in the frozen {@code ai-audit-log-row} shape.
+                     *
+                     * <p><b>Administrators only, and this one is gated where the chain's own verdict is
+                     * not.</b> That is the difference between the two: the verdict above is a fact about
+                     * the chain's integrity and names nobody, while these are the rows themselves — who
+                     * acted, and what they did. The reference's own query carries the same gate, and a
+                     * chain readable by everyone is not an audit trail, it is a roster.
+                     *
+                     * <p>The reference also filters on agent and organisation identity and on an
+                     * authorization-verdict view, over columns this application does not record. A filter
+                     * that is accepted and not applied would answer with a list that looks filtered and is
+                     * not — nothing downstream could tell — so those are refused rather than ignored.
+                     *
+                     * 链上的那些行，按调用者和一段时间筛选 —— 这是链**此前没有的读面**，按冻结的
+                     * {@code ai-audit-log-row} 形状。
+                     *
+                     * <p><b>只给管理员，而这一条上了闸、上面那条链自身的结论没有。</b> 这就是两者的区别：
+                     * 上面的结论是关于链完整性的一个事实、**不点名任何人**，而这些**就是行本身** —— 谁动的手、
+                     * 做了什么。参照实现自己那条查询也带同一道闸，而一条**人人可读**的链不是审计轨，是**花名册**。
+                     *
+                     * <p>参照实现还按 agent 与组织身份、以及一个授权结论视图筛选 —— 那些列本应用**一个都不记**。
+                     * 一个**被接受却没被施加**的筛选，回出来的是一份**看着像筛过、其实没有**的列表、下游分不出 ——
+                     * 所以那三个是**被拒绝**、不是被忽略。
+                     */
+                    @GetMapping("/audit/logs")
+                    public List<Map<String, Object>> logs(
+                            @RequestParam(required = false) String userId,
+                            @RequestParam(required = false) String since,
+                            @RequestParam(required = false) String isError,
+                            @RequestParam(required = false) String agentId,
+                            @RequestParam(required = false) String orgId,
+                            @RequestParam(required = false) String denied,
+                            @RequestParam(defaultValue = "50") int limit,
+                            @RequestParam(defaultValue = "0") int offset,
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String headerUserId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal principal = identities.resolve(IdentityEvidence.ofHeaders(
+                                authorization, headerUserId, role, oidcSubject));
+                        if (!principal.isManager()) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "the audit chain is readable by an administrator");
+                        }
+                        if (agentId != null || orgId != null || denied != null) {
+                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                    "this application records no agent identity, organisation or "
+                                            + "authorisation verdict on an audit row, so it cannot answer "
+                                            + "those filters");
+                        }
+                        Boolean errorsOnly = outcome(isError);
+                        Instant from = since == null ? null : since(since);
+                        List<AuditChainStore.Row> matched = audit.rows().stream()
+                                .filter(row -> userId == null || row.userId().equals(userId))
+                                .filter(row -> from == null || !row.createdAt().isBefore(from))
+                                .filter(row -> errorsOnly == null || row.isError() == errorsOnly)
+                                .toList();
+                        // Newest first, which is how the runtime's own listing orders the same rows.
+                        List<Map<String, Object>> newestFirst = new ArrayList<>();
+                        for (int i = matched.size() - 1; i >= 0; i--) {
+                            newestFirst.add(auditRow(matched.get(i)));
+                        }
+                        // Long arithmetic: `offset` is a caller-supplied number, and clamped an
+                        // out-of-range window is an empty one rather than a negative index.
+                        int start = (int) Math.min((long) Math.max(offset, 0), newestFirst.size());
+                        int end = Math.min(start + Math.min(Math.max(limit, 1), MAX_AUDIT_PAGE_SIZE),
+                                newestFirst.size());
+                        return newestFirst.subList(start, end);
+                    }
+
+                    /**
+                     * One audit row in the frozen {@code ai-audit-log-row} shape — the fields this
+                     * application has, and only those ({@code additionalProperties} is false, so a
+                     * guess would be a violation rather than a courtesy).
+                     *
+                     * 一行审计记录，按冻结的 {@code ai-audit-log-row} 形状 —— 本应用**有的字段**，也只有那些
+                     * （{@code additionalProperties} 是 false，故**猜一个**是违规、不是好意）。
+                     */
+                    private static Map<String, Object> auditRow(AuditChainStore.Row row) {
+                        Map<String, Object> view = new LinkedHashMap<>();
+                        view.put("id", row.id());
+                        view.put("userId", row.userId());
+                        view.put("action", row.action());
+                        view.put("detail", row.detail());
+                        view.put("isError", row.isError());
+                        view.put("createdAt", row.createdAt().toString());
+                        return view;
+                    }
+
+                    /**
+                     * The reference reads this filter as the two words, so anything else is a request
+                     * this surface cannot answer rather than one that quietly means "false".
+                     *
+                     * 参照实现把这个筛选读成那两种取值，故其它任何输入都是**这条面答不了**的请求，而不是一个
+                     * **悄悄等于 false** 的请求。
+                     */
+                    private static Boolean outcome(String isError) {
+                        if (isError == null) {
+                            return null;
+                        }
+                        if (!"true".equals(isError) && !"false".equals(isError)) {
+                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                    "isError is `true` or `false`");
+                        }
+                        return Boolean.valueOf(isError);
+                    }
+
+                    /**
+                     * The reference reads this with {@code new Date(...)}, which takes a date and a
+                     * date-time alike; a deployment off by a day is worse than one that says so.
+                     *
+                     * 参照实现用 {@code new Date(...)} 解析它，日期与日期时间都收；一个**差了一天**的部署比一个
+                     * **说明自己读不懂输入**的部署更糟。
+                     */
+                    private static Instant since(String text) {
+                        try {
+                            return Instant.parse(text);
+                        } catch (DateTimeParseException notAnInstant) {
+                            try {
+                                return LocalDate.parse(text).atStartOfDay(ZoneOffset.UTC).toInstant();
+                            } catch (DateTimeParseException notADateEither) {
+                                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                        "since must be an ISO-8601 instant or date, such as 2026-10-09 "
+                                                + "or 2026-10-09T00:00:00Z");
+                            }
+                        }
+                    }
+
                     @GetMapping("/audit/verify")
                     public Map<String, Object> verify(
                             @RequestHeader(value = "Authorization", required = false) String authorization,

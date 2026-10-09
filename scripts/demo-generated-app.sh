@@ -165,6 +165,21 @@ check "the chain's state refuses an anonymous caller" '401' \
 check "and answers a caller this application knows" '200' \
   "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/audit/verify")"
 
+# The rows are readable now, and this one *is* gated where the bare verdict above is not — it answers
+# with the rows themselves, which name who acted. Asserted three ways, because "it answered" is not the
+# same as "it answered the right subset, to the right caller": the filter must narrow to the caller
+# asked about, the row must carry the frozen item's fields, and a plain caller must not get it at all.
+#
+# 行现在读得回来了，而这一条**确实**上了闸、上面的裸结论没有 —— 它回的是**行本身**，点得出谁动的手。三面断言，
+# 因为「它答了」不等于「它把**正确的那个子集**答给了**正确的那个人**」：筛选必须收窄到被问的那个调用方、行必须
+# 带冻结项的字段、而普通调用者**根本不该拿到**。
+LOGS=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?userId=alice")
+check "the audit rows narrow to the caller asked about" '"userId":"alice"' "$LOGS"
+check "and carry the frozen row's own fields" '"isError":' "$LOGS"
+check_absent "with no other caller's row in them" '"userId":"bob"' "$LOGS"
+check "the rows are refused to a plain caller" '403' \
+  "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/audit/logs")"
+
 # The identity seam and the contract-derived decision, on the generated artifact.
 PERMS=$(curl -s "$BASE/auth/me/permissions" -H "Authorization: Bearer $ALICE")
 check "capability list served in the frozen shape" '"subject":"Customer","scope":"own"' "$PERMS"

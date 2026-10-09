@@ -312,6 +312,33 @@ class GeneratorTest {
                 "it asks who is calling before it answers");
         assertFalse(verifyBody.contains("isManager"),
                 "and stops there rather than at administrator, as the runtime does");
+        // The chain is readable now, and this endpoint *is* gated at administrator — the difference
+        // being that it answers with the rows themselves, which name who acted, while the verdict
+        // above names nobody. Its rows answer the frozen `ai-audit-log-row`, and one thing about that
+        // is worth pinning on its own: `isError` is recorded *beside* the chain and never inside the
+        // hashed payload, or every row already written would stop verifying.
+        //
+        // 链现在读得回来了，而这条端点**确实**上了管理员的闸 —— 区别在于它回的是**行本身**（点得出谁动的手），
+        // 而上面那个结论**不点名任何人**。它的行按冻结的 `ai-audit-log-row` 作答；其中一件事值得单独钉住：
+        // `isError` 记在链**旁边**、**从不**进哈希载荷，否则**已经写下的每一行**都会验不过。
+        int logsAt = governance.indexOf("@GetMapping(\"/audit/logs\")");
+        assertTrue(logsAt > 0, "the chain's rows are readable from the generated application");
+        String logsBody = governance.substring(logsAt,
+                governance.indexOf("private static Map<String, Object> auditRow("));
+        assertTrue(logsBody.contains("if (!principal.isManager()) {"),
+                "the rows name who acted, so this one is gated where the bare verdict is not");
+        for (String field : List.of("id", "userId", "action", "detail", "isError", "createdAt")) {
+            assertTrue(governance.contains("view.put(\"" + field + "\", row."),
+                    "the frozen row requires '" + field + "'");
+        }
+        String auditStore =
+                Files.readString(out.resolve("src/main/java/com/example/crm/ai/AuditChainStore.java"));
+        assertTrue(auditStore.contains("boolean isError, String prevHash, String hash"),
+                "a row carries whether the call went the way the caller asked");
+        String hashed = auditStore.substring(
+                auditStore.indexOf("private static Map<String, Object> payload("));
+        assertFalse(hashed.contains("isError"),
+                "and it stays out of the hashed payload, or every existing row stops verifying");
         // The tool's *declared* result type, not its name: the console groups effects by what they made.
         String writeTool = Files.readString(
                 out.resolve("src/main/java/com/example/crm/ai/CreateFollowupTool.java"));
