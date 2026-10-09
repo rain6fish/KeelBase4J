@@ -97,6 +97,19 @@ The mapping from a wire object to this runtime's surface — and the objects it 
 written down in [`docs/wire-object-endpoints.md`](wire-object-endpoints.md), so a third party can run
 the replay corpus without reverse-engineering it out of the test that carries it.
 
+**One of those two is not settled between the lines, and saying so here is the point.** The chat answer
+is declared a mapping; the contract files `chat-response.schema.json` under the title *"POST /ai/chat
+data"* with `additionalProperties: false`, and the protocol prose says a non-streaming chat returns no
+confirmation token — writes go through the streaming channel. This runtime answers the opposite. Which
+side gives way is a decision that spans the two lines, and
+[`docs/wire-object-endpoints.md`](wire-object-endpoints.md) carries the detail.
+
+**这两条里有一条在两条线之间并未议定，而此处写出来的意义就在这里。** 聊天那条答案被声明为**映射**；而契约把
+`chat-response.schema.json` 登记在标题「*POST /ai/chat data*」之下、写着 `additionalProperties: false`，
+协议散文则说**非流式聊天不返回确认 token** —— 写走**流式**通道。本运行时答的是**相反**的。**哪一侧让步**，
+是一个**跨两条线**的决定；细节在
+[`docs/wire-object-endpoints.md`](wire-object-endpoints.md)。
+
 ### 3.3 `keelbase4j-generator` — the generator (G2 ✅)
 
 | Class | Responsibility |
