@@ -106,7 +106,7 @@ The mapping from a wire object to this runtime's surface — and the objects it 
 written down in [`docs/wire-object-endpoints.md`](wire-object-endpoints.md), so a third party can run
 the replay corpus without reverse-engineering it out of the test that carries it.
 
-**本节原先有两条，而另一条**为什么**走了，才是这里要说的事。** `POST /ai/chat` 过去答的是对话回合**加上**
+**本节原先有两条，而另一条为什么走了，才是这里要说的事。** `POST /ai/chat` 过去答的是对话回合**加上**
 `status`、`data`、`token`、`effectId`、`error`，理由是**只有这条端点**能让它的调用方知道有一次写正在等人。
 那个理由**是真的**，而这个答案**仍然是错的**：契约把 `chat-response.schema.json` 登记在**指名那条路径**的标题
 之下、写着 `additionalProperties: false`，参照实现在那儿**一个都不放**，而协议散文说**非流式调用不返回确认
@@ -269,6 +269,10 @@ a consumer's classpath. Only the demo deployment depends on the runtime.
 ---
 
 ## 5b. Authorization & identity (decision: ADR-0004 D3/D4)
+
+> **Where the first token comes from.** The deployment mints a delegation token out of band; core verifies it and never issues one. The executable form of that sentence — what the entry verifier requires, and the two ways a deployment produces the token — is `docs/deployment-first-token.md` (`JV-44`, decision **A**).
+>
+> **第一枚令牌从哪来。** 由**部署方在带外**铸一枚委托令牌，core 只验证、从不签发。那句话**能照着做**的形式——入口验签器要求什么、部署方产它的**两条路**——见 `docs/deployment-first-token.md`（`JV-44`，裁决 **A**）。
 
 - **Security ≠ Trust.** Spring Security answers *"who is this request"* (authentication); KeelBase
   answers *"may this AI action happen under enterprise rules"* (authorization / policy / confirmation
