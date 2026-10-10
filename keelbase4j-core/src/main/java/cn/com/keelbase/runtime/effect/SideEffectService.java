@@ -71,8 +71,33 @@ public class SideEffectService {
      * in one transaction would poison it on the first conflict (the persistence context is unusable
      * after a constraint violation), and would keep working on H2 only by accident.
      */
+    /**
+     * Records the effect, with what the tool produced left uncaptured.
+     *
+     * <p>Kept as the shorter call for a caller that has no result to hand over; the runtime's own path
+     * uses {@link #record(Principal, String, String, Long, String, String, String)} and passes one.
+     *
+     * 记下这次副作用，**不捕获**工具产出了什么。留给手上没有结果的调用方；运行时自己那条路走下面那个
+     * 重载、并把结果交进来。
+     */
     public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
                              String argsJson, String revokeClass) {
+        return record(principal, toolName, resultType, resultId, argsJson, revokeClass, null);
+    }
+
+    /**
+     * The same, carrying the tool's own result — the frozen {@code traceItem}'s {@code afterSnapshot}.
+     *
+     * <p>An overload rather than a change to the method above it: this class lives in a published
+     * artifact, and a signature that gains a parameter breaks a caller that has none to pass.
+     *
+     * 同上，另外带着工具**自己的结果** —— 也就是冻结 `traceItem` 的 `afterSnapshot`。
+     *
+     * <p>做成**重载**、而不去改上面那个方法：这个类住在一个**已发布**的 artifact 里，而签名多一个参数会让
+     * 手上没有这个值的调用方编译不过。
+     */
+    public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
+                             String argsJson, String revokeClass, String afterSnapshot) {
         String key = idempotencyKey(principal.userId(), toolName, argsJson);
         Optional<SideEffect> existing = repository.findByIdempotencyKey(key);
         if (existing.isPresent()) {
@@ -81,7 +106,7 @@ public class SideEffectService {
         try {
             return repository.saveAndFlush(new SideEffect(
                     key, principal.userId(), toolName, resultType, resultId, revokeClass,
-                    argsHash(argsJson)));
+                    argsHash(argsJson), afterSnapshot));
         } catch (DataIntegrityViolationException race) {
             // A concurrent call with the same key won. The effect exists, so this call is a skip, not
             // a failure — return the winner's row. If the re-read finds nothing the violation was

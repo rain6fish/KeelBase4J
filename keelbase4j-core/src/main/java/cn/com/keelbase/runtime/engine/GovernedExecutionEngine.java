@@ -490,8 +490,15 @@ public class GovernedExecutionEngine {
         Long effectId = null;
         if (result.success() && tool.resultType() != null) {
             Long resultId = resultId(result.data());
-            SideEffect effect = sideEffects.record(
-                    principal, tool.name(), tool.resultType(), resultId, argsJson, tool.revokeClass());
+            // What the tool produced, captured here — this is the only moment it is still what the
+            // decision produced rather than whatever the row has since become. The frozen
+            // `traceItem` reads it as `afterSnapshot`.
+            //
+            // 工具**产出了什么**，就在这一刻捕获 —— 这是它**仍然是这次决策产出的那个样子**的唯一时刻，
+            // 再往后读到的就是这一行后来变成的样子了。冻结的 `traceItem` 把它读作 `afterSnapshot`。
+            SideEffect effect = sideEffects.record(principal, tool.name(), tool.resultType(), resultId,
+                    argsJson, tool.revokeClass(),
+                    result.data() == null ? null : CanonicalJson.json(result.data()));
             effectId = effect.getId();
         }
         if (claimed) {

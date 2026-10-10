@@ -1,0 +1,22 @@
+-- The effect's own record of what it produced: the JSON the tool returned when the write ran.
+--
+-- The frozen `traceItem` asks for `beforeSnapshot` and `afterSnapshot`. This runtime can answer the
+-- second: a tool's result carries the row it produced, and the engine holds it at the moment the side
+-- effect is recorded — so it is stored here rather than re-derived at read time, because a row that has
+-- changed since is not what the decision produced.
+--
+-- `beforeSnapshot` deliberately has **no column**, and the wire answers null for it: nothing in this
+-- runtime overwrites an existing row — every tool here creates one — so there is no "before" to record.
+-- A tool that updates will need both the column and a capture point, and that is a change to make then
+-- rather than a column to add now for a case that cannot happen.
+--
+-- 副作用对自己**产出了什么**的记录：写跑成时工具返回的那份 JSON。
+--
+-- 冻结的 `traceItem` 要 `beforeSnapshot` 与 `afterSnapshot`。本运行时能答后者：工具的结果里带着它新建的
+-- 那一行，而**记副作用的那一刻引擎手上就有它** —— 所以这里**存下来**、而不是读时重推：一行后来改成的样子，
+-- **不是这次决策产出的样子**。
+--
+-- `beforeSnapshot` **刻意不设列**，wire 上对它答 null：本运行时**没有任何东西改写既有行** —— 这里的每个
+-- 工具都是新建 —— 所以没有「之前」可记。将来有了会改写的工具，再补那一列与采集点；而不是为一个**不可能
+-- 发生**的情形现在就加一列。
+ALTER TABLE side_effects ADD COLUMN after_snapshot TEXT;

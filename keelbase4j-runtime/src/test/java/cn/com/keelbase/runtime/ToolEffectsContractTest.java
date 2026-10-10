@@ -42,9 +42,18 @@ import org.springframework.test.context.ActiveProfiles;
 class ToolEffectsContractTest {
 
     /**
-     * The fields the console's {@code ToolEffect} declares as required. Optional ones (snapshots,
-     * compensation group and the like) are absent on purpose: this runtime has no such concepts, and
-     * inventing values for them would be worse than leaving the console's column empty.
+     * The fields the console's {@code ToolEffect} declares as required. What the console does not
+     * require is absent on purpose, and for two different reasons: the two relations among them
+     * ({@code compensationGroup}, {@code parentEffectId}) stay absent because this runtime has no such
+     * concepts, and inventing values would be worse than leaving the console's column empty — while a
+     * snapshot is the other case, and the after-snapshot is now recorded at write time, which is what
+     * lets the frozen {@code traceItem} be answered at all (see {@code WireShapeConformanceTest}).
+     *
+     * 控制台的 {@code ToolEffect} 声明为必需的那些字段。控制台**不**要求的刻意缺席，而理由有**两种**：
+     * 其中的两个**关系**字段（{@code compensationGroup}、{@code parentEffectId}）缺席，是因为本运行时
+     * **没有这些概念**，为它们编个取值比让控制台那一列为空更糟；而**快照**是另一种情形 —— after-snapshot
+     * 现在**在写跑成时记下**，那正是冻结的 {@code traceItem} 能被回答的原因（见
+     * {@code WireShapeConformanceTest}）。
      */
     private static final List<String> CONSOLE_REQUIRED_FIELDS = List.of(
             "id", "toolName", "conversationId", "resultType", "resultId",

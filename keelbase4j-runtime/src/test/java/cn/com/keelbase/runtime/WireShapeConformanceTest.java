@@ -150,4 +150,25 @@ class WireShapeConformanceTest {
 
         WireSchemas.assertConformsTo(data, "audit-chain-verification");
     }
+
+    @Test
+    void everySideEffectTheCallerCanSeeMatchesTheFrozenItem() {
+        // An empty list would pass for the wrong reason, so the test makes an effect first: a write is
+        // proposed, a person approves it, and what that leaves behind is what gets held to the schema.
+        Map<String, Object> proposed = Vectors.map(dataOf(rest.postForEntity("/ai/chat",
+                new HttpEntity<>(Map.of("message", "给客户建一条跟进记录", "customerId", aCustomerOf("alice")),
+                        asCaller("alice")), String.class)));
+        String token = (String) proposed.get("token");
+        assertNotNull(token, "the write is proposed as something a person can decide");
+        Object decided = dataOf(rest.postForEntity("/ai/confirmations/" + token,
+                new HttpEntity<>(Map.of("decision", "approve"), asCaller("alice")), String.class));
+        assertEquals("executed", Vectors.map(decided).get("status"),
+                "the approval must run the write, or there is no effect to hold to a schema: " + decided);
+
+        List<?> items = (List<?>) Vectors.map(getData("/ai/tool-effects", "alice")).get("items");
+        assertFalse(items.isEmpty(), "the approved write must appear as an effect");
+        for (Object item : items) {
+            WireSchemas.assertConformsTo(item, "side-effect-revoke");
+        }
+    }
 }

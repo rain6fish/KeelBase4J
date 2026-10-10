@@ -55,11 +55,28 @@ public class SideEffect {
     @Column(name = "args_hash", nullable = false)
     private String argsHash;
 
+    /**
+     * What the tool produced, as JSON, captured when the write ran.
+     *
+     * <p>The frozen {@code traceItem} calls this {@code afterSnapshot}, and it is stored rather than
+     * re-derived at read time for the reason the name gives: the row as it stands today is not the row
+     * the decision produced. There is no `beforeSnapshot` beside it — nothing in this runtime
+     * overwrites an existing row, so there is no before to record (see {@code V5__effect_snapshot}).
+     *
+     * 工具**产出了什么**，以 JSON 记下、在写跑成的那一刻捕获。
+     *
+     * <p>冻结的 {@code traceItem} 管它叫 {@code afterSnapshot}；它**被存下来**、而不是读时重推，理由就在
+     * 这个名字里：**今天这一行**的样子**不是这次决策产出的样子**。旁边没有 `beforeSnapshot` ——
+     * 本运行时**不改写既有行**，所以没有「之前」可记（见 `V5__effect_snapshot`）。
+     */
+    @Column(name = "after_snapshot")
+    private String afterSnapshot;
+
     protected SideEffect() {
     }
 
     public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
-                      Long resultId, String revokeClass, String argsHash) {
+                      Long resultId, String revokeClass, String argsHash, String afterSnapshot) {
         this.idempotencyKey = idempotencyKey;
         this.userId = userId;
         this.toolName = toolName;
@@ -67,6 +84,7 @@ public class SideEffect {
         this.resultId = resultId;
         this.revokeClass = revokeClass;
         this.argsHash = argsHash;
+        this.afterSnapshot = afterSnapshot;
     }
 
     public Long getId() {
@@ -99,6 +117,10 @@ public class SideEffect {
 
     public String getArgsHash() {
         return argsHash;
+    }
+
+    public String getAfterSnapshot() {
+        return afterSnapshot;
     }
 
     public Instant getCreatedAt() {

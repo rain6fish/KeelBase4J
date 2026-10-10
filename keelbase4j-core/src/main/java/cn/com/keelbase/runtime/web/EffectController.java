@@ -123,8 +123,44 @@ public class EffectController {
         m.put("targetTitle", target.map(FollowUp::getNote).orElse(null));
 
         m.put("revokeClass", e.getRevokeClass());
-        m.put("revokeStatus", e.getRevokeStatus());
-        m.put("status", e.getRevokeStatus());
+        // One stored column feeds two contract fields, and the contract gives the two different
+        // vocabularies — `status` says what happened to the effect (executed / revoked /
+        // revoking_external / revoke_failed), `revokeStatus` says where the revoke is (revoked /
+        // compensating / revoke_failed, and null while none was ever attempted). The column's three
+        // values map onto them without a guess: `executed` means no revoke has been tried, so the
+        // revoke field is null; `revoked` means both; and `compensating` is a state of the *revoke*,
+        // so the effect's own status stays `executed` until the compensation finishes.
+        //
+        // 一条存储列喂着契约的**两个**字段，而两者词表不同 —— `status` 说 effect 怎么了
+        // （executed / revoked / revoking_external / revoke_failed），`revokeStatus` 说撤销走到哪
+        // （revoked / compensating / revoke_failed，**从未撤销过则是 null**）。列上的三个取值不需要猜就能
+        // 对上：`executed` ＝ 还没试过撤销 ⇒ 撤销字段为 null；`revoked` ＝ 两者都是；而 `compensating`
+        // 是**撤销**的状态，所以 effect 自己的 status 在补偿结束前**仍是 `executed`**。
+        String stored = e.getRevokeStatus();
+        m.put("status", "revoked".equals(stored) ? "revoked" : "executed");
+        m.put("revokeStatus", "executed".equals(stored) ? null : stored);
+
+        // The frozen `traceItem`'s remaining three, answered with what this runtime has:
+        //
+        //   `afterSnapshot` — what the tool produced, stored when the write ran, because the row as it
+        //   stands today is not the row the decision produced.
+        //   `beforeSnapshot` — null, and that is the fact rather than a placeholder: nothing here
+        //   overwrites an existing row, so there is no before to record.
+        //   `compensationGroup` / `parentEffectId` — declared nullable, and null: this runtime has
+        //   neither a compensation group nor a parent/child relation between effects, and inventing
+        //   one would be a claim with nothing behind it.
+        //
+        // 冻结 `traceItem` 余下的三样，按本运行时**有的**答：
+        //
+        //   `afterSnapshot` —— 工具产出了什么，**在写跑成时存下**：今天这一行的样子，不是这次决策产出的样子。
+        //   `beforeSnapshot` —— null，而这是**事实**而非占位：本运行时不改写既有行，所以没有「之前」可记。
+        //   `compensationGroup` / `parentEffectId` —— 声明可空、而这里就是 null：本运行时既没有补偿组，
+        //   也没有 effect 之间的父子关系，编一个出来只是**没有任何东西支撑的主张**。
+        m.put("beforeSnapshot", null);
+        m.put("afterSnapshot", e.getAfterSnapshot());
+        m.put("compensationGroup", null);
+        m.put("parentEffectId", null);
+
         // What the console renders the revoke button on, decided here rather than re-derived there.
         m.put("revocable",
                 !"none".equals(e.getRevokeClass()) && "executed".equals(e.getRevokeStatus()));
