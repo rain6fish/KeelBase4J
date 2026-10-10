@@ -326,9 +326,19 @@ class TwoPersonApprovalTest {
     void theWholePathRunsOverHttp() throws Exception {
         HttpResponse<String> asked = post("/api/v1/ai/chat", "alice",
                 "{\"message\":\"把这个客户升级处理\",\"customerId\":" + customerId + "}");
-        Map<String, Object> turn = Envelopes.data(Json.parse(asked.body()));
-        assertEquals("requires_approval", turn.get("status"), "the gate held it: " + turn);
-        String token = String.valueOf(turn.get("token"));
+        assertEquals(200, asked.statusCode(), "the turn is served: " + asked.body());
+        // The gate held it, and the evidence is the row it created. It is read here rather than from the
+        // caller's own confirmation list, because an approval row is deliberately not collected there —
+        // the list holds the operator's *own* immediate decisions, and this one belongs to somebody
+        // else's (see `MyConfirmationController`). The chat answer carries neither status nor token now.
+        //
+        // 闸门拦住了它，证据是**它建的那一行**。这里直接从那一行读、不从调用方自己的确认列表读：审批行是
+        // **刻意不收集**在那里的 —— 那个列表放的是操作者**自己的**即时裁决，而这一条属于**别人**（见
+        // `MyConfirmationController`）。聊天答案现在 status 与 token 都不带。
+        List<ConfirmationRequest> waiting = confirmations.findByOperatorIdAndModeOrderByCreatedAtDesc(
+                "alice", ConfirmationMode.APPROVAL);
+        assertEquals(1, waiting.size(), "the gate held it as an approval the asker cannot answer");
+        String token = waiting.get(0).getToken();
         assertTrue(written().isEmpty(), "and nothing ran");
 
         HttpResponse<String> answered = post("/api/v1/ai/confirmations/" + token + "/approve-by", "carol",

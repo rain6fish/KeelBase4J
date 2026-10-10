@@ -79,15 +79,24 @@ boundary.
 | `conversation` | The transcript behind `conversationId`: `ConversationStore` + `ConversationMessage` — turns and nothing more (no embeddings, no retrieval, no memory policy) |
 | `web` | REST: chat in both shapes (`/ai/chat`, `/ai/chat/stream` with `/admin/ai/chat/stream` behind the admin role), the multi-step entry (`/ai/task`, which answers `available: false` where no orchestration adapter is deployed), confirmations, tool-effects, `/audit/verify`, the identity surface (`/auth/me`, `/auth/me/permissions`, `/auth/oauth/providers`, `/auth/login-stats`), `/customers`, `/app/capabilities`, `/app/provenance`. Mapped at the root but mounted under `/api/v1` (`server.servlet.context-path`) — the reference's prefix, which is what lets one runtime-neutral frontend talk to this runtime without rebasing |
 
-#### 3.2.1 Two answers that are this runtime's own
+#### 3.2.1 The one answer that is this runtime's own
 
-The wire corpus asserts claims about **frozen wire objects**. Two of this runtime's answers are its
-**own objects**, not those — stated here so no consumer reads them as the frozen shapes:
+The wire corpus asserts claims about **frozen wire objects**. One of this runtime's answers is its **own
+object**, not one of those — stated here so no consumer reads it as a frozen shape:
 
 | Where | This runtime answers | The frozen object it is *not* |
 |---|---|---|
-| a tool call's result (both chat shapes, and the MCP exit) | `ExecutionOutcome{status, data, token, effectId, error}` | `tool-invocation` — its `status` carries the same facts (`executed` ⇔ `status=executed`; `requiresConfirmation` ⇔ `status=pending_confirmation`) |
 | `POST /ai/confirmations/{token}` | `ExecutionOutcome` | `confirmation-decision` — the decision data travels on this runtime's stream, and the replay corpus does not assert it (see `conformance-profile.md` §2.4) |
+
+**There used to be two rows, and why the other one left is the point.** `POST /ai/chat` answered the
+conversation turn *plus* `status`, `data`, `token`, `effectId` and `error`, on the argument that this
+endpoint was the only place a caller of it could learn that a write was waiting. That argument was true
+and the answer was still wrong: the contract files `chat-response.schema.json` under the title naming
+that path with `additionalProperties: false`, the reference puts none of those fields there, and the
+protocol's prose says a non-streaming call returns no confirmation token. The answer is now the frozen
+`chat-response` with nothing added, and the facts moved to surfaces of their own — a pending write is
+read from `/ai/my/confirmations`, whose items carry the token, and the streaming sibling reports the
+same turn as events.
 
 What is **not** in that table is as deliberate as what is: `DELETE /ai/tool-effects/{id}` answers the
 frozen `revokeResult`'s required `revoked` alongside `revokeStatus`, because the object requires it and
@@ -97,18 +106,12 @@ The mapping from a wire object to this runtime's surface — and the objects it 
 written down in [`docs/wire-object-endpoints.md`](wire-object-endpoints.md), so a third party can run
 the replay corpus without reverse-engineering it out of the test that carries it.
 
-**One of those two is not settled between the lines, and saying so here is the point.** The chat answer
-is declared a mapping; the contract files `chat-response.schema.json` under the title *"POST /ai/chat
-data"* with `additionalProperties: false`, and the protocol prose says a non-streaming chat returns no
-confirmation token — writes go through the streaming channel. This runtime answers the opposite. Which
-side gives way is a decision that spans the two lines, and
-[`docs/wire-object-endpoints.md`](wire-object-endpoints.md) carries the detail.
-
-**这两条里有一条在两条线之间并未议定，而此处写出来的意义就在这里。** 聊天那条答案被声明为**映射**；而契约把
-`chat-response.schema.json` 登记在标题「*POST /ai/chat data*」之下、写着 `additionalProperties: false`，
-协议散文则说**非流式聊天不返回确认 token** —— 写走**流式**通道。本运行时答的是**相反**的。**哪一侧让步**，
-是一个**跨两条线**的决定；细节在
-[`docs/wire-object-endpoints.md`](wire-object-endpoints.md)。
+**本节原先有两条，而另一条**为什么**走了，才是这里要说的事。** `POST /ai/chat` 过去答的是对话回合**加上**
+`status`、`data`、`token`、`effectId`、`error`，理由是**只有这条端点**能让它的调用方知道有一次写正在等人。
+那个理由**是真的**，而这个答案**仍然是错的**：契约把 `chat-response.schema.json` 登记在**指名那条路径**的标题
+之下、写着 `additionalProperties: false`，参照实现在那儿**一个都不放**，而协议散文说**非流式调用不返回确认
+token**。这条答案现在**就是**冻结的 `chat-response`、一点没多加，而那些事实**搬到了它们自己的面上** ——
+待确认的写从 `/ai/my/confirmations` 读（它的项**带着 token**），同一个回合在流式那条上以**事件**报出。
 
 ### 3.3 `keelbase4j-generator` — the generator (G2 ✅)
 

@@ -160,13 +160,20 @@ class RepeatedCallIsNotWrittenTwiceTest {
                 "and the call is not run — which is the whole point of asking before executing");
     }
 
-    /** Propose the write and return its confirmation token. */
+    /** Propose the write and return its confirmation token, read from the caller's own rows. */
     private String aliceWrites(Long customerId) {
+        int before = Pending.count(rest, "alice", delegationSecret);
         ResponseEntity<Map> proposed = rest.postForEntity("/ai/chat",
                 entity(Map.of("message", WRITE, "customerId", customerId)), Map.class);
-        ExecutionOutcome outcome = json.convertValue(Envelopes.data(proposed.getBody()), ExecutionOutcome.class);
-        assertEquals("pending_confirmation", outcome.status(), "a write waits for a decision");
-        return outcome.token();
+        assertEquals(200, proposed.getStatusCode().value(), "the turn is served: " + proposed.getBody());
+        // A write waits for a decision, and the waiting is one **more** pending row for alice: the chat
+        // answer is the frozen `chat-response` and reports no status or token.
+        //
+        // 写在等人裁决，而「在等」就是 **alice 多了一行**待确认：聊天答案是冻结的 `chat-response`，
+        // 不报 status 也不报 token。
+        assertEquals(before + 1, Pending.count(rest, "alice", delegationSecret),
+                "a write waits for a decision");
+        return Pending.token(rest, "alice", delegationSecret);
     }
 
     private ExecutionOutcome approve(String token) {

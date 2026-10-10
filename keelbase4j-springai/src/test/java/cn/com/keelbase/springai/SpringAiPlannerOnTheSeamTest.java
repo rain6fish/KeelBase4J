@@ -6,7 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.KeelBase4JApplication;
+import cn.com.keelbase.runtime.governance.ConfirmationMode;
+import cn.com.keelbase.runtime.governance.ConfirmationRequestRepository;
 import cn.com.keelbase.runtime.pipeline.ChatReplier;
 import cn.com.keelbase.runtime.pipeline.DeterministicReplier;
 import cn.com.keelbase.runtime.pipeline.RuleBasedPlanner;
@@ -96,9 +99,18 @@ class SpringAiPlannerOnTheSeamTest {
 
         assertEquals(200, res.getStatusCode().value(),
                 "the rule-based planner finds no keyword here; the model does");
-        assertEquals("pending_confirmation", data(res).get("status"),
+        // A proposal is not a permission: the write still waits for a human. The waiting is read from the
+        // row it created, because the chat answer is the frozen `chat-response` and carries neither a
+        // status nor a token (JV-52 片 2).
+        //
+        // 提议不是许可：写**仍然**在等人。这份等待从**它建的那一行**读 —— 聊天答案是冻结的
+        // `chat-response`，status 与 token 都不带（JV-52 片 2）。
+        assertTrue(
+                context.getBean(ConfirmationRequestRepository.class)
+                        .findByOperatorIdAndModeOrderByCreatedAtDesc(
+                                "alice", ConfirmationMode.IMMEDIATE).stream()
+                        .anyMatch(row -> ConfirmationLifecycle.PENDING.equals(row.getStatus())),
                 "a proposal is not a permission: the write still waits for a human");
-        assertNotNull(data(res).get("token"), "and it still returns a confirmation token");
     }
 
     /**

@@ -6,7 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.KeelBase4JApplication;
+import cn.com.keelbase.runtime.governance.ConfirmationMode;
+import cn.com.keelbase.runtime.governance.ConfirmationRequestRepository;
 import cn.com.keelbase.runtime.pipeline.IntentPlan;
 import cn.com.keelbase.runtime.pipeline.ToolCallPlanner;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
@@ -165,6 +168,9 @@ class McpToolOnTheSeamTest {
     @Autowired
     TestRestTemplate http;
 
+    @Autowired
+    ConfirmationRequestRepository confirmations;
+
     /** Drives one turn as a caller, with a delegation token minted the way the runtime's tests do. */
     private String chatAs(String userId, String message) {
         HttpHeaders headers = new HttpHeaders();
@@ -190,9 +196,14 @@ class McpToolOnTheSeamTest {
     @Test
     void anApprovedReadRunsOverMcp() {
         SERVER_SAW.clear();
-        String body = chatAs("alice", "please list_open_tickets");
+        chatAs("alice", "please list_open_tickets");
 
-        assertTrue(body.contains("\"status\":\"executed\""), body);
+        // The read ran, and the evidence is that the server was asked — which is what the outcome word
+        // on the answer used to stand for. The answer carries no outcome now: it is the frozen
+        // `chat-response` (JV-52 片 2).
+        //
+        // 读跑了，而证据是**服务端被问过** —— 那正是过去答案上那个结果词所代表的东西。答案现在不带结果：
+        // 它就是冻结的 `chat-response`（JV-52 片 2）。
         assertEquals(List.of("list_open_tickets"), SERVER_SAW);
     }
 
@@ -201,8 +212,14 @@ class McpToolOnTheSeamTest {
         SERVER_SAW.clear();
         String body = chatAs("alice", "please close_ticket");
 
-        assertTrue(body.contains("\"status\":\"pending_confirmation\""), body);
-        // Not "the answer says pending" — the server was never asked.
+        // Both halves, and neither alone is the claim: a row says the write is waiting, and the server
+        // was never asked. The answer cannot say "pending" any more — the object has no such field.
+        //
+        // 两半都要，而**任何一半单独都不是**这句话：**有一行**说写在等，**且**服务端从没被问过。答案已经不能
+        // 说「pending」了 —— 那个对象没有这个字段。
+        assertTrue(confirmations.findByOperatorIdAndModeOrderByCreatedAtDesc(
+                        "alice", ConfirmationMode.IMMEDIATE).stream()
+                .anyMatch(row -> ConfirmationLifecycle.PENDING.equals(row.getStatus())), body);
         assertTrue(SERVER_SAW.isEmpty(), "the write reached the MCP server before a human approved: " + SERVER_SAW);
     }
 }

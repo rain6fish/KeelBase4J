@@ -65,11 +65,15 @@ class ToolCallPlannerTest {
 
     @Test
     void aReplacedPlannerStillHasItsProposalGated() {
-        Map<?, ?> outcome = chat("bob", "这些话与规划器无关——它总会提议写工具");
+        chat("bob", "这些话与规划器无关——它总会提议写工具");
 
-        assertEquals("pending_confirmation", outcome.get("status"),
+        // The gate's product is the pending row, not a word in the chat answer: that answer is the
+        // frozen `chat-response`, which has no status and no token to report (JV-52 片 2).
+        //
+        // 闸门的产物是**那行待确认**，不是聊天答案里的一个词：那份答案是冻结的 `chat-response`，
+        // **既没有 status 也没有 token** 可报（JV-52 片 2）。
+        assertNotNull(Pending.token(rest, "bob", delegationSecret),
                 "a planner proposes a call; it does not decide that a write may happen");
-        assertNotNull(outcome.get("token"), "and the write must still ask a human");
     }
 
     private Map<?, ?> chat(String userId, String message) {

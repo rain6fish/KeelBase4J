@@ -90,20 +90,16 @@ class WireShapeConformanceTest {
         WireSchemas.assertConformsTo(body, "error-body");
     }
 
-    // One shape this audit measured and left out of the suite rather than pinning as an expected
-    // failure: `/ai/chat`'s `data` carries `status` (and `data`/`token`/`effectId`/`error`) that
-    // `chat-response` does not declare. That one is not an omission: `docs/wire-object-endpoints.md`
-    // declares the surface as this runtime's own object, while the contract files `chat-response`
-    // under the title naming that path — the two statements disagree, and which gives way is a
-    // decision that spans the lines rather than a change to make here. The other two shapes have
-    // been answered: the effect item conforms below, and so does the audit chain.
+    // The three shapes this audit once measured and left out of the suite are all answered now, and each
+    // is pinned below rather than described: `/ai/chat`'s answer is the frozen `chat-response` with
+    // nothing added, the effect item answers the frozen `traceItem`, and the audit chain answers its own
+    // object. The last one to give way was the chat answer — this runtime had argued its superset was a
+    // declared mapping, and the contract, the reference and the protocol's prose all disagreed.
     //
-    // 这个盘点**量过、但没写进套件**的一个形状（写成「预期失败」会把一个未裁的问题钉死）：
-    // `/ai/chat` 的 `data` 带了 `chat-response` 未声明的 `status`（同类还有
-    // `data`/`token`/`effectId`/`error`）。那一条**不是遗漏**：`docs/wire-object-endpoints.md` 把这条面
-    // **声明为**本运行时自己的对象，而契约把 `chat-response` 登记在**指名那条路径**的标题之下 ——
-    // 两句话不一致，而**哪一句让步是跨线的决定**、不是这里能改的。另外两个形状**都已答掉**：
-    // tool-effect 的项在下文符合，审计链也符合。
+    // 这次盘点**量过、当时没写进套件**的三个形状，现在**三个都答掉了**，而且每一个都是在下文**钉住**的、
+    // 不是被描述一番：`/ai/chat` 的答案就是冻结的 `chat-response`、什么都没多加；effect 的项答冻结的
+    // `traceItem`；审计链答它自己的对象。最后让步的是**聊天那条** —— 本运行时曾主张它的超集是一处**已声明
+    // 的映射**，而契约、参照实现与协议散文**三者都不认同**。
 
     @Value("${keelbase.delegation.secret}")
     String delegationSecret;
@@ -142,6 +138,27 @@ class WireShapeConformanceTest {
         }
     }
     @Test
+    void theChatAnswerMatchesTheFrozenObject() {
+        // Both shapes of the turn, because the superset this used to answer was wider on one of them
+        // than the other: a message that routes to a read tool, and one that proposes a write. The
+        // second is the case that argues for extra fields — a caller that wants to know a write is
+        // waiting — and the object refuses them anyway, which is why the token has its own surface.
+        //
+        // 一个回合的**两种形状**都断言，因为这个超集在其中一个上比另一个更宽：一条路由到**读**工具的消息，
+        // 和一条**提出写**的消息。第二种正是「多加字段」的主张所在 —— 一个想知道**有写在等**的调用方 ——
+        // 而对象**照样**不接受它们，所以 token 有它自己的面。
+        Object read = dataOf(rest.postForEntity("/ai/chat",
+                new HttpEntity<>(Map.of("message", "分析客户风险", "customerId", aCustomerOf("alice")),
+                        asCaller("alice")), String.class));
+        WireSchemas.assertConformsTo(read, "chat-response");
+
+        Object write = dataOf(rest.postForEntity("/ai/chat",
+                new HttpEntity<>(Map.of("message", "给客户建一条跟进记录", "customerId", aCustomerOf("alice")),
+                        asCaller("alice")), String.class));
+        WireSchemas.assertConformsTo(write, "chat-response");
+    }
+
+    @Test
     void theAuditChainAnswerMatchesTheFrozenObject() {
         // Read as an administrator: the answer carries the rows themselves, which is who the chain is
         // for (`AuditController`), and the corpus replays the object with `actor: admin`.
@@ -155,11 +172,13 @@ class WireShapeConformanceTest {
     void everySideEffectTheCallerCanSeeMatchesTheFrozenItem() {
         // An empty list would pass for the wrong reason, so the test makes an effect first: a write is
         // proposed, a person approves it, and what that leaves behind is what gets held to the schema.
-        Map<String, Object> proposed = Vectors.map(dataOf(rest.postForEntity("/ai/chat",
+        int held = Pending.count(rest, "alice", delegationSecret);
+        rest.postForEntity("/ai/chat",
                 new HttpEntity<>(Map.of("message", "给客户建一条跟进记录", "customerId", aCustomerOf("alice")),
-                        asCaller("alice")), String.class)));
-        String token = (String) proposed.get("token");
-        assertNotNull(token, "the write is proposed as something a person can decide");
+                        asCaller("alice")), String.class);
+        assertEquals(held + 1, Pending.count(rest, "alice", delegationSecret),
+                "the write is proposed as something a person can decide");
+        String token = Pending.token(rest, "alice", delegationSecret);
         Object decided = dataOf(rest.postForEntity("/ai/confirmations/" + token,
                 new HttpEntity<>(Map.of("decision", "approve"), asCaller("alice")), String.class));
         assertEquals("executed", Vectors.map(decided).get("status"),

@@ -2,6 +2,7 @@
 package cn.com.keelbase.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -52,11 +53,17 @@ class ChatConversationTest {
 
         assertNotNull(body.get("conversationId"), "the frontends keep this and send it back");
         assertNotNull(body.get("reply"), "and render this");
-        // The governance facts travel alongside, because this runtime has no SSE to carry them
-        // (ADR-0009 D1).
-        assertNotNull(body.get("status"), "the engine's answer is still here");
-        assertTrue(body.containsKey("token"), "including the confirmation token");
-        // The reference reports the tools a turn used, and so does this (ADR-0009 D1).
+        // And **only** those: the governance facts used to ride along here, which is exactly what the
+        // frozen `chat-response` forbids (`additionalProperties: false`) and what the reference never
+        // put on this path. They have their own surfaces — the confirmation centre and the stream — and
+        // `WireShapeConformanceTest` holds this answer to the object.
+        //
+        // 而且**只有**那些：治理事实过去搭这趟车，而那正是冻结 `chat-response` 所禁止的
+        // （`additionalProperties: false`）、也是参照实现在这条路径上从不放的。它们各有自己的面 ——
+        // 确认中心与流式 —— 而 `WireShapeConformanceTest` 把这份答案钉在对象上。
+        assertFalse(body.containsKey("status"), "no status: the object has no such field");
+        assertFalse(body.containsKey("token"), "no token: a non-streaming call does not return one");
+        // The reference reports the tools a turn used, and so does this.
         assertTrue(body.get("toolCalls") instanceof List<?> calls && calls.contains("create_followup"),
                 "the tool this turn used is named, as the reference names it: " + body.get("toolCalls"));
     }
@@ -107,11 +114,13 @@ class ChatConversationTest {
      */
     @Test
     void theCallerCanNameTheCustomerInTheMessage() {
+        int before = Pending.count(rest, "alice", delegationSecret);
         Map<String, Object> body = chat("alice", "当前客户「Acme」（ID 1）。给客户建一条跟进记录", null);
 
-        assertEquals("pending_confirmation", body.get("status"),
+        assertEquals(before + 1, Pending.count(rest, "alice", delegationSecret),
                 "the write the console asked for is proposed and waiting: " + body);
-        assertNotNull(body.get("token"), "with a token for its confirmation card");
+        assertTrue(body.get("toolCalls") instanceof List<?> calls && calls.contains("create_followup"),
+                "and the answer names the tool it routed, which is what this object can say: " + body);
     }
 
     /**
@@ -120,11 +129,13 @@ class ChatConversationTest {
      */
     @Test
     void aWriteWithNoCustomerToActOnIsNotProposed() {
+        int before = Pending.count(rest, "alice", delegationSecret);
         ResponseEntity<Map> res = chatRaw("alice", message("给客户建一条跟进记录"));
 
         assertEquals(200, res.getStatusCode().value(), "not proposed, and not a failure either");
         Map<String, Object> body = Envelopes.data(res.getBody());
-        assertNull(body.get("status"), "nothing was gated, because nothing was proposed");
+        assertEquals(before, Pending.count(rest, "alice", delegationSecret),
+                "nothing was gated, because nothing was proposed");
         assertNotNull(body.get("reply"), "the caller is told so rather than left with an error");
     }
 
@@ -136,17 +147,18 @@ class ChatConversationTest {
      */
     @Test
     void aLaterTurnStillKnowsWhichCustomerTheConversationIsAbout() {
+        int before = Pending.count(rest, "alice", delegationSecret);
         Map<String, Object> first = Envelopes.data(
                 chatRaw("alice", message("当前客户「Acme」（ID 1）。给客户建一条跟进记录")).getBody());
         String conversationId = (String) first.get("conversationId");
-        assertEquals("pending_confirmation", first.get("status"), "the first write is proposed");
+        assertEquals(before + 1, Pending.count(rest, "alice", delegationSecret),
+                "the first write is proposed");
 
         Map<String, Object> second = Envelopes.data(
                 chatRaw("alice", reply(conversationId, "再建一条跟进记录")).getBody());
 
-        assertEquals("pending_confirmation", second.get("status"),
+        assertEquals(before + 2, Pending.count(rest, "alice", delegationSecret),
                 "the customer named in the first message still applies: " + second);
-        assertNotNull(second.get("token"), "so the second write waits on a human too");
     }
 
     private static Map<String, Object> reply(String conversationId, String message) {

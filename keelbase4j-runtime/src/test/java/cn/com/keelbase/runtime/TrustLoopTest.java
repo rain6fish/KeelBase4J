@@ -4,6 +4,7 @@ package cn.com.keelbase.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
@@ -66,21 +67,33 @@ class TrustLoopTest {
         Long aliceCustomer = customers.save(new Customer("Acme Industrial", "high", "alice")).getId();
         Long bobCustomer = customers.save(new Customer("Globex Trading", "medium", "bob")).getId();
 
-        // 1. Read tool (R1) auto-executes — no confirmation.
-        ExecutionOutcome read = chat("alice", "分析客户风险", aliceCustomer, 200);
-        assertEquals("executed", read.status());
-        assertNull(read.token(), "a read tool must not ask for confirmation");
-        assertEquals("critical", ((Map<?, ?>) read.data()).get("level"));
+        // 1. Read tool (R1) auto-executes — no confirmation. The non-streaming answer is the frozen
+        // `chat-response`, so the tool's own answer reaches the caller the way the reference delivers
+        // it: in the reply, which is the only place this object has for one.
+        //
+        // 读工具（R1）自动执行 —— 不需确认。非流式答案是冻结的 `chat-response`，所以工具**自己的答案**像
+        // 参照实现那样到达调用方：**在 reply 里** —— 那是这个对象**唯一**放它的地方。
+        int held = Pending.count(rest, "alice", delegationSecret);
+        Map<String, Object> read = chat("alice", "分析客户风险", aliceCustomer);
+        assertTrue(String.valueOf(read.get("reply")).contains("level=critical"),
+                "the read ran and its answer is reported: " + read.get("reply"));
+        assertEquals(held, Pending.count(rest, "alice", delegationSecret),
+                "a read is not gated, so it holds nothing back");
 
-        // 2. Write tool (R3) is gated — NOT executed before a human approves.
-        ExecutionOutcome write = chat("alice", "创建跟进任务，提醒续约", aliceCustomer, 200);
-        assertEquals("pending_confirmation", write.status());
-        assertNotNull(write.token(), "a write tool must return a confirmation token");
+        // 2. Write tool (R3) is gated — NOT executed before a human approves. The waiting row is the
+        // evidence, and it is where a caller finds the token now that the answer carries none.
+        //
+        // 写工具（R3）被闸住 —— 在有人批准之前**不**执行。**那行待确认**就是证据，也是答案不再带 token
+        // 之后调用方找到 token 的地方。
+        chat("alice", "创建跟进任务，提醒续约", aliceCustomer);
+        assertEquals(held + 1, Pending.count(rest, "alice", delegationSecret),
+                "a write tool must be proposed and wait on a human");
+        String writeToken = Pending.token(rest, "alice", delegationSecret);
         assertEquals(0, followUps.findByCustomerIdAndDeletedAtIsNull(aliceCustomer).size(),
                 "nothing may be written before confirmation");
 
         // 3. Approve → executed, side effect recorded.
-        ExecutionOutcome approved = confirm("alice", write.token(), "approve", 200);
+        ExecutionOutcome approved = confirm("alice", writeToken, "approve", 200);
         assertEquals("executed", approved.status());
         assertNotNull(approved.effectId(), "a write must record a side effect");
         assertEquals(1, followUps.findByCustomerIdAndDeletedAtIsNull(aliceCustomer).size());
@@ -109,17 +122,19 @@ class TrustLoopTest {
                 "cross-user access must be denied; body was " + forbidden.getBody());
 
         // 6b. A manager may read any customer.
-        ExecutionOutcome asManager = chat("carol", "分析客户风险", bobCustomer, 200);
-        assertEquals("executed", asManager.status());
+        Map<String, Object> asManager = chat("carol", "分析客户风险", bobCustomer);
+        assertTrue(String.valueOf(asManager.get("reply")).contains("level="),
+                "a manager's read runs, and its answer is reported: " + asManager.get("reply"));
     }
 
-    private ExecutionOutcome chat(String userId, String message, Long customerId, int expectedStatus) {
+    /** One turn over the wire, answering the frozen {@code chat-response}: no status, no token. */
+    private Map<String, Object> chat(String userId, String message, Long customerId) {
         ResponseEntity<Map> res = rest.postForEntity(
                 "/ai/chat",
                 entity(userId, Map.of("message", message, "customerId", customerId)),
                 Map.class);
-        assertEquals(expectedStatus, res.getStatusCode().value(), "POST /ai/chat");
-        return json.convertValue(Envelopes.data(res.getBody()), ExecutionOutcome.class);
+        assertEquals(200, res.getStatusCode().value(), "POST /ai/chat");
+        return Envelopes.data(res.getBody());
     }
 
     private ExecutionOutcome confirm(String userId, String token, String decision, int expectedStatus) {

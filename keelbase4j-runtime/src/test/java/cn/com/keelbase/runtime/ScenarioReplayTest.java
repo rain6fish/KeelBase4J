@@ -5,9 +5,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.protocol.Vectors;
 import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -287,9 +297,9 @@ class ScenarioReplayTest {
      * write over the wire, then the decision. The corpus says nothing about it, and cannot.
      */
     private void seedEffect(Run run) {
-        Map<String, Object> pending = chat(run, "创建跟进任务", run.customerId);
-        assertNotNull(pending.get("token"), "a write tool must be gated, or there is nothing to decide");
-        run.token = (String) pending.get("token");
+        Turn turn = turn(run, "创建跟进任务", run.customerId);
+        assertNotNull(turn.token(), "a write tool must be gated, or there is nothing to decide");
+        run.token = turn.token();
         confirm(run);
         assertNotNull(run.effectId, "the approved write must record a side effect");
     }
@@ -321,21 +331,17 @@ class ScenarioReplayTest {
         if (message == null) {
             throw new UnservableException("tool `" + name + "` is not registered in this runtime");
         }
-        Map<String, Object> body = chat(run, message, customerId(call, run));
-        if (body.get("toolCalls") instanceof List<?> called && !called.isEmpty()) {
-            assertEquals(TOOL_LOCAL_NAMES.get(name), String.valueOf(called.get(0)),
+        Turn turn = turn(run, message, customerId(call, run));
+        if (turn.tool() != null) {
+            assertEquals(TOOL_LOCAL_NAMES.get(name), turn.tool(),
                     "this runtime's name for `" + name + "` changed — the mapping must follow the runtime");
         }
-        String status = String.valueOf(body.get("status"));
-        if (body.get("token") != null) {
-            run.token = (String) body.get("token");
-        }
-        if (body.get("effectId") instanceof Number id) {
-            run.effectId = id.longValue();
+        if (turn.token() != null) {
+            run.token = turn.token();
         }
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("executed", "executed".equals(status));
-        response.put("requiresConfirmation", "pending_confirmation".equals(status));
+        response.put("executed", turn.executed());
+        response.put("requiresConfirmation", turn.requiresConfirmation());
         return response;
     }
 
@@ -401,22 +407,86 @@ class ScenarioReplayTest {
 
     // ── HTTP, the way a caller reaches this runtime ──────────────────────────────────────────────
 
-    private Map<String, Object> chat(Run run, String message, Long customerId) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("message", message);
-        if (customerId != null) {
-            body.put("customerId", customerId);
+    /** What one streamed turn reported: the tool it used, and the two facts the corpus asks about. */
+    private record Turn(String tool, boolean executed, boolean requiresConfirmation, String token) {
+    }
+
+    /**
+     * One turn, over the channel that reports what happened.
+     *
+     * <p>The non-streaming answer is the frozen {@code chat-response} and carries no outcome at all
+     * (JV-52 片 2), so a corpus runner that read {@code status} off it would be reading a field the
+     * object does not declare. Here the turn's facts are events: {@code tool_start} names the tool,
+     * {@code tool_end} says whether it ran, and {@code confirmation_request} carries the token of a
+     * write that is waiting. The reference reports the same turn the same way — {@code docs/wire-object-endpoints.md}
+     * declares a tool call's result as answered on <em>either</em> chat shape — so this is the channel a
+     * caller that needs the outcome uses on either runtime.
+     *
+     * <p>Not the reply text: the replier is a replaceable bean (a model answers in prose), so a fact a
+     * test derives from its wording would stop being a fact the moment a deployment swapped it.
+     *
+     * 一个回合，走**报出发生了什么**的那条通道。
+     *
+     * <p>非流式答案是冻结的 `chat-response`、**一点结果都不带**（JV-52 片 2），所以从它上面读 {@code status}
+     * 的语料 runner 读的是一个**对象没有声明的字段**。这里，一个回合的事实是**事件**：`tool_start` 点出工具、
+     * `tool_end` 说它跑没跑、`confirmation_request` 带着那笔等待中的写的 token。参照实现报同一个回合走的是同
+     * 一条路 —— `docs/wire-object-endpoints.md` 把一次工具调用的结果声明为**两种聊天形状**都答 —— 所以在
+     * **任一**运行时上需要结果的调用方都走它。
+     *
+     * <p>**不是** reply 的文字：replier 是**可替换的 bean**（模型用散文作答），故一个从措辞里推出来的事实，
+     * 在部署换掉它的那一刻就不再是事实了。
+     */
+    private Turn turn(Run run, String message, Long customerId) {
+        String actor = ACTOR_DIRECTORY.getOrDefault(run.actor, run.actor);
+        String payload = "{\"message\":\"" + message + "\""
+                + (customerId == null ? "" : ",\"customerId\":" + customerId) + "}";
+        HttpRequest request = HttpRequest.newBuilder(URI.create(rest.getRootUri() + "/ai/chat/stream"))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + TestTokens.forUser(actor, delegationSecret))
+                .timeout(Duration.ofSeconds(20))
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                .build();
+        String tool = null;
+        boolean executed = false;
+        boolean requiresConfirmation = false;
+        String token = null;
+        try {
+            HttpResponse<InputStream> response =
+                    HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofInputStream());
+            assertEquals(200, response.statusCode(), "the turn's stream must open");
+            try (BufferedReader lines = new BufferedReader(
+                    new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = lines.readLine()) != null) {
+                    if (!line.startsWith("data:")) {
+                        continue;
+                    }
+                    Map<String, Object> event = Vectors.map(Json.parse(line.substring(5).trim()));
+                    switch (String.valueOf(event.get("type"))) {
+                        case "tool_start" -> tool =
+                                String.valueOf(Vectors.map(event.get("toolStart")).get("name"));
+                        case "tool_end" -> executed = Boolean.TRUE.equals(
+                                Vectors.map(event.get("toolEnd")).get("success"));
+                        case "confirmation_request" -> {
+                            requiresConfirmation = true;
+                            token = String.valueOf(
+                                    Vectors.map(event.get("confirmation")).get("token"));
+                        }
+                        default -> {
+                            // `text` and `done` say nothing this runner asserts about.
+                        }
+                    }
+                    // A gated write waits on a person, and the waiting is not this runner's to sit
+                    // through: it has the token, and the decision is a step of its own.
+                    if (requiresConfirmation || "done".equals(String.valueOf(event.get("type")))) {
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new AssertionError("a turn's stream could not be read: " + e, e);
         }
-        Map<String, Object> data = post("/ai/chat", run.actor, body);
-        // A pending write's token and an executed write's effect id are what the next step needs; the
-        // runner carries them forward, which is what the corpus's object-level form leaves to it.
-        if (data.get("token") != null) {
-            run.token = (String) data.get("token");
-        }
-        if (data.get("effectId") instanceof Number id) {
-            run.effectId = id.longValue();
-        }
-        return data;
+        return new Turn(tool, executed, requiresConfirmation, token);
     }
 
     private Map<String, Object> confirm(Run run) {

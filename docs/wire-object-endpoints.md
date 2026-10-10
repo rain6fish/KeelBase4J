@@ -13,30 +13,43 @@ replaying the same corpus is what surfaced the need for this: see `docs/ARCHITEC
 |---|---|---|
 | `audit-chain-verification` | `GET /api/v1/audit/verify` | the frozen object, `chain` included — **administrators only**, as the object's own implementation gates it |
 | `ai-audit-log-row` | `GET /api/v1/audit/logs` | one row per audit record, filtered by `userId` / `since` / `isError` — **administrators only**; the reference's `agentId` / `orgId` / `denied` filters are **refused** rather than ignored (see below) |
+| `chat-response` | `POST /api/v1/ai/chat` | the frozen object with nothing added — see below for where the outcome went |
 | `side-effect-revoke` — an effect | `GET /api/v1/ai/tool-effects` | list envelope `{total, page, limit, items}` |
 | `side-effect-revoke` — revoke result | `DELETE /api/v1/ai/tool-effects/{id}` | `{effectId, resultType, revokeClass, revokeStatus, revoked}` |
 | `permission-capability-list` | `GET /api/v1/auth/me/permissions` | what this identity may do, and on what basis |
 | `capabilities` | `GET /api/v1/app/capabilities` | |
 | `app-provenance` | `GET /api/v1/app/provenance` | |
 
-**Two answers are this runtime's own object rather than the frozen one** — they are mappings, not
-divergences, and they are declared in `docs/ARCHITECTURE.md` §3.2.1: a tool call's result
-(`POST /api/v1/ai/chat`, either shape) is an `ExecutionOutcome` and not `tool-invocation`, and the
-approve response is an `ExecutionOutcome` and not `confirmation-decision`. The facts a corpus
-expectation reads are carried on `status` (`executed` ⇔ `status=executed`; `requiresConfirmation` ⇔
-`status=pending_confirmation`).
+**One answer is this runtime's own object rather than the frozen one** — it is a mapping, not a
+divergence, and it is declared in `docs/ARCHITECTURE.md` §3.2.1: the approve response is an
+`ExecutionOutcome` and not `confirmation-decision`.
 
-**What is *not* settled about the chat answer, stated rather than left to be discovered.** Calling it a
-mapping says what this runtime does; it does not say the two sides agree, and on this surface they do
-not. The contract files `chat-response.schema.json` under the title *"AI 对话响应 POST /ai/chat data"*
-with `additionalProperties: false`, and the protocol prose in the main repository is blunter still —
-*"非流式 `POST /ai/chat` 不返回确认 token"*, writes go through the streaming channel. This runtime
-answers the opposite: the outcome — `status`, `token`, `effectId`, `error` — sits on that same level,
-and a non-streaming call is a way to propose a write. Both cannot be true of one surface, and which one
-gives way is a decision that spans the two lines rather than a change to make here: conforming would
-reach the main repository's `golden-path.e2e.spec.ts`, which reads exactly those fields off this
-runtime's answer. What is *not* in doubt is that the corpus is satisfied either way — it judges a tool
-call by the facts `executed` / `requiresConfirmation` and never names `status`, `token` or `effectId`.
+**The chat answer used to be a second row in that sentence, and where its outcome went is this
+runtime's answer to a corpus question.** The answer carried `status`, `data`, `token`, `effectId` and
+`error` alongside the conversation turn, so a corpus expectation about a tool call could be read off
+`POST /api/v1/ai/chat` (`executed` ⇔ `status=executed`; `requiresConfirmation` ⇔
+`status=pending_confirmation`). The contract files `chat-response.schema.json` under the title naming
+that path with `additionalProperties: false`, the reference puts none of those fields there, and the
+protocol's prose says a non-streaming call returns no confirmation token — so the answer is now that
+object with nothing added, and the facts live on surfaces of their own: a tool call's result is
+reported as **events** on `POST /api/v1/ai/chat/stream`, and a pending write is found in
+`GET /api/v1/ai/my/confirmations`, whose items carry the token. A reader of this table should take the
+stream, not the reply text, as the structured place those facts are found — the replier is a
+replaceable bean.
+
+**聊天那条答案过去是上面那句话里的**第二条**，而它的结果去了哪里，就是本运行时对语料那一问的回答。** 那条答案
+在对话回合之外还带着 `status`、`data`、`token`、`effectId`、`error`，于是关于一次工具调用的语料期望可以直接从
+`POST /api/v1/ai/chat` 读出来（`executed` ⇔ `status=executed`；`requiresConfirmation` ⇔
+`status=pending_confirmation`）。而契约把 `chat-response.schema.json` 登记在**指名那条路径**的标题之下、
+写着 `additionalProperties: false`，参照实现在那儿**一个都不放**，协议散文也说**非流式调用不返回确认 token**
+—— 所以这条答案现在**就是**那个对象、一点没多加，而那些事实住在**它们自己的面**上：一次工具调用的结果是
+`POST /api/v1/ai/chat/stream` 上的**事件**，而待确认的写要在 `GET /api/v1/ai/my/confirmations` 里找 ——
+它的项**带着 token**。读这张表的人应当把**流式**（不是 reply 的文字）当作那些事实的结构化去处：replier 是
+**可替换的 bean**。
+
+**What is *not* in doubt.** The corpus judges a tool call by the facts `executed` /
+`requiresConfirmation` and never names `status`, `token` or `effectId`, which is why it survived the
+move: the runner reaches those facts on the stream, where the reference reports the same turn.
 
 **本仓在聊天这条面上「没定的」那一半，写出来而不是留给别人去发现。** 说它是**映射**，说的是本运行时
 **做了什么**；它**没有**说两侧**一致** —— 而在这条面上它们并不一致。契约把 `chat-response.schema.json`

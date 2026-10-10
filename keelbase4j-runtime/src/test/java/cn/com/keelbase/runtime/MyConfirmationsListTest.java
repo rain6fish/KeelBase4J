@@ -206,11 +206,18 @@ class MyConfirmationsListTest {
     }
 
     private String pendingWriteFor(String user) throws Exception {
+        int before = Pending.count(port, user, delegationSecret);
         HttpResponse<String> response = post("/api/v1/ai/chat", user,
                 "{\"message\":\"" + WRITE_THAT_WAITS + "\",\"customerId\":" + customerId + "}");
-        Map<String, Object> turn = Envelopes.data(Json.parse(response.body()));
-        assertEquals("pending_confirmation", turn.get("status"), "the write must wait: " + turn);
-        return String.valueOf(turn.get("token"));
+        assertEquals(200, response.statusCode(), "the turn is served: " + response.body());
+        // The write waits, and the evidence is **one more** pending row for this caller — the chat answer
+        // is the frozen `chat-response`, which carries neither a status nor a token. Counted rather than
+        // looked up, so a row an earlier test left behind cannot stand in for this one's.
+        //
+        // 写**在等**，而证据是**这个调用方多了一行**待确认 —— 聊天答案是冻结的 `chat-response`，
+        // status 与 token 都不带。用**计数**、不是「找一行」，故早先测试留下的一行**顶替不了**这一次的。
+        assertEquals(before + 1, Pending.count(port, user, delegationSecret), "the write must wait");
+        return Pending.token(port, user, delegationSecret);
     }
 
     private Map<String, Object> decide(String user, String token, String decision) throws Exception {

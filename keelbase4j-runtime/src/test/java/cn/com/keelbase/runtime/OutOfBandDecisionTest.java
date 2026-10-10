@@ -204,11 +204,16 @@ class OutOfBandDecisionTest {
 
     /** Drive a real pending confirmation: the console's own write, waiting on a human. */
     private String pendingWriteFor(String user) throws Exception {
+        int before = Pending.count(port, user, delegationSecret);
         HttpResponse<String> response = post("/api/v1/ai/chat", user,
                 "{\"message\":\"" + WRITE_THAT_WAITS + "\",\"customerId\":" + customerId + "}");
-        Map<String, Object> turn = Envelopes.data(Json.parse(response.body()));
-        assertEquals("pending_confirmation", turn.get("status"), "the write must wait: " + turn);
-        return String.valueOf(turn.get("token"));
+        assertEquals(200, response.statusCode(), "the turn is served: " + response.body());
+        // The evidence is one **more** pending row for this caller — the chat answer is the frozen
+        // `chat-response` and carries neither a status nor a token.
+        //
+        // 证据是**这个调用方多了一行**待确认 —— 聊天答案是冻结的 `chat-response`，status 与 token 都不带。
+        assertEquals(before + 1, Pending.count(port, user, delegationSecret), "the write must wait");
+        return Pending.token(port, user, delegationSecret);
     }
 
     /** This operator's recorded side effects, as the console lists them. */
