@@ -80,7 +80,7 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### 变更
 
-- **四个**两个宿主各自独立走到**的形状，现在住在本模块里。`ActingCaller` —— 正在行动的那个调用者，在 **AI 工具
+- **两个宿主各自独立走到的四个形状，现在住在本模块里。** `ActingCaller` —— 正在行动的那个调用者，在 **AI 工具
   跑的那一段**里发布出来，因为引擎的工具路径在请求的安全过滤器链**之外**，框架自己那个「当前用户」在那儿要么抛、
   要么什么也答不出。`ActingCallerId` —— 先问请求自己的身份、落回已发布的那位、解析成 id 否则 null。
   `ModuleRoute` —— 模块以 bean 形式贡献自己的路由。`ModuleRoutePlanner` —— 部署方自己的路由在前、运行时的

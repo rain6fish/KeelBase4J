@@ -469,8 +469,14 @@ class ScenarioReplayTest {
                                 Vectors.map(event.get("toolEnd")).get("success"));
                         case "confirmation_request" -> {
                             requiresConfirmation = true;
-                            token = String.valueOf(
-                                    Vectors.map(event.get("confirmation")).get("token"));
+                            // `String.valueOf` here would answer the literal "null" for an event that
+                            // carries no token, so the guard below could never catch one — a check that
+                            // cannot fail is worse than no check.
+                            //
+                            // 这里若用 `String.valueOf`，一个**不带 token** 的事件会被答成字符串 "null"，
+                            // 于是下面那道守卫**永远抓不到**它 —— 一道**不可能失败**的检查比没有检查更糟。
+                            Object pending = Vectors.map(event.get("confirmation")).get("token");
+                            token = pending == null ? null : String.valueOf(pending);
                         }
                         default -> {
                             // `text` and `done` say nothing this runner asserts about.

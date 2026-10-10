@@ -51,15 +51,9 @@ replaceable bean.
 `requiresConfirmation` and never names `status`, `token` or `effectId`, which is why it survived the
 move: the runner reaches those facts on the stream, where the reference reports the same turn.
 
-**本仓在聊天这条面上「没定的」那一半，写出来而不是留给别人去发现。** 说它是**映射**，说的是本运行时
-**做了什么**；它**没有**说两侧**一致** —— 而在这条面上它们并不一致。契约把 `chat-response.schema.json`
-登记在标题「*AI 对话响应 POST /ai/chat data*」之下、并写着 `additionalProperties: false`；主仓的协议散文
-更直白 —— 「**非流式 `POST /ai/chat` 不返回确认 token**」，写操作走**流式**通道。而本运行时答的是**相反**的：
-`status`、`token`、`effectId`、`error` 就摊在**同一层**上，一次非流式调用**就是**提出一次写的方式。
-两句话不可能同时对**同一条面**成立，而**哪一句让步**是一个**跨两条线的决定**、不是这里能改的：
-若要符合，会一路够到主仓的 `golden-path.e2e.spec.ts` —— 它读的正是本运行时这条答案上的那几个字段。
-**不存疑的一点是**：语料**两种都满意** —— 它按 `executed` / `requiresConfirmation` 这两个**事实**判一次工具调用，
-**从不点名** `status`、`token` 或 `effectId`。
+**不存疑的一点是**：语料**按 `executed` / `requiresConfirmation` 这两个**事实**判一次工具调用**，
+**从不点名** `status`、`token` 或 `effectId` —— 这也正是它**扛住了这次搬家**的原因：runner 在**流式**那条上
+够到那两个事实，而参照实现报**同一个回合**走的也是那条路。
 
 **The audit rows are readable now, and one of the filters is a refusal by design.** The chain could be
 appended to and verified but not read, so "which rows did this caller leave in this period" had no

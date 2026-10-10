@@ -4124,7 +4124,31 @@ public class JavaGenerator {
                             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                                     "the audit chain is readable by an administrator");
                         }
-                        return Map.of("valid", audit.verify(), "checked", audit.size());
+                        // The walk's own answer **and the rows it walked**: the frozen object's `chain` is
+                        // required, and a chain that does not report its rows is one nobody can check by
+                        // hand. `broken` is left out rather than guessed at — it marks *which* row the walk
+                        // broke on, and this store's walk answers yes-or-no rather than where; the schema
+                        // makes the field optional, so its absence is honest rather than a silence.
+                        //
+                        // 这次走自己的答案，**以及它走过的那些行**：冻结对象的 `chain` 是**必填**，而一条**不报行**的链
+                        // 是**没人能手工查**的链。`broken` 是**留空**、不是猜的 —— 它标的是**断在哪一行**，而这个存储的
+                        // 走法只答**通不通**、不答**在哪**；schema 里它是可选的，故缺席是**诚实**、不是沉默。
+                        List<Map<String, Object>> chain = new ArrayList<>();
+                        for (AuditChainStore.Row row : audit.rows()) {
+                            Map<String, Object> node = new LinkedHashMap<>();
+                            node.put("id", row.id());
+                            node.put("createdAt", row.createdAt().toString());
+                            node.put("action", row.action());
+                            node.put("prevHash", row.prevHash());
+                            node.put("hash", row.hash());
+                            node.put("isError", row.isError());
+                            chain.add(node);
+                        }
+                        Map<String, Object> answer = new LinkedHashMap<>();
+                        answer.put("valid", audit.verify());
+                        answer.put("checked", audit.size());
+                        answer.put("chain", chain);
+                        return answer;
                     }
                 }
                 """.formatted(pkg, pkg, pkg, pkg, detail.name(), pkg, detail.name(), pkg, pkg, pkg,

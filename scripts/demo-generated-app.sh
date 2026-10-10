@@ -185,6 +185,11 @@ check "and the decision comes back on the stream that asked" '"confirmation_deci
 
 VERIFY=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify")
 check "audit chain verifies" '"valid":true' "$VERIFY"
+# And it reports the rows it walked: the frozen object requires `chain`, and a chain that does not show
+# its rows is one nobody can check by hand.
+#
+# 而且它报出**它走过的那些行**：冻结对象要求 `chain`，而一条**不显示行**的链是没人能手工查的链。
+check "and reports the chain it walked" '"chain":[' "$VERIFY"
 # The chain's own state is an administrator's, which is the gate the runtime puts on this route and the
 # one the object's own implementation carries. Anonymous is what must not get in at all; a caller this
 # application knows but does not trust with the chain is the second thing that must not.

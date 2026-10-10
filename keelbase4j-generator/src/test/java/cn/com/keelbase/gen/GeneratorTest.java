@@ -343,11 +343,21 @@ class GeneratorTest {
         int verifyAt = governance.indexOf("public Map<String, Object> verify(");
         assertTrue(verifyAt > 0, "the chain's state is served at all");
         String verifyBody = governance.substring(verifyAt,
-                governance.indexOf("return Map.of(\"valid\"", verifyAt));
+                governance.indexOf("return answer;", verifyAt));
         assertTrue(verifyBody.contains("@RequestHeader(value = \"Authorization\""),
                 "it asks who is calling before it answers");
         assertTrue(verifyBody.contains("if (!principal.isManager()) {"),
                 "and refuses a caller who is not an administrator, as the runtime does");
+        // The object requires `chain`, and the rows it walked are what makes a chain checkable by hand:
+        // gating the answer while leaving the required field out would be half-conforming to one
+        // object, which is worse than not conforming to it at all.
+        //
+        // 对象**要求** `chain`，而它走过的那些行正是「链能被手工查」的来处：**上了闸却把这个必填字段漏掉**，
+        // 是对**同一个**对象**半符合** —— 那比完全不符合更糟。
+        assertTrue(verifyBody.contains("node.put(\"prevHash\", row.prevHash())"),
+                "the answer carries the rows it walked, in the frozen `chain` shape");
+        assertTrue(verifyBody.contains("answer.put(\"chain\", chain)"),
+                "and names that field `chain`, which is what the object requires");
         // The chain is readable now, and this endpoint *is* gated at administrator — the difference
         // being that it answers with the rows themselves, which name who acted, while the verdict
         // above names nobody. Its rows answer the frozen `ai-audit-log-row`, and one thing about that

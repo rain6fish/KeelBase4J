@@ -117,9 +117,23 @@ public class AuditService {
      * 记了什么、那件事是否按调用方所求发生、以及它的两个链哈希。**不是断在哪里的那一行**不带 `broken` 标记 ——
      * 而不是带一个 `false` —— 「这一行不是断点」是**没有那个主张**，不是**有**一个主张。
      */
+    /**
+     * The window of the chain the answer carries. The frozen object calls {@code chain} a <em>window</em>
+     * (E-2), and that is what the reference sends: a deployment with a million rows must not answer one
+     * request with a million rows. A chain that holds shows its newest {@value #CHAIN_SLICE} rows; a
+     * chain that broke shows a window around the break, with the row the walk stopped on marked.
+     *
+     * 这条答案携带的**链窗口**。冻结对象把 {@code chain} 称作**窗口**（E-2），而参照实现送的就是窗口：
+     * 一个有**一百万行**的部署，不该用一个请求把它们**全**答出来。链站得住时给**最新**的
+     * {@value #CHAIN_SLICE} 行；断了时给**断点周围**的一窗，并把走停下来的那一行标出来。
+     */
     private static List<Map<String, Object>> chain(List<AuditLog> logs, Integer brokenIndex) {
+        // The interface counts from one; the list is walked from zero.
+        int broken = brokenIndex == null ? -1 : brokenIndex - 1;
+        int from = broken < 0 ? Math.max(0, logs.size() - CHAIN_SLICE) : Math.max(0, broken - 6);
+        int to = broken < 0 ? logs.size() : Math.min(logs.size(), broken + 4);
         List<Map<String, Object>> chain = new ArrayList<>();
-        for (int i = 0; i < logs.size(); i++) {
+        for (int i = from; i < to; i++) {
             AuditLog log = logs.get(i);
             Map<String, Object> node = new LinkedHashMap<>();
             node.put("id", log.getId());
@@ -128,8 +142,7 @@ public class AuditService {
             node.put("prevHash", log.getPrevHash());
             node.put("hash", log.getHash());
             node.put("isError", log.isError());
-            // The interface counts from one; this walks from zero.
-            if (brokenIndex != null && brokenIndex == i + 1) {
+            if (i == broken) {
                 node.put("broken", true);
             }
             chain.add(node);
@@ -138,12 +151,13 @@ public class AuditService {
     }
 
     /**
-     * The verification's answer. {@code chain} is the frozen object's own field and the reason this
-     * route exists at all: the walk says whether the chain holds, and this says what it walked.
+     * How many rows a valid chain shows — the reference's own `CHAIN_SLICE`, so a third party reading
+     * either runtime sees the same window.
      *
-     * 校验的答案。{@code chain} 是冻结对象自己的字段，也是这条路由存在的原因：这次走**说链站不站得住**，
-     * 而它**说走过了什么**。
+     * 一条完好的链显示多少行 —— 就是参照实现自己的 `CHAIN_SLICE`，故读**任一**运行时的人看到的是**同一个窗口**。
      */
+    private static final int CHAIN_SLICE = 24;
+
     /**
      * The rows on the chain that match a filter, newest first, in the window asked for.
      *
@@ -220,6 +234,13 @@ public class AuditService {
         return m;
     }
 
+    /**
+     * The verification's answer. {@code chain} is the frozen object's own field and the reason that
+     * route exists at all: the walk says whether the chain holds, and this says what it walked.
+     *
+     * 校验的答案。{@code chain} 是冻结对象自己的字段，也是那条路由存在的原因：这次走**说链站不站得住**，
+     * 而它**说走过了什么**。
+     */
     public record Verification(boolean valid, int checked, Integer brokenIndex,
                                List<Map<String, Object>> chain) {
     }
