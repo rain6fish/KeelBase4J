@@ -296,22 +296,25 @@ class GeneratorTest {
         // 因为「每个控制器一条端点」正是二者之一会被漏掉的那种形状。
         assertTrue(ai.contains("if (!principal.isManager()) {"),
                 "the tool catalogue is gated at administrator, matching the carrier that serves it");
-        // The chain's state stops one step earlier, and that is the point: it asks who is calling and
-        // stops there, because the runtime serves it to any authenticated caller. An administrator-only
-        // rule here would be narrower than the surface it mirrors — and the frontend's own spec, which
-        // asks as a plain caller, is what caught the first attempt at writing it the other way.
+        // The chain's state is gated the same way, and that is a change: it used to ask who was
+        // calling and stop there, on the reasoning that the runtime served it to any authenticated
+        // caller and a narrower rule here would be a different surface wearing the same path. The
+        // runtime gates it at administrator now, as the object's own implementation always did, so
+        // this one follows — resolving the caller answers "is there a caller I know", which is not
+        // the same question as "may this caller see the chain's state".
         //
-        // 链的状态停在**更早一步**，而这正是要点：它问「谁在调」，然后停在那里——因为运行时把这条端点伺
-        // 服给**任何已认证**的调用者。在这里立「仅管理员」会比它所镜像的那个面**更窄**——而把它写成另一种
-        // 的第一版，正是被**前端自己的 spec**（以普通调用者发问）逮住的。
+        // 链的状态同样上了闸，而这是**一处改动**：它过去只问「谁在调」就停在那里，理由是运行时把它伺服给
+        // **任何已认证**的调用者、而在这里立一条更窄的规则就是**同一个路径上的另一个面**。运行时现在按这个
+        // 对象**自己的实现**把它守在管理员上，故这一条跟上来 —— 解析调用方答的是「有没有一个我认识的调用者」，
+        // 那与「这个调用方可不可以看到链的状态」**不是同一个问题**。
         int verifyAt = governance.indexOf("public Map<String, Object> verify(");
         assertTrue(verifyAt > 0, "the chain's state is served at all");
         String verifyBody = governance.substring(verifyAt,
                 governance.indexOf("return Map.of(\"valid\"", verifyAt));
         assertTrue(verifyBody.contains("@RequestHeader(value = \"Authorization\""),
                 "it asks who is calling before it answers");
-        assertFalse(verifyBody.contains("isManager"),
-                "and stops there rather than at administrator, as the runtime does");
+        assertTrue(verifyBody.contains("if (!principal.isManager()) {"),
+                "and refuses a caller who is not an administrator, as the runtime does");
         // The chain is readable now, and this endpoint *is* gated at administrator — the difference
         // being that it answers with the rows themselves, which name who acted, while the verdict
         // above names nobody. Its rows answer the frozen `ai-audit-log-row`, and one thing about that

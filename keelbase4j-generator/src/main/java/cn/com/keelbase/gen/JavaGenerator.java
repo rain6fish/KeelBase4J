@@ -3876,28 +3876,15 @@ public class JavaGenerator {
                                 : Optional.empty();
                     }
 
-                    // Resolving is the whole gate here: this application says "a caller it knows" by
-                    // asking the identity seam, which refuses an anonymous or unverifiable one. No role
-                    // is consulted, and that is deliberate — the runtime serves this to any
-                    // authenticated caller, its security chain being what keeps anonymous requests out,
-                    // so an administrator-only rule here would be narrower than the surface it mirrors.
-                    // (The frontend's own spec is what settled it: it asks as a plain caller, which is
-                    // what a rule this endpoint does not have on the runtime would have refused.)
-                    //
-                    // 这里**解析本身就是全部的门**：本应用通过「问身份缝」来表达「它认识的调用者」，而身份缝
-                    // 会拒绝匿名或不可验的调用者。**不查角色是有意的**——运行时把这条端点伺服给**任何已认证**
-                    // 的调用者（挡住匿名的是它的安全链），所以在这里立一条「仅管理员」会比它所镜像的那个面
-                    // **更窄**。（这件事是**前端自己的 spec 定的**：它以普通调用者发问，而运行时上这条端点
-                    // 没有的那条规则，本来就会把它拒掉。）
                     /**
                      * The rows on the chain, filtered by caller and by period — the read surface the
                      * chain did not have, in the frozen {@code ai-audit-log-row} shape.
                      *
-                     * <p><b>Administrators only, and this one is gated where the chain's own verdict is
-                     * not.</b> That is the difference between the two: the verdict above is a fact about
-                     * the chain's integrity and names nobody, while these are the rows themselves — who
-                     * acted, and what they did. The reference's own query carries the same gate, and a
-                     * chain readable by everyone is not an audit trail, it is a roster.
+                     * <p><b>Administrators only, as the chain's own verdict is.</b> Both are the chain's
+                     * state — the verdict says whether it holds, these say what it holds — and the
+                     * console asks for either from a page it shows only to an administrator. The
+                     * reference's own query carries the same gate, and a chain readable by everyone is
+                     * not an audit trail, it is a roster.
                      *
                      * <p>The reference also filters on agent and organisation identity and on an
                      * authorization-verdict view, over columns this application does not record. A filter
@@ -3907,9 +3894,9 @@ public class JavaGenerator {
                      * 链上的那些行，按调用者和一段时间筛选 —— 这是链**此前没有的读面**，按冻结的
                      * {@code ai-audit-log-row} 形状。
                      *
-                     * <p><b>只给管理员，而这一条上了闸、上面那条链自身的结论没有。</b> 这就是两者的区别：
-                     * 上面的结论是关于链完整性的一个事实、**不点名任何人**，而这些**就是行本身** —— 谁动的手、
-                     * 做了什么。参照实现自己那条查询也带同一道闸，而一条**人人可读**的链不是审计轨，是**花名册**。
+                     * <p><b>只给管理员，链自身的结论也一样。</b> 两者都是**链的状态** —— 结论说它站不站得住，
+                     * 这些说它上面有什么 —— 而控制台是在**只有管理员看得到**的页面上问其中任何一个的。参照实现
+                     * 自己那条查询也带同一道闸，而一条**人人可读**的链不是审计轨，是**花名册**。
                      *
                      * <p>参照实现还按 agent 与组织身份、以及一个授权结论视图筛选 —— 那些列本应用**一个都不记**。
                      * 一个**被接受却没被施加**的筛选，回出来的是一份**看着像筛过、其实没有**的列表、下游分不出 ——
@@ -4019,13 +4006,34 @@ public class JavaGenerator {
                         }
                     }
 
+                    /**
+                     * The chain's state. Administrators only — the same gate the runtime puts on this
+                     * route, and the one the object's own implementation carries.
+                     *
+                     * <p>Resolving the caller is not the whole gate, and it never was: it answers "is
+                     * there a caller this application knows", which is a different question from "may
+                     * this caller see the chain's state". The console asks for it from a page it shows
+                     * only to an administrator.
+                     *
+                     * 链自身的状态。**只给管理员** —— 与运行时守这条路由的是同一道闸，也是这个对象自己的实现
+                     * 带的那道。
+                     *
+                     * <p>**解析调用方不是全部的门**，从来都不是：它答的是「有没有一个本应用认识的调用者」，
+                     * 而那是与「这个调用方可不可以看到链的状态」**不同**的一个问题。控制台是在**只有管理员
+                     * 看得到**的页面上问它的。
+                     */
                     @GetMapping("/audit/verify")
                     public Map<String, Object> verify(
                             @RequestHeader(value = "Authorization", required = false) String authorization,
                             @RequestHeader(value = "X-User-Id", required = false) String userId,
                             @RequestHeader(value = "X-User-Role", required = false) String role,
                             @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
-                        identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        Principal principal = identities.resolve(
+                                IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        if (!principal.isManager()) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "the audit chain is readable by an administrator");
+                        }
                         return Map.of("valid", audit.verify(), "checked", audit.size());
                     }
                 }
