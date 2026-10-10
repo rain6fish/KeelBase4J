@@ -42,6 +42,35 @@ jobs:
           java-version: '17'
           cache: maven
 
+      # The runner image's Maven moved from 3.9.16 to 3.10.0, and on 3.10.0
+      # `central-publishing-maven-plugin:0.9.0` stops deleting `maven-metadata-central-staging.xml`
+      # from each artifact folder before bundling. The leftovers leave every `<group>/<artifact>`
+      # directory holding content with no `.pom` beside it, and Central rejects the deployment with
+      # "Bundle has content that does NOT have a .pom file". Nothing in this repository changed
+      # between the release that published and the two that did not: the bundle carries the same four
+      # artifacts, 0.1.3's log deletes those files and 0.1.4's and 0.1.5's never mention them. Pinned
+      # back to the version that deletes them. Downloaded here rather than through a third-party
+      # action, because this job holds the signing key and the Central token; the hash is Apache's
+      # own, from `apache-maven-3.9.16-bin.tar.gz.sha512`.
+      #
+      # runner 镜像的 Maven 从 3.9.16 升到了 3.10.0，而在这个版本上
+      # `central-publishing-maven-plugin:0.9.0` 不再于打包前删掉每个 artifact 目录里的
+      # `maven-metadata-central-staging.xml`。残留下来，每个 `<group>/<artifact>` 目录里就放着有内容
+      # 却没有 `.pom` 的东西，Central 于是以「Bundle has content that does NOT have a .pom file」拒绝
+      # 这次部署。本仓在「发成功的那版」与「没发成的两版」之间没有任何相关改动：bundle 里都是那四个
+      # artifact，而 0.1.3 的日志删掉了那些文件、0.1.4 与 0.1.5 的日志从未提到它们。现钉回会删它们的
+      # 那个版本。这里自行下载而不用第三方 action —— 这一步握着签名私钥与 Central 凭据；哈希取自
+      # Apache 自己对 `apache-maven-3.9.16-bin.tar.gz.sha512` 的记载。
+      - name: Pin Maven back to the version that cleans the bundle
+        run: |
+          set -euo pipefail
+          url=https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz
+          curl -fsSLo /tmp/apache-maven.tar.gz "$url"
+          echo "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6  /tmp/apache-maven.tar.gz" | sha512sum -c -
+          sudo tar -xzf /tmp/apache-maven.tar.gz -C /opt
+          echo "/opt/apache-maven-3.9.16/bin" >> "$GITHUB_PATH"
+          /opt/apache-maven-3.9.16/bin/mvn -v
+
       # The protocol's tests read the vendored vectors from the repository root; they are in the
       # checkout already, so the tag is verified by the same suite a push is.
       - name: Reproduce the frozen protocol vectors
