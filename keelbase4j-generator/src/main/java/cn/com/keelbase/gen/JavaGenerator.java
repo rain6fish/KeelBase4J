@@ -405,8 +405,11 @@ public class JavaGenerator {
         sb.append("implementation and the KeelBase4J runtime both answer — the same fields, so a client written\n");
         sb.append("against either works unchanged:\n\n");
         sb.append("```\nPOST /ai/chat  { message, conversationId?, customerId? }\n");
-        sb.append("->  { conversationId, reply, provider, model, toolCalls?, status, data, token, effectId, error }\n");
+        sb.append("->  { conversationId, reply, provider, model, toolCalls? }\n");
         sb.append("```\n\n");
+        sb.append("That is the frozen `chat-response` and nothing more. A tool call's result is not a field\n");
+        sb.append("of it: it is reported as events on `POST /ai/chat/stream`, which is also where a write's\n");
+        sb.append("confirmation token travels — a non-streaming call returns none.\n\n");
         sb.append("A turn runs planner -> engine -> replier. The planner proposes a tool, the engine decides\n");
         sb.append("whether it may run (a write waits on a human confirmation, and nothing is written until it\n");
         sb.append("is approved), and the replier says what happened. `conversationId` names rows in\n");
@@ -1916,13 +1919,24 @@ public class JavaGenerator {
                     /**
                      * What to say about this turn. Deliberately flat and specific: it reports the engine's
                      * answer and never speculates past it.
+                     *
+                     * <p>It also spells out what the tool answered, and that is load-bearing rather than
+                     * decorative: the frozen {@code chat-response} has no field for a tool's result — its
+                     * fields are the conversation turn — so the reply is the only place a result can
+                     * reach a caller of the non-streaming path. A model would phrase it; this one lists it.
+                     *
+                     * 这个回合该说什么。刻意做到平实而具体：它报的是**引擎的答案**，绝不超出它去揣测。
+                     *
+                     * <p>它**还把工具答了什么说清楚**，而这是**承重**的、不是装饰：冻结的
+                     * {@code chat-response} **没有放工具结果的地方** —— 它的字段是**对话回合** —— 所以 reply 是
+                     * 结果能到达**非流式**调用方的**唯一**去处。模型会把它**措辞**出来；这一个把它**列出来**。
                      */
                     private String describe(Map<String, Object> outcome) {
                         if (outcome == null) {
                             return "I could not match that to a tool I can call, so I proposed nothing.";
                         }
                         Object status = outcome.get("status");
-                        return switch (status == null ? "" : status.toString()) {
+                        String said = switch (status == null ? "" : status.toString()) {
                             case "pending_confirmation" ->
                                     "I proposed a write. It is waiting for your confirmation, and nothing has "
                                             + "been written yet.";
@@ -1934,6 +1948,27 @@ public class JavaGenerator {
                                     ? "no detail given" : outcome.get("error"));
                             default -> "The engine answered: " + status + ".";
                         };
+                        return said + answered(outcome);
+                    }
+
+                    /**
+                     * The tool's own answer, listed. Keys are sorted so the same result reads the same way
+                     * every time — a reply that reordered itself between two calls would look like two
+                     * different answers.
+                     *
+                     * 工具**自己的答案**，逐项列出。键**排序**，故同一个结果每次读起来都一样 —— 一个在两次
+                     * 调用之间自己换了次序的 reply，看起来就像**两个不同的答案**。
+                     */
+                    private static String answered(Map<String, Object> outcome) {
+                        Object data = outcome.get("data");
+                        if (!(data instanceof Map<?, ?> values) || values.isEmpty()) {
+                            return "";
+                        }
+                        String listed = values.entrySet().stream()
+                                .sorted(java.util.Comparator.comparing(entry -> String.valueOf(entry.getKey())))
+                                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                                .collect(java.util.stream.Collectors.joining(" "));
+                        return " It answered: " + listed + ".";
                     }
                 }
                 """.formatted(pkg);
@@ -2983,8 +3018,9 @@ public class JavaGenerator {
                  * <p>{@code POST /ai/chat} takes a <b>message</b> and answers the conversation shape the
                  * reference implementation and the KeelBase4J runtime both answer, field for field, so a
                  * client written against either works unchanged: {@code conversationId}, {@code reply},
-                 * {@code provider}, {@code model}, an optional {@code toolCalls}, and the governance facts
-                 * {@code status}, {@code data}, {@code token}, {@code effectId}, {@code error}.
+                 * {@code provider}, {@code model} and an optional {@code toolCalls}. That is the frozen
+                 * {@code chat-response} and nothing more — a tool call's result is reported as events on
+                 * {@link ChatStreamController}, and a non-streaming call returns no confirmation token.
                  *
                  * <p>The turn itself — planner, engine, replier — is {@link ChatTurnService}, because the
                  * streaming endpoint runs the same one and must not grow a second copy of it (ADR-0014 D7).
@@ -3057,7 +3093,6 @@ public class JavaGenerator {
                                         ? null : String.valueOf(body.get("conversationId")),
                                 principal);
 
-                        Map<String, Object> outcome = turn.outcome();
                         Map<String, Object> answer = new LinkedHashMap<>();
                         answer.put("conversationId", turn.conversationId());
                         answer.put("reply", turn.reply().text());
@@ -3068,11 +3103,16 @@ public class JavaGenerator {
                         if (turn.plan() != null) {
                             answer.put("toolCalls", List.of(turn.plan().tool()));
                         }
-                        answer.put("status", outcome == null ? null : outcome.get("status"));
-                        answer.put("data", outcome == null ? null : outcome.get("data"));
-                        answer.put("token", outcome == null ? null : outcome.get("token"));
-                        answer.put("effectId", outcome == null ? null : outcome.get("effectId"));
-                        answer.put("error", outcome == null ? null : outcome.get("error"));
+                        // And that is all of it: the governance facts this answer used to carry —
+                        // `status`, `data`, `token`, `effectId`, `error` — are not fields of the frozen
+                        // `chat-response`, which declares `additionalProperties: false`. They have their
+                        // own surfaces: the tool call's result is reported as events on
+                        // `/ai/chat/stream`, and the reply says what the tool answered.
+                        //
+                        // 而这就是全部了：这条答案过去带的那些治理事实 —— `status`、`data`、`token`、
+                        // `effectId`、`error` —— **不是**冻结 `chat-response` 的字段，那个对象写着
+                        // `additionalProperties: false`。它们各有自己的面：一次工具调用的结果在
+                        // `/ai/chat/stream` 上以**事件**报出，而工具答了什么由 reply 说。
                         return answer;
                     }
 

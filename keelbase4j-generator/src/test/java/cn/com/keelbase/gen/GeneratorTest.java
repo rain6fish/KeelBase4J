@@ -230,10 +230,20 @@ class GeneratorTest {
         // endpoint, and an entry that still took a tool name would be the old shape living on.
         String ai = Files.readString(out.resolve("src/main/java/com/example/crm/web/AiController.java"));
         assertTrue(ai.contains("body.get(\"message\")"), "the chat takes a message");
-        for (String field : List.of("conversationId", "reply", "provider", "model", "toolCalls",
-                "status", "data", "token", "effectId", "error")) {
+        for (String field : List.of("conversationId", "reply", "provider", "model", "toolCalls")) {
             assertTrue(ai.contains("answer.put(\"" + field + "\""),
                     "/ai/chat must answer the reference field '" + field + "'");
+        }
+        // And **only** those: the governance facts are not fields of the frozen `chat-response`, which
+        // declares `additionalProperties: false` — the answer they used to ride on was the shape both
+        // runtimes had to stop answering (JV-52 片 2). A write's token is asked for on the stream.
+        //
+        // 而且**只有**那些：治理事实**不是**冻结 `chat-response` 的字段 —— 那个对象写着
+        // `additionalProperties: false`；它们过去搭的那趟车，正是两个运行时都不得不停止作答的形状
+        // （JV-52 片 2）。写的 token 在**流式**那条上要。
+        for (String field : List.of("status", "data", "token", "effectId", "error")) {
+            assertFalse(ai.contains("answer.put(\"" + field + "\""),
+                    "/ai/chat must not answer a field the object does not declare: '" + field + "'");
         }
         // The turn is one implementation shared by both endpoints (ADR-0014 D7): the plain controller
         // delegates to it, and no second copy of the sequence exists anywhere in the generated sources.

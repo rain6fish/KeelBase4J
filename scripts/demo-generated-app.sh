@@ -116,6 +116,28 @@ post_chat() { # token body
     -H "Authorization: Bearer $1" --data-binary @-
 }
 
+# A write's confirmation token is asked for on the **streaming** channel. The non-streaming answer is the
+# frozen `chat-response` and returns none (JV-52 片 2), so the stream is where a caller learns a write is
+# waiting and gets the token to answer it — which is the channel the console uses too. Sets STREAM_TOKEN
+# and STREAM_TOKEN_LOG, and leaves the stream **open** so the decision can come back on it.
+#
+# 一次写的确认 token 在**流式**那条上要。非流式答案是冻结的 `chat-response`、不返回它（JV-52 片 2），所以
+# **流式**就是调用方得知「有写在等」并拿到 token 去回答它的地方 —— 那也是控制台用的那条通道。它会设好
+# STREAM_TOKEN 与 STREAM_TOKEN_LOG，并把流**留着不关**，好让裁决从它上面回来。
+stream_token() { # bearer body
+  STREAM_TOKEN_LOG="$GEN_DIR/stream-$(date +%s%N).log"
+  : > "$STREAM_TOKEN_LOG"
+  printf '%s' "$2" | curl -sN -X POST "$BASE/ai/chat/stream" -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer $1" --data-binary @- > "$STREAM_TOKEN_LOG" 2>&1 &
+  STREAM_TOKEN_PID=$!
+  STREAM_TOKEN=""
+  for _ in $(seq 1 40); do
+    sleep 0.5
+    STREAM_TOKEN=$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$STREAM_TOKEN_LOG" | head -1)
+    [ -n "$STREAM_TOKEN" ] && break
+  done
+}
+
 TOOLS=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/ai/tools")
 check "tools exposed (R1/R3)" '"riskLevel":"R3"' "$TOOLS"
 # The catalogue is the runtime's admin surface rather than a public one, and it is the same list the
@@ -131,22 +153,35 @@ check "the tool catalogue is closed to a plain user" '403' \
 # fields, so one frontend reads either. The reply is not from a model and says so, and conversationId
 # names a stored turn rather than an id made up on the spot.
 READ=$(post_chat "$ALICE" '{"message":"分析客户风险"}')
-check "a message routes to the read tool and it auto-executes" '"status":"executed"' "$READ"
 check "the answer names its conversation" '"conversationId"' "$READ"
 check "and reports the tool it used" '"toolCalls":["analyze_customer_risk"]' "$READ"
 check "the reply is honestly attributed to no model" '"provider":"deterministic","model":"none"' "$READ"
+# That the read ran is read from the audit trail, not from the answer: the frozen `chat-response` has no
+# outcome field to carry it (JV-52 片 2), and the row is where the application says a call happened.
+#
+# 「读跑了」从**审计轨**读、不从答案读：冻结的 `chat-response` 没有放结果的地方（JV-52 片 2），而那一行
+# 才是本应用说「这次调用发生过」的地方。
+check "a message routes to the read tool, and it ran" 'analyze_customer_risk -> ok' \
+  "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?userId=alice")"
 
-# A message that names no customer still routes — the write is gated on a human either way.
+# A message that names no customer still routes — the write is gated on a human either way. What the
+# answer can still say is which tool it routed; the outcome is not its to carry.
 GATED=$(post_chat "$ALICE" '{"message":"给客户建一条跟进记录"}')
-check "a message naming no customer still reaches the write tool" '"status":"pending_confirmation"' "$GATED"
+check "a message naming no customer still reaches the write tool" \
+  '"toolCalls":["create_followup"]' "$GATED"
 
-WRITE=$(post_chat "$ALICE" '{"message":"给客户建一条跟进记录","customerId":1}')
-check "write tool is gated" '"status":"pending_confirmation"' "$WRITE"
-TOKEN=$(printf '%s' "$WRITE" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+# The write waits, and the waiting is on the stream — which is where its token is.
+stream_token "$ALICE" '{"message":"给客户建一条跟进记录","customerId":1}'
+TOKEN="$STREAM_TOKEN"
+check "write tool is gated" '"confirmation_request"' "$(cat "$STREAM_TOKEN_LOG")"
+[ -n "$TOKEN" ] || { echo "  FAIL the stream never handed over a confirmation token"; fail=1; }
 
 APPROVED=$(curl -s -X POST "$BASE/ai/confirmations/$TOKEN" -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $ALICE" -d '{"decision":"approve"}')
 check "approve executes and records an effect" '"effectId"' "$APPROVED"
+wait "$STREAM_TOKEN_PID" 2>/dev/null || true
+check "and the decision comes back on the stream that asked" '"confirmation_decision"' \
+  "$(cat "$STREAM_TOKEN_LOG")"
 
 VERIFY=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/verify")
 check "audit chain verifies" '"valid":true' "$VERIFY"
@@ -360,8 +395,11 @@ check_absent "and keeps the other owner's rows out of it" '"note":"alice-fu"' "$
 # field makes "at least two were in flight together" the likely case rather than the lucky one.
 RACE_EXECUTED_TWICE=0
 for _ in $(seq 1 3); do
-  RACE=$(post_chat "$ALICE" '{"message":"给客户建一条跟进记录","customerId":1}')
-  RTOKEN=$(printf '%s' "$RACE" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+  # The token is asked for on the stream, which is where a write's confirmation is asked for at all.
+  #
+  # token 在**流式**那条上要 —— 一次写的确认本来就只在那里被问起。
+  stream_token "$ALICE" '{"message":"给客户建一条跟进记录","customerId":1}'
+  RTOKEN="$STREAM_TOKEN"
   [ -n "$RTOKEN" ] || continue
   BEFORE=$(curl -s "$BASE/ai/tool-effects" -H "Authorization: Bearer $ALICE" | grep -o '"id":' | wc -l)
   # Bare `wait` would also wait for the demo app itself — started with `&` further up and never
