@@ -1207,27 +1207,38 @@ public class JavaGenerator {
                  * <p>The record carries what the console's own model requires of it — which tool ran,
                  * what it produced, a hash of the arguments, when, and the revoke facts — so the effect
                  * list is a row the console can render rather than a bare array of ids.
+                 *
+                 * <p><b>What it produced is captured, not looked up.</b> The frozen {@code traceItem}
+                 * calls it {@code afterSnapshot}, and it is stored for the reason the name gives: the row
+                 * as it stands today is not the row the decision produced. There is no {@code
+                 * beforeSnapshot} beside it — nothing in this application overwrites an existing row, so
+                 * there is no before to record.
+                 *
+                 * <p><b>它产出了什么，是捕获下来的、不是回查出来的。</b> 冻结的 {@code traceItem} 管它叫
+                 * {@code afterSnapshot}，而它**被存下来**的理由就在这个名字里：**今天这一行**的样子**不是这次
+                 * 决策产出的样子**。旁边没有 {@code beforeSnapshot} —— 本应用**不改写既有行**，所以没有「之前」可记。
                  */
                 @Component
                 public class SideEffectStore {
 
                     public record Effect(Long id, String userId, String toolName, String resultType,
                                          Long resultId, String revokeClass, String revokeStatus,
-                                         String argsHash, Instant createdAt) {
+                                         String argsHash, String afterSnapshot, Instant createdAt) {
                     }
 
                     private final AtomicLong seq = new AtomicLong();
                     private final List<Effect> effects = new ArrayList<>();
 
                     public synchronized Effect record(String userId, String toolName, String resultType,
-                                                      Long resultId, Map<String, Object> args) {
+                                                      Long resultId, Map<String, Object> args,
+                                                      String afterSnapshot) {
                         // Every write this application performs is on its own row, so the honest class is
                         // local compensation — and the revoke path does perform it: the controller
                         // soft-deletes the target. Never `governed_external` here: nothing outside this
                         // application is being compensated, and claiming a compensation channel that does
                         // not exist is how a console ends up offering a button that cannot work.
                         Effect e = new Effect(seq.incrementAndGet(), userId, toolName, resultType, resultId,
-                                "local_compensate", "executed", argsHash(args), Instant.now());
+                                "local_compensate", "executed", argsHash(args), afterSnapshot, Instant.now());
                         effects.add(e);
                         return e;
                     }
@@ -1246,7 +1257,8 @@ public class JavaGenerator {
                             Effect e = effects.get(i);
                             if (e.id().equals(id)) {
                                 effects.set(i, new Effect(e.id(), e.userId(), e.toolName(), e.resultType(),
-                                        e.resultId(), e.revokeClass(), "revoked", e.argsHash(), e.createdAt()));
+                                        e.resultId(), e.revokeClass(), "revoked", e.argsHash(),
+                                        e.afterSnapshot(), e.createdAt()));
                             }
                         }
                     }
@@ -1422,6 +1434,7 @@ public class JavaGenerator {
         return """
                 package %s.ai;
 
+                import cn.com.keelbase.protocol.CanonicalJson;
                 import java.util.LinkedHashMap;
                 import java.util.Map;
                 import org.springframework.stereotype.Service;
@@ -1533,7 +1546,15 @@ public class JavaGenerator {
                             // The tool's *declared* result type, not its name: the console groups effects
                             // by what they produced. The arguments go in with it — the effect's argsHash
                             // is what the console shows, and a record that dropped them could not carry one.
-                            effectId = sideEffects.record(userId, tool.name(), tool.resultType(), resultId, args).id();
+                            // What the tool produced, captured here — the only moment it is still what the
+                            // decision produced rather than whatever the row has since become. The frozen
+                            // `traceItem` reads it as `afterSnapshot`.
+                            //
+                            // 工具**产出了什么**，就在这一刻捕获 —— 这是它**仍然是这次决策产出的那个样子**的
+                            // 唯一时刻，再往后读到的就是这一行后来变成的样子了。冻结的 `traceItem` 把它读作
+                            // `afterSnapshot`。
+                            effectId = sideEffects.record(userId, tool.name(), tool.resultType(), resultId,
+                                    args, CanonicalJson.json(result)).id();
                         }
                         audit.append("tool_call", userId, tool.name() + " -> ok");
                         Map<String, Object> out = status("executed");
@@ -3855,8 +3876,37 @@ public class JavaGenerator {
                         view.put("targetSoftDeleted", target.map(row -> row.getDeletedAt() != null).orElse(false));
                 %s
                         view.put("revokeClass", effect.revokeClass());
-                        view.put("revokeStatus", effect.revokeStatus());
-                        view.put("status", effect.revokeStatus());
+                        // One stored field feeds two contract fields, and the contract gives the two
+                        // different vocabularies — `status` says what happened to the effect, `revokeStatus`
+                        // says where the revoke is (null while none was ever attempted). The stored values
+                        // map onto them without a guess: `executed` means no revoke has been tried, so the
+                        // revoke field is null; `revoked` means both.
+                        //
+                        // 一条存储字段喂着契约的**两个**字段，而两者词表不同 —— `status` 说 effect 怎么了，
+                        // `revokeStatus` 说撤销走到哪（**从未撤销过则为 null**）。存进来的取值不需要猜就能对上：
+                        // `executed` ＝ 还没试过撤销 ⇒ 撤销字段为 null；`revoked` ＝ 两者都是。
+                        String stored = effect.revokeStatus();
+                        view.put("status", "revoked".equals(stored) ? "revoked" : "executed");
+                        view.put("revokeStatus", "executed".equals(stored) ? null : stored);
+
+                        // The frozen `traceItem`'s remaining three, answered with what this application has:
+                        // its own `afterSnapshot` — what the tool produced, captured when the write ran —
+                        // and nulls where it has no concept to offer. `beforeSnapshot` is null because
+                        // nothing here overwrites an existing row, so there is no before to record;
+                        // `compensationGroup` and `parentEffectId` are null because it has neither a
+                        // compensation group nor a parent/child relation between effects, and inventing
+                        // one would be a claim with nothing behind it.
+                        //
+                        // 冻结 `traceItem` 余下的三样，按本应用**有的**答：自己的 `afterSnapshot` —— 工具产出了
+                        // 什么、在写跑成时捕获 —— 以及**没有对应概念**处的 null。`beforeSnapshot` 为 null，是因为
+                        // 本应用**不改写既有行**、没有「之前」可记；`compensationGroup` 与 `parentEffectId` 为
+                        // null，是因为它既没有补偿组、也没有 effect 之间的父子关系，编一个出来只是**没有任何
+                        // 东西支撑的主张**。
+                        view.put("beforeSnapshot", null);
+                        view.put("afterSnapshot", effect.afterSnapshot());
+                        view.put("compensationGroup", null);
+                        view.put("parentEffectId", null);
+
                         // What the console renders the revoke button on, decided here rather than
                         // re-derived there — the rule the runtime applies too.
                         view.put("revocable",

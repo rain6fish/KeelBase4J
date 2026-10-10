@@ -264,10 +264,33 @@ class GeneratorTest {
                     "the effects list must answer the console's envelope field '" + key + "'");
         }
         for (String field : List.of("id", "toolName", "conversationId", "resultType", "resultId",
-                "argsHash", "createdAt", "targetExists", "targetSoftDeleted", "targetTitle")) {
+                "argsHash", "createdAt", "targetExists", "targetSoftDeleted", "targetTitle",
+                "beforeSnapshot", "afterSnapshot", "compensationGroup", "parentEffectId")) {
             assertTrue(governance.contains("view.put(\"" + field + "\""),
                     "a console row requires '" + field + "'");
         }
+        // The contract gives `status` and `revokeStatus` different vocabularies, so one stored field
+        // cannot be written into both — the row would claim a revoke that was never attempted.
+        //
+        // 契约给 `status` 与 `revokeStatus` 的是**两套词表**，所以一条存储字段不能同时写进两者 ——
+        // 那样这一行会声称一次**从未试过**的撤销。
+        assertTrue(governance.contains(
+                        "view.put(\"status\", \"revoked\".equals(stored) ? \"revoked\" : \"executed\")"),
+                "the effect's own status is derived rather than the revoke's word copied");
+        assertTrue(governance.contains(
+                        "view.put(\"revokeStatus\", \"executed\".equals(stored) ? null : stored)"),
+                "and the revoke field is null while no revoke was ever attempted");
+        // `afterSnapshot` is only honest if it is captured where the result still is what the decision
+        // produced, and only carries a value if the store keeps it.
+        //
+        // `afterSnapshot` 只有在**结果仍然是这次决策产出的那个样子**的地方捕获才诚实，也只有在**存储留着它**
+        // 时才带得出值。
+        assertTrue(Files.readString(out.resolve("src/main/java/com/example/crm/ai/SideEffectStore.java"))
+                        .contains("String argsHash, String afterSnapshot, Instant createdAt"),
+                "an effect carries what the tool produced");
+        assertTrue(Files.readString(out.resolve("src/main/java/com/example/crm/ai/GovernanceEngine.java"))
+                        .contains("CanonicalJson.json(result)"),
+                "captured at the moment the write ran, not re-derived later");
         assertFalse(governance.contains("public List<SideEffectStore.Effect> effects"),
                 "the bare array is the shape that was replaced, not kept alongside it");
         // The trailing `;` is the assertion, not decoration: `MAX_PAGE_SIZE = 100` is a substring of

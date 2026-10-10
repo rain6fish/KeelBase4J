@@ -217,9 +217,18 @@ check "and reports the total it paged over" '"total":' "$EFFECTS"
 check "and echoes the page it was asked for" '"page":1' "$EFFECTS"
 check "and the limit" '"limit":20' "$EFFECTS"
 for field in id toolName conversationId resultType resultId argsHash createdAt targetExists \
-             targetSoftDeleted targetTitle; do
+             targetSoftDeleted targetTitle beforeSnapshot afterSnapshot compensationGroup \
+             parentEffectId; do
   check "a row carries '$field' for the console" "\"$field\":" "$EFFECTS"
 done
+# Two assertions "carries the field" cannot make, because a field that is present but always null
+# passes that one. The snapshot must actually hold what the tool produced, and a row nobody has tried
+# to revoke must report **no** revoke word rather than the effect's own status copied into it.
+#
+# 两条「带了这个字段」做不到的断言 —— 因为一个**存在但永远是 null** 的字段能通过那一条。快照必须真的装着
+# 工具产出了什么；而一行**没人试过撤销**的记录，必须报**没有**撤销词，而不是把 effect 自己的状态抄进去。
+check "and the snapshot holds what the tool produced" '"afterSnapshot":"' "$EFFECTS"
+check "and a row nobody revoked reports no revoke word" '"revokeStatus":null' "$EFFECTS"
 CAPPED=$(curl -s "$BASE/ai/tool-effects?page=1&limit=100000" -H "Authorization: Bearer $ALICE")
 # The trailing comma is load-bearing: `"limit":100` is a substring of `"limit":1000`, so without it a
 # cap raised to a thousand would still pass. The envelope's key order puts `items` next.
