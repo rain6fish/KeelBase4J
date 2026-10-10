@@ -36,6 +36,15 @@ Each version is written in two blocks — English first, then Chinese — marked
   vocabularies differ; they are now derived apart, so a row nobody tried to revoke reports no revoke word
   rather than the effect's own status.
 
+- **Four shapes two hosts arrived at independently are now in this module.** `ActingCaller` — the caller
+  published for the length of the code an AI tool runs, because the engine's tool path is outside the
+  request's security filter chain, where the framework's own "current user" throws or answers nothing.
+  `ActingCallerId` — ask the request's own identity, fall back to the published caller, parse or null.
+  `ModuleRoute` — a module contributes its routes as beans. `ModuleRoutePlanner` — the deployment's
+  routes first, the runtime's rule-based router last, delegated rather than copied. **Only the shapes are
+  lifted**: which utility reads a request's identity stays with each deployment, both hosts are unchanged
+  by this, and this is not a host contract — two integrations are not enough to draw one.
+
 ### Changed
 
 - **`POST /api/v1/ai/chat` answers the frozen `chat-response` and nothing more.** The answer used to
@@ -70,6 +79,13 @@ Each version is written in two blocks — English first, then Chinese — marked
   **没有**撤销词，而不是把 effect 自己的状态抄进去。
 
 ### 变更
+
+- **四个**两个宿主各自独立走到**的形状，现在住在本模块里。`ActingCaller` —— 正在行动的那个调用者，在 **AI 工具
+  跑的那一段**里发布出来，因为引擎的工具路径在请求的安全过滤器链**之外**，框架自己那个「当前用户」在那儿要么抛、
+  要么什么也答不出。`ActingCallerId` —— 先问请求自己的身份、落回已发布的那位、解析成 id 否则 null。
+  `ModuleRoute` —— 模块以 bean 形式贡献自己的路由。`ModuleRoutePlanner` —— 部署方自己的路由在前、运行时的
+  规则路由器在后，**委托**而不是抄。**上提的只有形状**：**读请求身份的是哪一个工具类**留在各部署手里，两个宿主
+  都不因本次改动而改变，而且这**不是**一份宿主契约 —— **两次集成不够画一份**。
 
 - **`POST /api/v1/ai/chat` 答的就是冻结的 `chat-response`，别无其它。** 这条答案过去在对话回合之外还带
   `status`、`data`、`token`、`effectId`、`error` —— 契约禁止（`additionalProperties: false`）、参照实现在
