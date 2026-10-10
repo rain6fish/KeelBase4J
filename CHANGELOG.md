@@ -12,6 +12,75 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-10
+
+**English**
+
+### Added
+
+- **The audit chain reads back.** The runtime could append to the chain and verify it, but nothing could
+  hand the rows out — so "which rows did this caller leave in this period" had no answer at all, and a
+  run's operator could not point at the rows their run put there. `GET /api/v1/audit/logs` answers the
+  frozen `ai-audit-log-row`, filtered by caller, period and outcome, and `ai_audit_logs` gains an
+  `is_error` column (h2, mysql, postgresql) kept deliberately **outside** the hashed payload: folding it
+  in would make every row already written unverifiable and report a deployment's own history as a broken
+  chain. The filters the reference offers over columns this runtime does not record — agent,
+  organisation, and the authorization-verdict view — are **refused** rather than ignored, because a list
+  that looks filtered and is not cannot be told from one that is.
+
+- **A side effect carries what the tool produced.** `/api/v1/ai/tool-effects` answered an item that
+  matched neither branch of the frozen `side-effect-revoke`: it carried `argsHash`, which belongs to
+  `traceItem`, without that branch's snapshots. The write path now captures the tool's result where it
+  still is what the decision produced, `SideEffect` stores it (`after_snapshot`, three dialects), and the
+  item answers `traceItem`. One stored column was being written into two contract fields whose
+  vocabularies differ; they are now derived apart, so a row nobody tried to revoke reports no revoke word
+  rather than the effect's own status.
+
+### Changed
+
+- **`POST /api/v1/ai/chat` answers the frozen `chat-response` and nothing more.** The answer used to
+  carry `status`, `data`, `token`, `effectId` and `error` alongside the conversation turn, which the
+  contract forbids (`additionalProperties: false`), which the reference never did on that path, and
+  which the protocol's prose contradicts — a non-streaming call returns no confirmation token. The facts
+  moved rather than vanished: a tool call's result is reported as events on `/api/v1/ai/chat/stream`, and
+  a pending write is found in `/api/v1/ai/my/confirmations`, whose items carry the token. `GET
+  /api/v1/audit/verify` now returns the chain it walked, and is gated at administrator as the object's
+  own implementation gates it.
+
+- **The generated application follows on both surfaces.** Its chat answer is the frozen object too, and
+  its effect row answers `traceItem`. A generated application serves no confirmation list, so a
+  non-streaming caller there reaches a pending write through the stream — the way the reference's callers
+  do.
+
+**中文**
+
+### 新增
+
+- **审计链读得回来了。** 运行时能给链追加、能校验它，却**没有任何东西把行交出来** —— 于是「这个调用方在这一段
+  时间里留下了哪几行」**根本没有答案**，一次运行的操作者也**指不出**自己那次留下的行。`GET /api/v1/audit/logs`
+  按冻结的 `ai-audit-log-row` 作答，可按调用者、一段时间与结果筛选；`ai_audit_logs` 加一列 `is_error`
+  （h2、mysql、postgresql），**刻意留在哈希载荷之外**：折进去会让**已经写下的每一行**都验不过，并把一个部署
+  **自己的历史**报成断链。参照实现另有的、而本运行时**不记那些列**的筛选 —— agent、组织、授权结论视图 ——
+  一律**拒绝**、不是忽略，因为一份**看着像筛过、其实没有**的列表，与真筛过的分不出来。
+
+- **副作用带上工具产出的东西。** `/api/v1/ai/tool-effects` 此前回的项**两个分支都不满足**冻结的
+  `side-effect-revoke`：它带着属于 `traceItem` 的 `argsHash`，却没有那个分支要的快照。写路径现在**在结果仍然是
+  这次决策产出的那个样子时**捕获它，`SideEffect` 把它存下来（`after_snapshot`，三方言），项改答 `traceItem`。
+  另有一条存储列被同时写进契约里**词表不同**的两个字段；现在分开推导，于是一行**没人试过撤销**的记录报的是
+  **没有**撤销词，而不是把 effect 自己的状态抄进去。
+
+### 变更
+
+- **`POST /api/v1/ai/chat` 答的就是冻结的 `chat-response`，别无其它。** 这条答案过去在对话回合之外还带
+  `status`、`data`、`token`、`effectId`、`error` —— 契约禁止（`additionalProperties: false`）、参照实现在
+  那条路径上从不这么做、协议散文也与它相悖（**非流式调用不返回确认 token**）。那些事实是**搬家**、不是消失：
+  一次工具调用的结果在 `/api/v1/ai/chat/stream` 上以**事件**报出，待确认的写在 `/api/v1/ai/my/confirmations`
+  里找（它的项**带着 token**）。`GET /api/v1/audit/verify` 现在把它走过的链一并回出来，并按这个对象**自己的
+  实现**守在管理员上。
+
+- **生成的应用在两个面上都跟上了。** 它的聊天答案也是冻结对象，它的效应行也答 `traceItem`。生成的应用**没有**
+  确认列表，所以它这边的非流式调用方要经**流式**够到待确认的写 —— 参照实现的调用方走的也是这条路。
+
 ## [0.1.4] - 2026-10-08
 
 **English**
