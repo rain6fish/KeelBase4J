@@ -36,6 +36,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   vocabularies differ; they are now derived apart, so a row nobody tried to revoke reports no revoke word
   rather than the effect's own status.
 
+- **Three objects this runtime does not produce are listed as *not served*.** A request body, an error
+  code vocabulary and a tool list a client fetches from elsewhere — each was named by the corpus, and
+  none of them is something a runtime *publishes*, so the mapping document now says so rather than
+  leaving the absence to be inferred.
 - **Where a deployment's first token comes from is written down.** Core has no sign-in endpoint by design
   — it verifies a delegation token and never issues one — and what was missing was never code but a
   written, executable answer to where that token comes from: what the entry verifier actually requires,
@@ -84,6 +88,9 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### 变更
 
+- **本运行时不产出的三个对象，现在明列为 `not served`。** 一个**请求体**、一份**错误码词表**、一张**客户端自己去别处取的**
+  工具清单 —— 三个都曾被语料点名，而**没有一个是运行时「发布」的东西**，所以映射文档现在**说出来**，而不是把「没有」留给
+  别人去推。
 - **一个部署的第一枚令牌从哪来，写下来了。** core **故意没有登录端点** —— 它只验证委托令牌、从不签发 ——
   而缺的**从来不是代码**，是一个**能照着做**的答案：入口验签器究竟要求什么、部署方**产它的两条路**是什么。
   见 `docs/deployment-first-token.md`。
