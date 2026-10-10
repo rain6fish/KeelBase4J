@@ -36,6 +36,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   vocabularies differ; they are now derived apart, so a row nobody tried to revoke reports no revoke word
   rather than the effect's own status.
 
+- **Where a deployment's first token comes from is written down.** Core has no sign-in endpoint by design
+  — it verifies a delegation token and never issues one — and what was missing was never code but a
+  written, executable answer to where that token comes from: what the entry verifier actually requires,
+  and the two ways a deployment produces one. `docs/deployment-first-token.md`.
 - **Four shapes two hosts arrived at independently are now in this module.** `ActingCaller` — the caller
   published for the length of the code an AI tool runs, because the engine's tool path is outside the
   request's security filter chain, where the framework's own "current user" throws or answers nothing.
@@ -80,6 +84,9 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### 变更
 
+- **一个部署的第一枚令牌从哪来，写下来了。** core **故意没有登录端点** —— 它只验证委托令牌、从不签发 ——
+  而缺的**从来不是代码**，是一个**能照着做**的答案：入口验签器究竟要求什么、部署方**产它的两条路**是什么。
+  见 `docs/deployment-first-token.md`。
 - **两个宿主各自独立走到的四个形状，现在住在本模块里。** `ActingCaller` —— 正在行动的那个调用者，在 **AI 工具
   跑的那一段**里发布出来，因为引擎的工具路径在请求的安全过滤器链**之外**，框架自己那个「当前用户」在那儿要么抛、
   要么什么也答不出。`ActingCallerId` —— 先问请求自己的身份、落回已发布的那位、解析成 id 否则 null。
