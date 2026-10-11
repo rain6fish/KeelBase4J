@@ -12,6 +12,56 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-11
+
+**English**
+
+### Added
+
+- **An audit row says what happened, and which tool it was about.** `GET /api/v1/audit/logs` answers the
+  frozen `ai-audit-log-row` **v5**: two out-of-chain columns, `outcome` — a frozen vocabulary of ten
+  values — and `tool`. Until now the outcome could only be read by matching free text in `detail` and the
+  tool name by taking that string's first token — a parse that holds on one implementation and not the
+  other, because their `detail` grammars differ. The runtime now writes both at every one of its eleven
+  audit sites. `ai_audit_logs` gains the two columns (**V7**, h2 · mysql · postgresql), and neither
+  enters the hashed payload, so every row already written still verifies.
+
+- **A write whose type a deployment owns can now be revoked.** `local_compensate` used to name one
+  entity — the sample module's follow-up — so any other type ended in a conflict that, thrown before the
+  audit line, left no trace that a revocation had been attempted at all. `SideEffectCompensator` is the
+  seam that replaces it: one bean per `resultType`, looked up rather than known, and two compensators on
+  one type fail the application at startup instead of being resolved silently at revoke time. A
+  registered compensator also takes precedence over the built-in path, so a deployment can replace that
+  rather than live beside it.
+
+### Changed
+
+- **This implementation answers contract `v1.7.0`.** The vendored snapshot and both workflows' pins moved
+  from `v1.1.0` — a version this runtime had long stopped answering for, which is why the drift gate
+  stayed green while the snapshot fell two schema generations behind. The gate now compares against the
+  contract this repository actually speaks.
+
+**中文**
+
+### 新增
+
+- **审计行说得清发生了什么、以及它是关于哪一个工具的。** `GET /api/v1/audit/logs` 现在答冻结的
+  `ai-audit-log-row` **v5**：两列链外归因列 —— `outcome`（**十个值**的冻结词表）与 `tool`。在此之前，结局只能
+  靠在 `detail` 里匹配自由文本读出、工具名只能取那串的第一个 token —— 而那个解析**在一个实现上成立、在另一个
+  上不成立**，因为两者的 `detail` 文法不同。现在运行时**十一处**审计写入点都会写下这两列。`ai_audit_logs` 加
+  这两列（**V7**，h2 · mysql · postgresql），且两者都**不进哈希载荷** ⇒ **已经写下的每一行仍然验得过**。
+
+- **部署自己那种类型的写，现在撤得动。** `local_compensate` 此前只点名一个实体 —— 样例模块的 follow-up ——
+  于是别的类型都以一个冲突收场；而那个冲突抛在审计行**之前**，连「试过撤销」都不留痕。取而代之的是
+  `SideEffectCompensator` 这条缝：**一个 `resultType` 一个 bean**，运行时**查表**而不是**知道**；同一个类型上
+  两个补偿器会让应用**启动即失败**，而不是在撤销那一刻被悄悄定夺。注册的补偿器**优先于**内置那条路，故部署可以
+  **替换**它、而不是与它并存。
+
+### 变更
+
+- **本实现回答契约 `v1.7.0`。** vendored 快照与两个 workflow 的 pin 从 `v1.1.0` 抬起 —— 那是一个本运行时早已
+  不再回答的版本，也正是**快照落后两代 schema 而漂移闸一直绿着**的原因。闸现在比的是**本仓真正在说的那份契约**。
+
 ## [0.1.5] - 2026-10-10
 
 **English**
