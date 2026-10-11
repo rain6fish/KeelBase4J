@@ -153,7 +153,8 @@ public class SideEffectService {
         // 里算出来的率，从此分不出这一行是什么。
         audit.append("effect_revoke", principal.userId(),
                 saved.getToolName() + " revoked (effect " + saved.getId() + ", "
-                        + saved.getRevokeClass() + " -> " + saved.getRevokeStatus() + ")");
+                        + saved.getRevokeClass() + " -> " + saved.getRevokeStatus() + ")",
+                false, "revoked", saved.getToolName());
         return saved;
     }
 

@@ -100,7 +100,8 @@ public class GovernedExecutionEngine {
                 //
                 // 一行是不是「错误」，看的是这次调用**有没有按调用方所求发生** —— 参照实现用的就是这条规则
                 // （`!approved`、`!result.success`）。拒绝、拦截、否决都是「没有」；而只是在等人的调用不是。
-                audit.append("tool_call", principal.userId(), toolName + " blocked (risk policy)", true);
+                audit.append("tool_call", principal.userId(), toolName + " blocked (risk policy)", true,
+                        "blocked", toolName);
                 return new ExecutionOutcome("blocked", governance.reasons(tool).toWire(), null, null,
                         "blocked by risk policy");
             case REQUIRE_APPROVAL: {
@@ -114,14 +115,16 @@ public class GovernedExecutionEngine {
                 ConfirmationRequest req = confirmations.create(
                         principal, toolName, CanonicalJson.json(args), tool.riskLevel(),
                         ConfirmationMode.APPROVAL);
-                audit.append("tool_call", principal.userId(), toolName + " awaiting a second person");
+                audit.append("tool_call", principal.userId(), toolName + " awaiting a second person",
+                        false, "pending", toolName);
                 return new ExecutionOutcome("requires_approval", null, req.getToken(), null, null);
             }
             case CONFIRM: {
                 ConfirmationRequest req = confirmations.create(
                         principal, toolName, CanonicalJson.json(args), tool.riskLevel(),
                         ConfirmationMode.IMMEDIATE);
-                audit.append("tool_call", principal.userId(), toolName + " pending confirmation");
+                audit.append("tool_call", principal.userId(), toolName + " pending confirmation",
+                        false, "pending", toolName);
                 return new ExecutionOutcome("pending_confirmation", null, req.getToken(), null, null);
             }
             default:
@@ -182,7 +185,8 @@ public class GovernedExecutionEngine {
         }
         String detail = String.join("; ", problems)
                 + " (expected: " + ToolParameter.describe(declared) + ")";
-        audit.append("tool_call", principal.userId(), tool.name() + " refused: " + detail, true);
+        audit.append("tool_call", principal.userId(), tool.name() + " refused: " + detail, true,
+                "refused", tool.name());
         return Optional.of(new ExecutionOutcome("invalid_arguments", null, null, null, detail));
     }
 
@@ -296,7 +300,10 @@ public class GovernedExecutionEngine {
         if (!ExecutionAxis.isClaimable(req, Instant.now())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "an execution attempt is still running");
         }
-        audit.append("tool_confirmation", retriedBy.userId(), req.getToolName() + " execution retried");
+        // C-3：这是**一次尝试**、不是一次结局 —— 与 intent 行同形（结局在它后面那一行，见
+        // `executeApproved` 尾部那条）。故用 `attempted`，而不是为「重试」另造一个值。
+        audit.append("tool_confirmation", retriedBy.userId(), req.getToolName() + " execution retried",
+                false, "attempted", req.getToolName());
         return executeApproved(req, initiator(req, retriedBy));
     }
 
@@ -320,7 +327,8 @@ public class GovernedExecutionEngine {
      */
     private ExecutionOutcome performApproval(ConfirmationRequest req, Principal decider, String via) {
         AiTool tool = registry.require(req.getToolName());
-        audit.append("tool_confirmation", decider.userId(), tool.name() + " approved (" + via + ")");
+        audit.append("tool_confirmation", decider.userId(), tool.name() + " approved (" + via + ")",
+                false, "approved", tool.name());
         return executeApproved(req, initiator(req, decider));
     }
 
@@ -407,7 +415,8 @@ public class GovernedExecutionEngine {
 
     /** The decline tail. Nothing is written, and whoever is watching is told the same way. */
     private ExecutionOutcome performDecline(ConfirmationRequest req, Principal principal, String via) {
-        audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined (" + via + ")", true);
+        audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined (" + via + ")",
+                true, "declined", req.getToolName());
         ExecutionOutcome outcome =
                 new ExecutionOutcome(ConfirmationLifecycle.DECLINED, null, null, null, null);
         watchers.decided(req.getToken(), decision(ConfirmationLifecycle.DECLINE, req.getToolName(), outcome));
@@ -484,7 +493,7 @@ public class GovernedExecutionEngine {
                 claims.release(principal, tool.name(), argsJson);
             }
             audit.append("tool_call", principal.userId(),
-                    tool.name() + " refused: " + refused.getMessage(), true);
+                    tool.name() + " refused: " + refused.getMessage(), true, "refused", tool.name());
             throw refused;
         }
         Long effectId = null;
@@ -506,7 +515,8 @@ public class GovernedExecutionEngine {
         }
         audit.append("tool_call", principal.userId(),
                 tool.name() + " -> " + (result.success() ? "ok" : "fail: " + result.error()),
-                !result.success());
+                !result.success(),
+                result.success() ? "executed" : "failed", tool.name());
         return result.success()
                 ? ExecutionOutcome.executed(result.data(), effectId)
                 : new ExecutionOutcome("error", null, null, null, result.error());
@@ -593,7 +603,8 @@ public class GovernedExecutionEngine {
                             + " — change the arguments to make it again");
         }
         audit.append("tool_call", principal.userId(),
-                tool.name() + " -> ok (effect " + existing.getId() + " reused: the same call)");
+                tool.name() + " -> ok (effect " + existing.getId() + " reused: the same call)",
+                false, "executed", tool.name());
         return ExecutionOutcome.executed(
                 existing.getResultId() == null ? null : Map.of("id", existing.getResultId()),
                 existing.getId());

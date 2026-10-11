@@ -1,0 +1,24 @@
+-- What a proposal came to, in a word, and which tool it was about.
+--
+-- The evaluation surface read the outcome out of `detail` by matching free text and took the tool
+-- name from `detail`'s first token — a parse that only works on one of the two implementations,
+-- because their grammars differ. The frozen `ai-audit-log-row` names two columns instead (v5), and
+-- this is where they land. `outcome` is a frozen vocabulary; which values are legal for which
+-- `action` belongs to the contract (`ai-audit-log-outcome-v1-vector.json`), not to this file.
+--
+-- **Neither column is part of the hashed payload** — the same reason `V6__audit_row_is_error` gives:
+-- the hash covers `action`, `userId` and `detail`, and folding anything else in would make every row
+-- written before it unverifiable. The cost is stated rather than hidden: these two are not
+-- tamper-evident.
+--
+-- 一次提议的**结局**，一个词说完，以及它是关于哪一个工具的。
+--
+-- 评估面此前从 `detail` 里靠匹配自由文本读出结局、并拿 `detail` 的第一个 token 当工具名 —— 而那个解析
+-- **只在两个实现中的一个上成立**，因为两者的文法不同。冻结的 `ai-audit-log-row` 改而点名两列（v5），
+-- 这里就是它们落地的地方。`outcome` 是**冻结词表**；哪些值对哪种 `action` 合法**归契约管**
+-- （`ai-audit-log-outcome-v1-vector.json`），不归本文件管。
+--
+-- **两列都不进哈希载荷** —— 理由与 `V6__audit_row_is_error` 同：哈希覆盖 `action`、`userId`、`detail`，
+-- 折进别的东西会让**它之前写下的每一行都验不过**。代价写出来、不藏：这两列**不是防篡改的**。
+ALTER TABLE ai_audit_logs ADD COLUMN outcome VARCHAR(32);
+ALTER TABLE ai_audit_logs ADD COLUMN tool VARCHAR(64);

@@ -71,7 +71,16 @@ jobs:
           repository: rain6fish/keelbase-contract
           # Pinned to a version, deliberately not `main`: a consumer that tracks `main` is not pinned
           # to anything, and this repository's compatibility claim is a version, not a moving target.
-          ref: v1.1.0
+          #
+          # Raised from v1.1.0 on 2026-10-11, and that raise is itself the finding: the pin had been
+          # left two schema generations behind, so this gate compared the snapshot against a contract
+          # this repository no longer answers for — and stayed green while the snapshot drifted from
+          # the one it does. A pin that is never raised is a gate that stops looking.
+          #
+          # 2026-10-11 从 v1.1.0 抬起，而**这次抬起本身就是那个发现**：那个 pin 被落下两代 schema，
+          # 于是这道闸一直拿**本仓早已不再回答的那个**契约去比快照 —— 快照对着**当下**那份漂移，而它
+          # 一直是绿的。**一个从不抬起的 pin，是一道不再看的闸。**
+          ref: v1.7.0
           path: contract-repo
       # Scenario packs are not part of the contract, so they are still taken from where they live.
       - name: Check out the main repo's scenario packs

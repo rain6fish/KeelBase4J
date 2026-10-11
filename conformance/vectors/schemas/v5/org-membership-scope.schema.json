@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v5/org-membership-scope.schema.json",
+  "title": "我的组织成员范围 GET /org/my data — v5",
+  "description": "PC-3（CE-2 缺口）：org/orgId **数据范围 membership** 契约——调用者的组织成员范围描述子（org + role + deptId + deptPath）。数据范围语义：组织成员创建的业务数据挂 `orgId`，同组织成员可见；非成员不带 `orgId`、仅本人可见（来源：src/todos/todos.service.ts create/findAll）。role ∈ OrgMemberRole（src/org/org-member-role.enum.ts）。来源：src/org/org.service.ts getMyOrg()。【v5 变更：加 `tenant` —— 决定索引 `D26 ①` 把**租户升为契约的一等维度**，与 org **并列**、**不折进 org**（那正是它的要害：并入 org 会让「换个组织」与「换个租户」在契约上不可分）。**加性**：它**不进 `required`**，v1 形态（没有这个键）**仍然合法**——因为主仓 KeelBase4TS 今天**没有租户概念**，做成必需会当场留下一处**没有任何实现产出**的缺口；v5 只把位置定下来，谁有租户谁填。这与 `evidence-package` v3 的加性放宽同一条路子。语义区别见 `tenant` 自己的 description。v1–v4 冻结不动，历史留在各自目录。",
+  "type": "object",
+  "required": ["org", "role", "deptId", "deptPath"],
+  "additionalProperties": false,
+  "properties": {
+    "tenant": {
+      "type": ["object", "null"],
+      "description": "调用者所属的**租户**——与 org 并列的**一等维度**，不是 org 的上级或下级（D26 ①）。**可选，且缺与 null 是两件事**：**缺这个键** = 该实现**根本不带租户维度**（主仓今天就是这样，故 v1 形态仍合法）；**显式 `null`** = 它**带**这个维度、而这次调用**没有租户上下文**。两者可分辨，是为了让「没这个概念」和「有概念但这会儿没有」不在契约上塌成同一件事。",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "number" },
+        "name": { "type": "string" }
+      }
+    },
+    "org": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "number" },
+        "name": { "type": "string" },
+        "description": {
+          "type": ["string", "null"],
+          "description": "组织描述（Organization.description 列 nullable——运行时可输出 null）"
+        }
+      }
+    },
+    "role": { "type": "string", "enum": ["owner", "admin", "member"] },
+    "deptId": { "type": ["number", "null"] },
+    "deptPath": {
+      "type": "array",
+      "description": "根→叶的部门名路径（无部门为空数组）",
+      "items": { "type": "string" }
+    }
+  }
+}

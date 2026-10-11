@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v2/trace-step.schema.json",
+  "title": "Conversation Trace Step — v2",
+  "description": "GET /ai/conversations/:id/trace 的 data.steps[] 元素（TraceStep）。type 枚举若扩会破坏前端判据——冻结敏感点。v2（2026-10-03，T.9 F2 同族第二对）：`outcome` 枚举加 `pending_approval` —— R4 高影响动作**不走内联确认**，而是被**转人工审批**（`ai.service.ts` 写 `→ pending_approval`，action 同样是 `tool_confirmation`）；此前读取方把该词塌成 `timeout`，于是合规叙述说「确认超时」、轨迹显示「已超时」，而那一行自己写的是「已转人工审批」。**加性**：`approve` / `decline` / `timeout` 三个取值及其语义一字未动，故 v1 消费者读到的仍是它认识的那三个；v1 冻结历史 → `schemas/v1/trace-step.schema.json`。来源：src/ai/trace/decision-trace.service.ts。",
+  "type": "object",
+  "required": ["id", "type", "time"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "enum": ["input", "assistant", "tool_call", "confirmation", "effect", "notice"] },
+    "time": { "type": "string", "format": "date-time" },
+    "toolName": { "type": "string" },
+    "args": { "type": "string" },
+    "success": { "type": "boolean" },
+    "errorMessage": { "type": ["string", "null"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "ok"],
+        "properties": { "name": { "type": "string" }, "ok": { "type": "boolean" }, "note": { "type": "string" } }
+      }
+    },
+    "outcome": { "enum": ["approve", "decline", "timeout", "pending_approval"] },
+    "trusted": { "type": "boolean" },
+    "content": { "type": "string" },
+    "detail": { "type": ["string", "null"] },
+    "model": { "type": "string" },
+    "provider": { "type": "string" },
+    "tokens": { "type": "number" },
+    "effect": {
+      "$ref": "#/definitions/traceEffect"
+    },
+    "agentId": { "type": "string" },
+    "callerAgentId": { "type": "string" },
+    "businessEvent": { "type": ["string", "null"] },
+    "evidence": { "type": ["string", "null"] }
+  },
+  "definitions": {
+    "traceEffect": {
+      "type": "object",
+      "required": ["effectId", "resultType", "resultId", "revocable"],
+      "additionalProperties": true,
+      "properties": {
+        "effectId": { "type": "number" },
+        "resultType": { "type": "string" },
+        "resultId": { "type": "number" },
+        "targetTitle": { "type": ["string", "null"] },
+        "revocable": { "type": "boolean" },
+        "before": { "type": ["string", "null"] },
+        "after": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

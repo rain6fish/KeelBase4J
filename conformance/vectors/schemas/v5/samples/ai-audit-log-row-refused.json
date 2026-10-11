@@ -1,0 +1,10 @@
+{
+  "id": 90211,
+  "userId": "42",
+  "action": "tool_call",
+  "detail": "delete_customer refused: 403",
+  "isError": true,
+  "createdAt": "2026-09-11T09:12:55.000Z",
+  "outcome": "refused",
+  "tool": "delete_customer"
+}

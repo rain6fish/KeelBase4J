@@ -1,0 +1,9 @@
+{
+  "id": "conf-31",
+  "type": "confirmation",
+  "time": "2026-10-03T09:12:04Z",
+  "toolName": "create_project_with_tasks",
+  "args": "{\"name\":\"Q4 delivery\"}",
+  "outcome": "pending_approval",
+  "trusted": false
+}

@@ -69,6 +69,22 @@ public class AuditService {
      */
     @Transactional
     public AuditLog append(String action, String userId, String detail, boolean isError) {
+        return append(action, userId, detail, isError, null, null);
+    }
+
+    /**
+     * The same, plus the two columns C-3 added: what this proposal came to, and which tool it was
+     * about. Both are stored beside the chain rather than inside it — see
+     * {@code V7__audit_row_outcome_and_tool} for why folding them in would report every deployment's
+     * already-written history as a broken chain.
+     *
+     * 同上，另加 C-3 添的两列：这次提议的**结局**，以及它是关于**哪一个工具**的。两列都存在链**旁边**、
+     * 不在链**里面** —— 折进哈希载荷会让每个部署**已经写下的历史**都被报成断链，理由见
+     * `V7__audit_row_outcome_and_tool`。
+     */
+    @Transactional
+    public AuditLog append(String action, String userId, String detail, boolean isError,
+                           String outcome, String tool) {
         // Serialize here for the rest of the transaction: reading the head hash, computing the next
         // one and inserting it all happen while no other appender can be between those same steps.
         if (heads.lockById(AuditChainHead.SINGLETON).isEmpty()) {
@@ -82,7 +98,7 @@ public class AuditService {
         payload.put("userId", userId);
         payload.put("detail", detail);
         String hash = AuditChain.hash(chainKey, prevHash, payload);
-        return repository.save(new AuditLog(action, userId, detail, prevHash, hash, isError));
+        return repository.save(new AuditLog(action, userId, detail, prevHash, hash, isError, outcome, tool));
     }
 
     /** Walk the chain and recompute every hash. */
@@ -216,12 +232,15 @@ public class AuditService {
     }
 
     /**
-     * One row, in the frozen {@code ai-audit-log-row} shape — the six fields this runtime has, and
-     * nothing beyond them ({@code additionalProperties} is false, so a guess would be a violation
-     * rather than a courtesy).
+     * One row, in the frozen {@code ai-audit-log-row} shape — the fields this runtime has, and nothing
+     * beyond them ({@code additionalProperties} is false, so a guess would be a violation rather than
+     * a courtesy). It was six; C-3 added {@code outcome} and {@code tool}, which every writer now
+     * fills in. A row that is not about one tool carries null there rather than an invented name.
      *
-     * 一行，按冻结的 {@code ai-audit-log-row} 形状 —— 本运行时**有的那六个字段**，此外什么都没有
-     * （{@code additionalProperties} 是 false，故**猜一个**是违规、不是好意）。
+     * 一行，按冻结的 {@code ai-audit-log-row} 形状 —— 本运行时**有的那些字段**，此外什么都没有
+     * （{@code additionalProperties} 是 false，故**猜一个**是违规、不是好意）。原先六个；C-3 加了
+     * {@code outcome} 与 {@code tool}，各写入点现在都会填。**不是关于某一个工具的行**在那里是 null，
+     * 而不是编出来的名字。
      */
     private static Map<String, Object> row(AuditLog log) {
         Map<String, Object> m = new LinkedHashMap<>();
@@ -231,6 +250,8 @@ public class AuditService {
         m.put("detail", log.getDetail());
         m.put("isError", log.isError());
         m.put("createdAt", log.getCreatedAt().toString());
+        m.put("outcome", log.getOutcome());
+        m.put("tool", log.getTool());
         return m;
     }
 

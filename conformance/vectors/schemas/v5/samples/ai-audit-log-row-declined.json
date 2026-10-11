@@ -1,0 +1,10 @@
+{
+  "id": 90211,
+  "userId": "42",
+  "action": "tool_confirmation",
+  "detail": "create_followup_task declined (console)",
+  "isError": true,
+  "createdAt": "2026-09-11T09:12:55.000Z",
+  "outcome": "declined",
+  "tool": "create_followup_task"
+}

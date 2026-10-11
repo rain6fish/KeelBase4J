@@ -1,0 +1,10 @@
+{
+  "id": 90212,
+  "userId": "42",
+  "action": "tool_confirmation",
+  "detail": "run(run-9f3a1c) 3 items → timeout",
+  "isError": true,
+  "createdAt": "2026-09-11T09:12:55.000Z",
+  "outcome": "timeout",
+  "tool": null
+}

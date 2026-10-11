@@ -49,17 +49,52 @@ public class AuditLog {
     @Column(name = "is_error", nullable = false)
     private boolean error;
 
+    /**
+     * What this proposal came to, as a frozen vocabulary rather than as prose — C-3. Which values are
+     * legal for which {@code action} belongs to the contract ({@code ai-audit-log-outcome-v1-vector.json}),
+     * not to this class. **Not part of the hashed payload** — see {@code V7__audit_row_outcome_and_tool}.
+     *
+     * 这次提议的**结局** —— 用冻结词表说，而不是用散文说（C-3）。哪些值对哪种 {@code action} 合法
+     * **归契约管**（`ai-audit-log-outcome-v1-vector.json`），不归本类管。**不进哈希载荷** —— 见
+     * `V7__audit_row_outcome_and_tool`。
+     */
+    @Column(length = 32)
+    private String outcome;
+
+    /**
+     * The tool this row is about, or null when the row is not about one — a non-tool row, or a decision
+     * covering several. Not part of the hashed payload.
+     *
+     * 本行所属的**工具名**；**不是关于某一个工具的行**为 null —— 非工具行，或一次覆盖多个的裁决。
+     * 不进哈希载荷。
+     */
+    @Column(length = 64)
+    private String tool;
+
     protected AuditLog() {
     }
 
+    /**
+     * Kept as the three-argument callers know it; the two C-3 columns stay null. The published artifact
+     * carries this signature, so it is added to rather than replaced.
+     *
+     * 保持三参调用方认识的样子；C-3 的两列留 null。已发布的 artifact 带着这个签名，故**加**而不**改**。
+     */
     public AuditLog(String action, String userId, String detail, String prevHash, String hash,
                     boolean error) {
+        this(action, userId, detail, prevHash, hash, error, null, null);
+    }
+
+    public AuditLog(String action, String userId, String detail, String prevHash, String hash,
+                    boolean error, String outcome, String tool) {
         this.action = action;
         this.userId = userId;
         this.detail = detail;
         this.prevHash = prevHash;
         this.hash = hash;
         this.error = error;
+        this.outcome = outcome;
+        this.tool = tool;
     }
 
     public Long getId() {
@@ -88,6 +123,14 @@ public class AuditLog {
 
     public String getHash() {
         return hash;
+    }
+
+    public String getOutcome() {
+        return outcome;
+    }
+
+    public String getTool() {
+        return tool;
     }
 
     public Instant getCreatedAt() {
