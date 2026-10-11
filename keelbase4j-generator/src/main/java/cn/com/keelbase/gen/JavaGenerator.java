@@ -1366,7 +1366,8 @@ public class JavaGenerator {
                      * 与前一行绑在一起的两个哈希。
                      */
                     public record Row(int id, String action, String userId, String detail, Instant createdAt,
-                                      boolean isError, String prevHash, String hash) {
+                                      boolean isError, String prevHash, String hash,
+                                      String outcome, String tool) {
                     }
 
                     private final List<Row> rows = new ArrayList<>();
@@ -1379,16 +1380,31 @@ public class JavaGenerator {
 
                     /** A row for something that went the way the caller asked it to. */
                     public synchronized void append(String action, String userId, String detail) {
-                        append(action, userId, detail, false);
+                        append(action, userId, detail, false, null, null);
                     }
 
                     /** The same, saying whether this row is one of the calls that did not. */
                     public synchronized void append(String action, String userId, String detail,
                                                     boolean isError) {
+                        append(action, userId, detail, isError, null, null);
+                    }
+
+                    /**
+                     * The same, plus the two columns C-3 added: what this proposal came to, and which
+                     * tool it was about. Neither enters the hash payload — the payload is
+                     * `action`/`userId`/`detail`, and folding anything else in would make every row
+                     * written before it unverifiable.
+                     *
+                     * 同上，另加 C-3 的两列：这次提议的**结局**，以及它是关于**哪一个工具**的。两者都不进
+                     * 哈希载荷 —— 载荷是 `action`/`userId`/`detail`，折进别的东西会让**它之前写下的每一行**
+                     * 都验不过。
+                     */
+                    public synchronized void append(String action, String userId, String detail,
+                                                    boolean isError, String outcome, String tool) {
                         String prev = rows.isEmpty() ? null : rows.get(rows.size() - 1).hash();
                         String hash = AuditChain.hash(key, prev, payload(action, userId, detail));
                         rows.add(new Row(rows.size() + 1, action, userId, detail, Instant.now(), isError,
-                                prev, hash));
+                                prev, hash, outcome, tool));
                     }
 
                     /**
@@ -1477,14 +1493,16 @@ public class JavaGenerator {
                             //
                             // 一行是不是错误，看的是这次调用**有没有按调用方所求发生** —— 运行时用的就是这条规则。
                             // 拦截是一个「没有」；**只是在等人**的提议不是。
-                            audit.append("tool_call", userId, toolName + " blocked", true);
+                            audit.append("tool_call", userId, toolName + " blocked", true,
+                                    "blocked", toolName);
                             return status("blocked");
                         }
                         if ("ALLOW".equals(decision)) {
                             return run(tool, args, userId);
                         }
                         String token = confirmations.create(userId, toolName, args, tool.riskLevel());
-                        audit.append("tool_call", userId, toolName + " pending confirmation");
+                        audit.append("tool_call", userId, toolName + " pending confirmation",
+                                false, "pending", toolName);
                         Map<String, Object> out = status("pending_confirmation");
                         out.put("token", token);
                         return out;
@@ -1498,7 +1516,8 @@ public class JavaGenerator {
                     public Map<String, Object> approve(String token, String userId) {
                         ConfirmationStore.Pending pending = confirmations.claim(token, userId);
                         AiTool tool = registry.require(pending.toolName());
-                        audit.append("tool_confirmation", userId, tool.name() + " approved");
+                        audit.append("tool_confirmation", userId, tool.name() + " approved",
+                                false, "approved", tool.name());
                         Map<String, Object> outcome = run(tool, confirmations.args(pending), userId);
                         // Last, and after the write is done: whoever is watching the stream hears about the
                         // decision once it is a fact. Nothing is waiting when nobody opened a stream, and
@@ -1515,7 +1534,8 @@ public class JavaGenerator {
                         //
                         // 否决就是调用方**没拿到所求**，故它是一行错误 —— 也是「有人说了不」的那一行，而正是
                         // 操作者会来找的那一行。
-                        audit.append("tool_confirmation", userId, pending.toolName() + " declined", true);
+                        audit.append("tool_confirmation", userId, pending.toolName() + " declined", true,
+                                "declined", pending.toolName());
                         watchers.decided(token, decision("decline", pending.toolName(), null));
                         return Map.of("status", "declined");
                     }
@@ -1559,7 +1579,8 @@ public class JavaGenerator {
                             effectId = sideEffects.record(userId, tool.name(), tool.resultType(), resultId,
                                     args, CanonicalJson.json(result)).id();
                         }
-                        audit.append("tool_call", userId, tool.name() + " -> ok");
+                        audit.append("tool_call", userId, tool.name() + " -> ok",
+                                false, "executed", tool.name());
                         Map<String, Object> out = status("executed");
                         // The tool's answer is reported as `data`, the name the chat response uses —
                         // so the engine's own outcome and the wire shape are the same field set.
@@ -3884,7 +3905,8 @@ public class JavaGenerator {
                         // 却一条 AI 审计行都没有。这一行写在行移动**之后**，故中途抛异常（比如目标写不
                         // 进去）不会留下「声称撤了」的行。
                         audit.append("effect_revoke", principal.userId(),
-                                effect.toolName() + " revoked (effect " + id + ")");
+                                effect.toolName() + " revoked (effect " + id + ")",
+                                false, "revoked", effect.toolName());
                         // The console reads the outcome off `revokeStatus`, as the runtime's answer
                         // does, and that stays. `revoked` is added because the frozen `revokeResult`
                         // requires it — a consumer holding that object should not have to derive a
@@ -4054,6 +4076,9 @@ public class JavaGenerator {
                         view.put("detail", row.detail());
                         view.put("isError", row.isError());
                         view.put("createdAt", row.createdAt().toString());
+                        // C-3：结局与工具名，链外两列。不是关于某一个工具的行是 null，而不是编出来的名字。
+                        view.put("outcome", row.outcome());
+                        view.put("tool", row.tool());
                         return view;
                     }
 
