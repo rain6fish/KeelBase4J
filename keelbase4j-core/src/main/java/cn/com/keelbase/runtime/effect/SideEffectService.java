@@ -8,7 +8,11 @@ import cn.com.keelbase.runtime.identity.Principal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -25,9 +29,9 @@ import org.springframework.web.server.ResponseStatusException;
  * disposition: skip, never fork, and never surface a spurious failure. Only a conflict on this key
  * is treated that way; any other integrity failure is still a real failure.
  *
- * <p>Revocation is class-aware: this spike only has local
- * entities, so revoke means a local soft delete ({@code local_compensate}) — never a claim of
- * "reverted" for something that cannot be.
+ * <p>Revocation is class-aware: a {@code local_compensate} effect is undone in place — by the
+ * compensator its type registers ({@link SideEffectCompensator}), or, for the sample module's own
+ * entity, by the built-in soft delete; an external one is never claimed to be "reverted".
  *
  * <p><b>A revocation is audited, and that is not decoration.</b> It used to write the ledger row and
  * the soft delete and nothing else, so the chain went on describing a write and never that somebody
@@ -42,8 +46,9 @@ import org.springframework.web.server.ResponseStatusException;
  * `unique_conflict_idempotent` 处置：**跳过、绝不分裂、绝不冒出假失败**。只有这个键上的冲突才这样处理；
  * 其它完整性失败仍然是真失败。
  *
- * <p>撤销是**分档**的：这个 spike 只有本地实体，所以撤销 = 本地软删（`local_compensate`）——绝不为做不到
- * 的事情宣称「已还原」。
+ * <p>撤销是**分档**的：{@code local_compensate} 的 effect **就地**撤销 —— 由它的类型注册的补偿器
+ * （{@link SideEffectCompensator}）执行，或者是样例模块自己那个实体走内置的软删；而外部那种**绝不**宣称
+ * 「已还原」。
  *
  * <p>**撤销是要进审计的，这不是装饰。** 它过去只写账本行与软删、别的什么都不写，于是链继续描述着一次写、
  * **从不描述有人把它撤了**——而「谁撤了什么」正是这个操作存在的唯一理由。其它每一次治理状态迁移都写了行；
@@ -55,12 +60,50 @@ public class SideEffectService {
     private final SideEffectRepository repository;
     private final FollowUpRepository followUps;
     private final AuditService audit;
+    /**
+     * The local compensators a deployment registered, by {@code resultType}. An empty map means "the
+     * runtime's own sample entity is the only locally revocable type" — exactly what this class did
+     * before the seam.
+     *
+     * 部署注册的本地补偿器，按 {@code resultType} 索引。空表意味着「本运行时自己那个样例实体是唯一可本地撤销
+     * 的类型」—— 正是这条缝出现之前这个类的行为。
+     */
+    private final Map<String, SideEffectCompensator> compensators;
 
+    /**
+     * The pre-seam shape, kept because a published artifact carries it: no compensators, so only the
+     * runtime's own sample entity is locally revocable.
+     *
+     * 缝出现之前的形状，因**已发布的 artifact 带着它**而保留：没有补偿器，故只有运行时自己那个样例实体可本地撤销。
+     */
     public SideEffectService(SideEffectRepository repository, FollowUpRepository followUps,
                             AuditService audit) {
+        this(repository, followUps, audit, List.of());
+    }
+
+    /**
+     * The same, with the deployment's compensators. Two beans may not claim one {@code resultType}:
+     * that fails here, at startup, rather than being silently resolved at revoke time.
+     *
+     * 同上，另带部署的补偿器。两个 bean **不得**认领同一个 {@code resultType}：在这里、也就是启动时失败，
+     * 而不是等到撤销那一刻才悄悄定夺。
+     */
+    @Autowired
+    public SideEffectService(SideEffectRepository repository, FollowUpRepository followUps,
+                            AuditService audit, List<SideEffectCompensator> compensators) {
         this.repository = repository;
         this.followUps = followUps;
         this.audit = audit;
+        Map<String, SideEffectCompensator> byType = new LinkedHashMap<>();
+        for (SideEffectCompensator compensator : compensators) {
+            SideEffectCompensator clash = byType.putIfAbsent(compensator.resultType(), compensator);
+            if (clash != null) {
+                throw new IllegalStateException("two compensators claim resultType="
+                        + compensator.resultType() + ": " + clash.getClass().getName() + " and "
+                        + compensator.getClass().getName());
+            }
+        }
+        this.compensators = Map.copyOf(byType);
     }
 
     /**
@@ -129,7 +172,7 @@ public class SideEffectService {
             return effect; // idempotent revoke
         }
         if ("local_compensate".equals(effect.getRevokeClass())) {
-            softDeleteTarget(effect);
+            compensateLocally(effect);
             effect.setRevokeStatus("revoked");
         } else {
             // governed_external etc. are out of scope for G1 — honest "compensating", never "revoked".
@@ -179,10 +222,27 @@ public class SideEffectService {
         return repository.findByIdempotencyKey(idempotencyKey(principal.userId(), toolName, argsJson));
     }
 
-    private void softDeleteTarget(SideEffect effect) {
+    /**
+     * Perform the local undo this effect's type declares. A registered compensator wins — including
+     * for the runtime's own sample entity, so a deployment can replace that path rather than live
+     * beside it. With nothing registered for the type, only {@code follow_up} has a path, which is
+     * what this class knew before the seam existed; any other type is refused with a conflict that
+     * names what is missing, because whoever reads it should be able to tell what to register.
+     *
+     * 执行这个 effect 的类型自己声明的就地撤销。**注册的补偿器优先** —— 对运行时自己那个样例实体也一样，于是
+     * 部署可以**替换**那条路，而不是与它并存。类型上什么都没注册时，只有 {@code follow_up} 有条路 —— 那正是
+     * 这条缝出现之前这个类知道的事；别的类型以一句**点名缺什么**的冲突被拒，因为读到它的人应当能看出该注册什么。
+     */
+    private void compensateLocally(SideEffect effect) {
+        SideEffectCompensator registered = compensators.get(effect.getResultType());
+        if (registered != null) {
+            registered.compensate(effect);
+            return;
+        }
         if (!"follow_up".equals(effect.getResultType())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "no local revoke path for resultType=" + effect.getResultType());
+                    "no local compensation registered for resultType=" + effect.getResultType()
+                            + " — register a SideEffectCompensator for it");
         }
         FollowUp target = followUps.findById(effect.getResultId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "target not found"));
