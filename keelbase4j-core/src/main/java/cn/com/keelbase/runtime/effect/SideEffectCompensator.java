@@ -14,6 +14,12 @@ package cn.com.keelbase.runtime.effect;
  * application at startup rather than silently choosing between them, because "why did this one
  * compensate and not that one" is a question nobody can answer after the fact.
  *
+ * <p><b>One {@code resultType} can cover several tools, and their compensations are not the same.</b>
+ * A host that declares {@code crm_customer} for both a create and an update sends both here, and
+ * undoing a create is not undoing an update: one deletes the row, the other puts it back. That is why
+ * this method is handed the whole effect — {@code toolName}, both snapshots and the arguments are on
+ * it — and why a compensator that only deletes the row will quietly compensate an update wrongly.
+ *
  * <p><b>This adds no contract of its own.</b> {@code local_compensate} is already the contract's word
  * and {@code side-effect-revoke} is already a frozen object; what is missing is that the word leads to
  * a single demo entity. What the runtime lifts here is a <em>shape</em> — what a compensator actually
@@ -27,6 +33,11 @@ package cn.com.keelbase.runtime.effect;
  *
  * <p>**一个 {@code resultType} 至多一个补偿器。** 两个 bean 认领同一个类型时，应用**启动即失败**，而不是在
  * 两者之间悄悄择一 —— 因为「为什么是这个补偿了、不是那个」是事后任何人都答不出来的问题。
+ *
+ * <p>**一个 {@code resultType} 可以盖住若干工具，而它们的补偿并不相同。** 一个宿主若给「建」与「改」都声明
+ * {@code crm_customer}，两者都会送到这里，而**撤销一次建**不等于**撤销一次改**：一个删掉那一行，另一个把它
+ * 放回去。这就是为什么这个方法拿到的是**整个 effect** —— {@code toolName}、两个快照、参数都在上面 ——
+ * 也是为什么一个「只管把那行删掉」的补偿器会**安静地**把 update 补偿错。
  *
  * <p>**它不新增自己的契约。** {@code local_compensate} 本来就是契约的词，{@code side-effect-revoke} 本来
  * 就是冻结对象；缺的是这个词**只通向一个 demo 实体**。运行时在这里上提的是一个**形状** —— 补偿器**到底删什么、
