@@ -41,6 +41,13 @@ Each version is written in two blocks — English first, then Chinese — marked
   stayed green while the snapshot fell two schema generations behind. The gate now compares against the
   contract this repository actually speaks.
 
+- **The vendored snapshot gained the schemas it had been missing.** Refreshing it brought `schemas/v4`
+  and `schemas/v5` in full, and those are not only the audit row: `trace-step` is now v2, and
+  `side-effect-revoke` v4, `capabilities` v2. Every file is byte-identical to contract `v1.7.0` and none
+  of it changes what this runtime serves — it was the snapshot that had fallen behind, not the code. It
+  is named here because a consumer comparing versions would otherwise see the objects move without
+  anything saying so.
+
 **中文**
 
 ### 新增
@@ -61,6 +68,11 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 - **本实现回答契约 `v1.7.0`。** vendored 快照与两个 workflow 的 pin 从 `v1.1.0` 抬起 —— 那是一个本运行时早已
   不再回答的版本，也正是**快照落后两代 schema 而漂移闸一直绿着**的原因。闸现在比的是**本仓真正在说的那份契约**。
+
+- **vendored 快照补回了它一直缺的那些 schema。** 刷新一次带进来完整的 `schemas/v4` 与 `schemas/v5`，而那不只是
+  审计行：`trace-step` 现在 v2、`side-effect-revoke` v4、`capabilities` v2。每一个文件都与契约 `v1.7.0`
+  **逐字节一致**，且都不改变本运行时**伺服的东西** —— 落后的是**那份快照**，不是代码。在这里点名，是因为否则
+  一个对着版本号比对的消费者会看到对象动了、却没有任何一句话说明过。
 
 ## [0.1.5] - 2026-10-10
 

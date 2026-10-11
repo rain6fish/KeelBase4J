@@ -15,7 +15,8 @@ package cn.com.keelbase.runtime.effect;
  * compensate and not that one" is a question nobody can answer after the fact.
  *
  * <p><b>One {@code resultType} can cover several tools, and their compensations are not the same.</b>
- * A host that declares {@code crm_customer} for both a create and an update sends both here, and
+ * A host that declares {@code crm_customer} for both {@code create_crm_customer} and
+ * {@code update_crm_customer} sends both here, and
  * undoing a create is not undoing an update: one deletes the row, the other puts it back. That is why
  * this method is handed the whole effect — {@code toolName}, both snapshots and the arguments are on
  * it — and why a compensator that only deletes the row will quietly compensate an update wrongly.

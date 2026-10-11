@@ -234,13 +234,18 @@ public class AuditService {
     /**
      * One row, in the frozen {@code ai-audit-log-row} shape — the fields this runtime has, and nothing
      * beyond them ({@code additionalProperties} is false, so a guess would be a violation rather than
-     * a courtesy). It was six; C-3 added {@code outcome} and {@code tool}, which every writer now
-     * fills in. A row that is not about one tool carries null there rather than an invented name.
+     * a courtesy). It was six; C-3 added {@code outcome} and {@code tool}, which the runtime's own
+     * writers fill in. A row that is not about one tool carries null there rather than an invented
+     * name. **Not every `append` fills them:** the three- and four-argument overloads are kept because
+     * published artifacts carry them, and a caller that uses one writes null on both — which is why
+     * the vocabulary's grouping is a claim about the tool actions, not about every row.
      *
      * 一行，按冻结的 {@code ai-audit-log-row} 形状 —— 本运行时**有的那些字段**，此外什么都没有
      * （{@code additionalProperties} 是 false，故**猜一个**是违规、不是好意）。原先六个；C-3 加了
-     * {@code outcome} 与 {@code tool}，各写入点现在都会填。**不是关于某一个工具的行**在那里是 null，
-     * 而不是编出来的名字。
+     * {@code outcome} 与 {@code tool}，由本运行时**自己的写入点**填。**不是关于某一个工具的行**在那里是
+     * null，而不是编出来的名字。**⚠ 不是每一个 `append` 都填**：三参与四参重载**因已发布的 artifact 带着
+     * 它们**而保留，走它们的人两列都写 null —— 这也正是「词表的分组是对**工具动作**的声明、不是对每一行的
+     * 声明」的原因。
      */
     private static Map<String, Object> row(AuditLog log) {
         Map<String, Object> m = new LinkedHashMap<>();

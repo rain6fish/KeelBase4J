@@ -300,6 +300,10 @@ public class GovernedExecutionEngine {
         if (!ExecutionAxis.isClaimable(req, Instant.now())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "an execution attempt is still running");
         }
+        // C-3: this row is an attempt, not an outcome — the same shape as an intent row, whose result
+        // is the row after it (see the tail of `executeApproved`). Hence `attempted`, rather than an
+        // eleventh value invented for a retry.
+        //
         // C-3：这是**一次尝试**、不是一次结局 —— 与 intent 行同形（结局在它后面那一行，见
         // `executeApproved` 尾部那条）。故用 `attempted`，而不是为「重试」另造一个值。
         audit.append("tool_confirmation", retriedBy.userId(), req.getToolName() + " execution retried",

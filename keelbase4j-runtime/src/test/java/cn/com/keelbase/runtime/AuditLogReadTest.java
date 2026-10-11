@@ -93,7 +93,31 @@ class AuditLogReadTest {
     private List<?> rows(String query, String user) {
         ResponseEntity<String> response = get("/audit/logs" + query, user);
         assertEquals(200, response.getStatusCode().value(), "the read must be served: " + response);
-        return (List<?>) Envelopes.data(Vectors.map(Json.parse(response.getBody())));
+        List<?> rows = (List<?>) Envelopes.data(Vectors.map(Json.parse(response.getBody())));
+        for (Object row : rows) {
+            assertOutcomeIsLegalForItsAction((Map<?, ?>) row);
+        }
+        return rows;
+    }
+
+    /**
+     * The vocabulary's own grouping, read from the vendored vector rather than restated here: a test
+     * that copied it would be the second home for a rule that has exactly one. The schema check beside
+     * it cannot catch this — v5's enum admits null, so a row whose action carries no outcome, or the
+     * wrong one, conforms. The vector is what names that mistake, and until this ran, nothing did.
+     *
+     * 词表自己那套分组，从 vendored 向量里读、而不是在这里重述 —— 抄一份的测试正会是那条**只有一个家**的
+     * 规则的**第二个家**。它旁边那道 schema 校验抓不到这件事：v5 的 enum 允许 null，故一行「带不出结局」或
+     * 「带错了结局」都**符合 schema**。**点名这个错误的是向量**，而在这段跑起来之前，没有任何东西在跑它。
+     */
+    private static void assertOutcomeIsLegalForItsAction(Map<?, ?> row) {
+        Map<String, Object> vector = Vectors.map(Vectors.read("ai-audit-log-outcome-v1-vector.json"));
+        Map<String, Object> legalByAction = Vectors.map(vector.get("legalByAction"));
+        Object action = row.get("action");
+        List<?> legal = (List<?>) legalByAction.getOrDefault(action, legalByAction.get("any-other-action"));
+        assertTrue(legal.contains(row.get("outcome")),
+                "the vocabulary does not let `" + action + "` answer `" + row.get("outcome")
+                        + "` — see ai-audit-log-outcome-v1-vector.json");
     }
 
     @Test
@@ -103,9 +127,10 @@ class AuditLogReadTest {
         //
         // 一个本测试自己的调用方，故断言针对的是**本测试放进去的行**，而不是套件其余部分在**共用表**里留下的。
         String who = "reader-" + UUID.randomUUID();
-        audit.append("tool_call", who, "first");
-        audit.append("tool_call", who, "second");
-        audit.append("tool_call", "other-" + UUID.randomUUID(), "someone else's row");
+        audit.append("tool_call", who, "first", false, "executed", "create_followup");
+        audit.append("tool_call", who, "second", false, "executed", "create_followup");
+        audit.append("tool_call", "other-" + UUID.randomUUID(), "someone else's row", false, "executed",
+                "create_followup");
 
         List<?> found = rows("?userId=" + who, ADMIN);
 
@@ -125,7 +150,7 @@ class AuditLogReadTest {
     @Test
     void aPeriodCutsTheRowsBothWays() {
         String who = "period-" + UUID.randomUUID();
-        audit.append("tool_call", who, "recorded now");
+        audit.append("tool_call", who, "recorded now", false, "executed", "create_followup");
 
         // Both sides, because a period filter that never excludes anything passes an "includes it"
         // assertion on its own.
@@ -140,8 +165,8 @@ class AuditLogReadTest {
     @Test
     void anOutcomeFilterNarrowsToTheRowsThatWentWrong() {
         String who = "outcome-" + UUID.randomUUID();
-        audit.append("tool_call", who, "the call went as asked");
-        audit.append("tool_call", who, "the call did not", true);
+        audit.append("tool_call", who, "the call went as asked", false, "executed", "create_followup");
+        audit.append("tool_call", who, "the call did not", true, "failed", "create_followup");
 
         List<?> errors = rows("?userId=" + who + "&isError=true", ADMIN);
 

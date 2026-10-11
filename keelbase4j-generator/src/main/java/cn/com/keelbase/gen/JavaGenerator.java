@@ -1378,26 +1378,24 @@ public class JavaGenerator {
                         this.key = key;
                     }
 
-                    /** A row for something that went the way the caller asked it to. */
-                    public synchronized void append(String action, String userId, String detail) {
-                        append(action, userId, detail, false, null, null);
-                    }
-
-                    /** The same, saying whether this row is one of the calls that did not. */
-                    public synchronized void append(String action, String userId, String detail,
-                                                    boolean isError) {
-                        append(action, userId, detail, isError, null, null);
-                    }
-
                     /**
-                     * The same, plus the two columns C-3 added: what this proposal came to, and which
-                     * tool it was about. Neither enters the hash payload — the payload is
-                     * `action`/`userId`/`detail`, and folding anything else in would make every row
-                     * written before it unverifiable.
+                     * A row for something that went the way the caller asked it to, plus the two
+                     * columns C-3 added: what this proposal came to, and which tool it was about.
+                     * Neither enters the hash payload — the payload is `action`/`userId`/`detail`, and
+                     * folding anything else in would make every row written before it unverifiable.
                      *
-                     * 同上，另加 C-3 的两列：这次提议的**结局**，以及它是关于**哪一个工具**的。两者都不进
-                     * 哈希载荷 —— 载荷是 `action`/`userId`/`detail`，折进别的东西会让**它之前写下的每一行**
-                     * 都验不过。
+                     * There is deliberately one `append` here and not three. The runtime keeps
+                     * shorter overloads because published artifacts carry those signatures; this copy
+                     * has no such constraint, and an overload nothing calls is a shape a reader has to
+                     * check before trusting it.
+                     *
+                     * 一行 —— 记下这件事有没有按调用方所求发生，另加 C-3 的两列：这次提议的**结局**，以及它是
+                     * 关于**哪一个工具**的。两者都不进哈希载荷 —— 载荷是 `action`/`userId`/`detail`，折进别的
+                     * 东西会让**它之前写下的每一行**都验不过。
+                     *
+                     * **这里刻意只有一个 `append`，不是三个**：运行时保留更短的重载，是因为**已发布的
+                     * artifact 带着那些签名**；而这份副本没有那条约束，**一个没人调用的重载，是读的人必须先核
+                     * 一遍才敢信的形状**。
                      */
                     public synchronized void append(String action, String userId, String detail,
                                                     boolean isError, String outcome, String tool) {
@@ -4076,6 +4074,9 @@ public class JavaGenerator {
                         view.put("detail", row.detail());
                         view.put("isError", row.isError());
                         view.put("createdAt", row.createdAt().toString());
+                        // C-3: the outcome and the tool name, the two off-chain columns. A row that is
+                        // not about one tool carries null there rather than an invented name.
+                        //
                         // C-3：结局与工具名，链外两列。不是关于某一个工具的行是 null，而不是编出来的名字。
                         view.put("outcome", row.outcome());
                         view.put("tool", row.tool());

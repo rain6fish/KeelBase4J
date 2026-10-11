@@ -2,7 +2,6 @@
 package cn.com.keelbase.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -134,16 +133,16 @@ class LocalCompensationSeamTest {
         SideEffectCompensator first = new RecordingCompensator();
         SideEffectCompensator second = new RecordingCompensator();
 
-        // The repositories are null because the clash is found while the constructor is still wiring
-        // fields: nothing downstream is reached, which is the behaviour being asserted.
+        // The repositories are null because the clash is found at the end of the constructor and the
+        // three of them are only ever assigned: no method that would dereference them is reached, which
+        // is the behaviour being asserted.
         //
-        // 两个仓储传 null，是因为这个冲突在构造子**还在接字段时**就被发现：后面一行都走不到 —— 而「走不到」
-        // 正是这里要断言的行为。
+        // 三个仓储传 null，是因为这个冲突在构造子的**末尾**就被发现，而它们只被**赋值**：任何会解引用它们
+        // 的方法都走不到 —— 而这正是这里要断言的行为。
         IllegalStateException clash = assertThrows(IllegalStateException.class,
                 () -> new SideEffectService(null, null, null, List.of(first, second)));
 
         assertTrue(clash.getMessage().contains(REGISTERED_TYPE), clash.getMessage());
-        assertInstanceOf(IllegalStateException.class, clash);
     }
 
     /**
