@@ -26,6 +26,12 @@ import org.springframework.web.bind.annotation.RestController;
  * caller here is what the object promises, which is also what a client written against the reference
  * gets.
  *
+ * <p>What it does answer is everything the object itself declares. Two of those fields are more than
+ * the turn's own facts — {@code toolCalls} and {@code navigateTo} — and both are answered, because
+ * they are the object's shape rather than an addition to it. That is the whole of the line the
+ * governance facts fell on the wrong side of: a field the object declares may be filled, and a field
+ * it does not declare may not be invented.
+ *
  * <p>A turn that matches no tool is not an error here any more. A conversational endpoint that
  * answered 400 for "I cannot route that" would be reporting the planner's limits as a failed request;
  * it answers with a reply that says so, which is what the frontends' chat surfaces expect.
@@ -40,6 +46,10 @@ import org.springframework.web.bind.annotation.RestController;
  * **非流式调用不返回确认 token**。所以那些事实是**搬家**、不是消失 —— 待确认的写从
  * {@code /ai/my/confirmations} 读（它的项**带着 token**），同一个回合在流式那条上以事件报出。到调用方
  * 手里的，就是这个对象承诺的东西 —— 也正是照着参照实现写的客户端会拿到的。
+ *
+ * <p>它**确实**答这个对象自己声明的一切。其中两个字段超出了回合本身的事实 —— {@code toolCalls} 与
+ * {@code navigateTo} —— 而两个都答，因为它们是**对象自己的形状**、不是往形状上加东西。治理事实当初落在
+ * 界线**错的那一侧**，靠的就是这条界线：**对象声明了的字段可以填，它没声明的字段不能凭空造**。
  *
  * <p>匹配不到工具的一个回合**在这里不再是错误**。一条对话式端点若为「我路由不了」答 400，就是把**规划器的
  * 极限**报成一次**失败的请求**；它用一个说明这一点的 reply 作答，而那正是两个前端的聊天面所期望的。
@@ -73,6 +83,16 @@ public class ChatController {
         // empty when nothing was routed — the field means "these were called".
         if (turn.plan() != null) {
             body.put("toolCalls", List.of(turn.plan().tool()));
+        }
+        // The route a navigation tool named, when this turn proposed one. Read off the result rather
+        // than guessed from the tool's name — a tool that failed may still have named a route, and the
+        // result is the only thing that says so.
+        //
+        // 导航工具点名的路径（本回合提议了才有）。从**结果**里读、不从工具名猜 —— 一个失败的工具**仍然可能**
+        // 点过名，而只有结果说得清这一点。
+        String navigateTo = turn.navigateTo();
+        if (navigateTo != null) {
+            body.put(ChatTurnService.NAVIGATE_TO, navigateTo);
         }
         return body;
     }

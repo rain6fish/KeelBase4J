@@ -34,12 +34,48 @@ import org.springframework.stereotype.Service;
 public class ChatTurnService {
 
     /**
+     * The key a navigation tool names its target with, in the result it returns.
+     *
+     * <p>Declared once, here, because three places have to agree on it: the tool that writes it, the
+     * body the non-streaming endpoint answers with, and the event the stream carries it on. A second
+     * spelling would be a route that reaches one surface and not the other.
+     *
+     * 导航工具在自己的结果里点名目标时用的那个键。
+     *
+     * <p>只在这里声明一次，因为有三处要对它一致：写下它的工具、非流式端点作答的那个 body、以及流承载它的那个事件。
+     * 第二种拼法 = 一条只到得了两个面之一的路由。
+     */
+    public static final String NAVIGATE_TO = "navigateTo";
+
+    /**
      * What the turn produced, in the order a caller wants to report it.
      *
      * @param plan    what the planner proposed, or {@code null} when nothing was routed
      * @param outcome what the engine did about it, or {@code null} when there was nothing to gate
      */
     public record Turn(String conversationId, IntentPlan plan, ExecutionOutcome outcome, ChatReply reply) {
+
+        /**
+         * The route this turn points at, when the tool it ran named one.
+         *
+         * <p>Read out of the tool's result rather than off the tool's name: a tool that failed may
+         * still have named a route, and only the result says whether it did. Both endpoints report the
+         * same turn and neither re-reads it — this is the one extraction, so the console and the
+         * non-streaming caller cannot be told two different places.
+         *
+         * 本回合指向的路径 —— 当它跑的那个工具点过名时。
+         *
+         * <p>从工具的**结果**里读、不是从工具名猜：一个失败的工具**仍然可能**点过名，而只有结果说得清它点没点。
+         * 两条端点报的是**同一个回合**，谁也不重读一次 —— 提取只有这一处，所以控制台与非流式调用方**不可能**
+         * 被告知两个不同的去处。
+         */
+        public String navigateTo() {
+            if (outcome == null || !(outcome.data() instanceof Map<?, ?> data)) {
+                return null;
+            }
+            Object route = data.get(NAVIGATE_TO);
+            return route instanceof String text && !text.isBlank() ? text : null;
+        }
     }
 
     /**

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.springai;
 
+import cn.com.keelbase.runtime.app.ApplicationProfileProperties;
 import cn.com.keelbase.runtime.pipeline.ChatReplier;
 import cn.com.keelbase.runtime.pipeline.ChatReplierAutoConfiguration;
+import cn.com.keelbase.runtime.tool.ToolRegistry;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration;
@@ -24,6 +26,15 @@ import org.springframework.context.annotation.Bean;
  * <p>Same ordering rule as the planner: after Spring AI's own chat-client auto-configuration, so the
  * builder exists when the condition is evaluated; before the runtime's deterministic default, so that
  * default sees a {@link ChatReplier} already present and stands down.
+ *
+ * <p>The profile and the tool registry are asked for here because the replier needs to be able to
+ * answer a question about the system itself, and those two are where a deployment has already said
+ * what it is. The planner's own auto-configuration asks {@link ToolRegistry} for the same reason, so
+ * this adds no dependency the module did not already have.
+ *
+ * <p>这里之所以要档案与工具登记处，是因为 replier 得能回答**关于系统自身**的问题，而这两样正是部署**已经
+ * 说过自己是什么**的地方。planner 自己那条自动配置出于同一个理由要 {@link ToolRegistry}，故这里没有给本模块
+ * 添上它本来没有的依赖。
  */
 @AutoConfiguration
 @AutoConfigureAfter(ChatClientAutoConfiguration.class)
@@ -33,8 +44,10 @@ import org.springframework.context.annotation.Bean;
 public class SpringAiChatReplierAutoConfiguration {
 
     @Bean
-    ChatReplier springAiChatReplier(ChatClient.Builder builder, ChatModel model) {
-        return new SpringAiChatReplier(builder.build(), modelName(model));
+    ChatReplier springAiChatReplier(ChatClient.Builder builder, ChatModel model,
+                                    ApplicationProfileProperties profile, ToolRegistry tools) {
+        return new SpringAiChatReplier(builder.build(), modelName(model),
+                SpringAiChatReplier.applicationFacts(profile, tools));
     }
 
     /**

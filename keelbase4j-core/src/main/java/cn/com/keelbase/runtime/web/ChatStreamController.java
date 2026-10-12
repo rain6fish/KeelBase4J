@@ -101,6 +101,19 @@ public class ChatStreamController {
                 send(emitter, "tool_start", Map.of("toolStart", toolStart(turn)));
             }
             send(emitter, "text", Map.of("content", turn.reply().text()));
+            // A navigation turn names a route, and the console reads it off an event of its own rather
+            // than out of the reply's prose: the reply says "opened" in whatever words the model chose,
+            // and the route is the part that has to be acted on. The frozen event set declares this
+            // name — the reference has it and this runtime did not emit it — so it is sent after the
+            // text, where the console's own rendering of a turn has already begun.
+            //
+            // 导航回合会点名一条路径，控制台从**它自己的事件**里读、不从 reply 的散文里抠：reply 用模型挑的
+            // 词说「已打开」，而**要被执行的是那条路径**。冻结的事件集**声明了这个名字** —— 参照实现有它、
+            // 本运行时此前没发过 —— 所以它发在 text **之后**，那是控制台自己渲染一个回合**已经开始**的位置。
+            String navigateTo = turn.navigateTo();
+            if (navigateTo != null) {
+                send(emitter, "navigate", Map.of("route", navigateTo));
+            }
 
             ExecutionOutcome outcome = turn.outcome();
             if (outcome != null && "pending_confirmation".equals(outcome.status())) {
