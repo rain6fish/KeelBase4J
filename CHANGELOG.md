@@ -35,12 +35,32 @@ Each version is written in two blocks — English first, then Chinese — marked
   which is the planner's own rule applied to the second seam. Blank in, blank out — a deployment that
   declared nothing gets no block rather than an empty heading.
 
+- **A generated application now carries its own operations checklist, and says which half of its state a
+  restart destroys.** The README the generator emits gained an `## Operations` section — what survives
+  (the business tables and `flyway_schema_history`), what does not (the audit chain, the pending
+  confirmations and the side-effect records, which is where a revocation is remembered, are held in
+  memory), how to point the application at PostgreSQL, the secrets whose shipped values are spike
+  values, a `pg_dump` of the durable half, and an upgrade that is an additive migration with
+  `ddl-auto=validate` failing the boot on a mismatch. The volatile half is declared **demo-grade on
+  purpose** rather than left to read as an oversight: it is a deliberate simplification, and moving that
+  state into its own tables is the change a deployment that leans on it should make.
+
 > **⚠ Known, and deliberately not fixed in this version.** The chat stream does not conform to the
 > frozen `sse-event` schema in two places, both of which predate this change: `tool_start` omits the
 > `summary` its payload requires, and `confirmation_request` sends `mode: "confirmation"` where the
 > frozen enum is `immediate` / `approval` / `run`. Nothing in this repository asserted the stream
 > against the schema at all. `ConsoleNavigationTest` now holds the `navigate` event to it and records
 > the gap in place rather than narrowing the check quietly.
+
+### Changed
+
+- **A successful execution now leaves two lines on the audit trail, not one.** An intent row is written
+  before the tool runs, answering the contract's `attempted` — the value whose own description says it is
+  not an outcome, and that its outcome is the line after it. The result line was already best-effort: it
+  is written after the tool's write, so a host write that landed and a bookkeeping step that did not
+  would otherwise leave the attempt unrecorded, which is the half an operator goes looking for.
+  **Anything that counts rows now sees one more per execution** — a host's own gates included — and the
+  generated application writes the same row in the same place.
 
 ### Fixed
 
@@ -71,7 +91,13 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 - **模型版的 replier 现在知道这个部署是什么。** 它的 system prompt 里带上了 preset、特性开关、业务模块与工具目录，因为「这个系统有哪些模块」是**只有系统自己**答得上来的问题，而放任不管的模型**会去猜**。它不携带任何治理元数据：风险级、是否需确认、撤销档都留在服务端 —— 那是 planner 自己的规矩用在**第二条缝**上。空进空出：什么都没声明的部署得到的是**没有那一块**，不是一个空的抬头。
 
+- **生成物现在自带运维清单，并说清它的状态有哪一半活不过一次重启。** 生成器发出的 `README` 多了一节 `## Operations` —— 什么留得下（业务表与 `flyway_schema_history`）、什么留不下（**审计链**、待裁决的确认、以及副作用记录 —— **撤销就记在那里** —— **都在内存**）、怎么把它指向 PostgreSQL、哪些密钥的出厂值是 spike 值、对**持久那一半**做 `pg_dump`，以及「升级就是一条加性迁移、`ddl-auto=validate` 在不一致时让启动失败」。**活不过重启的那一半被声明为「刻意 demo 级」**，而不是留给读者当成疏漏：它是**刻意的简化**，而把这份状态搬进它自己的表，才是**真的依赖它的部署**该做的改动。
+
 > **⚠ 已知、且本版刻意不修。** 这条聊天流在冻结的 `sse-event` schema 上有两处不合规，且都早于本次改动：`tool_start` 漏了它载荷所要求的 `summary`，而 `confirmation_request` 发的 `mode: "confirmation"` 不在冻结枚举（`immediate` / `approval` / `run`）里。本仓**别处没有任何断言**把这条流拿去对 schema。`ConsoleNavigationTest` 现在把 `navigate` 事件钉在它上面，并把缺口**记在原地**，而不是把检查悄悄收窄。
+
+### 变更
+
+- **一次成功的执行从此在审计轨上留下两行，而不是一行。** 在工具跑之前先写一条 intent 行，作答契约的 `attempted` —— 那个值自己的说明就写着**它不是一次结局**、结局在它**后面那一行**。结果行本来就是 best-effort：它写在工具的写**之后**，于是一次落了地的宿主写、加一步没落地的记账，本来会让这次尝试**无人记录** —— 而那正是运维第一个会去找的那一半。**凡是要数行的地方，从此每次执行都多一行** —— **宿主自己的门禁也在内**；生成物在**同一位置**写同一行。
 
 ### 修复
 
