@@ -27,7 +27,34 @@ public interface AiTool {
         return RiskLevel.needsConfirmation(riskLevel());
     }
 
-    /** The business result type this tool creates (e.g. {@code follow_up}), or null for reads. */
+    /**
+     * The business result type this tool creates (e.g. {@code follow_up}), or null for reads.
+     *
+     * <p><b>Declaring one is a promise about the result.</b> A tool that names a result type has its
+     * execution recorded in the effect ledger, and the ledger — and the frozen contract — require the
+     * effect to say <em>which</em> row it produced. So {@code execute} has to return a result whose
+     * {@code id} is a number, which in practice means a {@code Map} carrying a numeric {@code id}. A
+     * tool that declares a result type and then returns something else has written whatever it wrote
+     * and left the runtime unable to record it: the run ends as a recorded failure, the effect is
+     * unrecorded, and the claim on that call stays taken until its lease runs out. That is the honest
+     * end — the write may have landed — but naming a result id is what keeps it from happening at all,
+     * and that is the tool's job rather than the runtime's, because the runtime cannot know a row it
+     * was never shown.
+     *
+     * <p>A tool that names none is never claimed and never recorded, which makes this the read/write
+     * switch as much as a label.
+     *
+     * 本工具创建的业务结果类型（例如 {@code follow_up}）；读则返回 null。
+     *
+     * <p><b>声明一个，就是就「结果」许下一个承诺。</b>点名了结果类型的工具，其执行会记进副作用账本；而账本
+     * （以及冻结的契约）要求 effect 说清它**产出了哪一行**。故 {@code execute} 必须交回一个 `id` 为数字的结果，
+     * 实践中即一个带数字 `id` 的 `Map`。一个声明了结果类型、却交回别的东西的工具，**写了它写的东西，却让运行时
+     * 记不下来**：这次运行以**记录式失败**收尾、effect 不落、而这次调用的领取一直占着直到租约跑完。那是诚实的结局
+     * —— 写可能已落地 —— 但**点名一个结果 id** 才是让它根本不发生的办法，而那是**工具**的事、不是运行时的事：
+     * 运行时**无从知道**一张它从未被展示过的行。
+     *
+     * <p>什么都不点名的工具**从不占位、也从不记账** —— 故这个方法是**读/写开关**，不只是一个标签。
+     */
     default String resultType() {
         return null;
     }

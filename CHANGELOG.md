@@ -25,11 +25,23 @@ Each version is written in two blocks — English first, then Chinese — marked
   scope's — and everything else holds it until the lease runs out. The audit is unchanged and stays as
   broad as it was: every throw is still a line, whatever its type.
 
+- **A write that names no result fails on the record, instead of throwing a constraint violation past
+  its own audit line.** The ledger requires every effect to name what it produced — the contract's
+  effect object makes `resultId` required, and the column will not take null — so a tool that declared
+  a result type and then returned no numeric `id` reached an insert that threw. It threw *after* the
+  tool had already run, and before the block's own audit line, leaving a landed write, no effect, no
+  outcome on the trail, and a 500. Such a call now ends as a recorded failure with a reason: the
+  effect stays unrecorded (nothing can record a subject it was never shown) and the claim stays taken,
+  because the tool ran and the write may have landed. Naming a result id in the tool's result is what
+  keeps it from happening, and `AiTool.resultType()` now says so where a tool's author will read it.
+
 **中文**
 
 ### 修复
 
 - **一次抛出的执行，只在抛出**证明**什么都没写时，才放走它的写声明。** 执行前的声明在失败时被释放，好让一次失败的调用可以重做——但那次释放发生在引擎 try 内**任何** `RuntimeException` 上，而**工具的抛出不是证据**：工具正是写发生的地方，所以它可以写了才失败。账本探测也接不住这件事，因为 effect 只在 `execute` 返回**之后**才记。现在**只有工具做任何事之前**抛出的拒绝才放走键——授权规则的、或宿主行范围的——其余一切把键留到租约跑完。**审计未动、照旧一样宽**：每一次抛出都仍然是一行，无论它是哪一类。
+
+- **一次没说清结果是什么的写，**在轨上**失败，而不是把一条约束违例抛过它自己的审计行。** 账本要求每条 effect 说清它产出了什么——契约的 effect 对象把 `resultId` 列为必填，而那一列不收 null——于是一个声明了结果类型、却交回不出数字 `id` 的工具，会走到一条抛异常的插入。而它是在**工具已经跑完之后**、又在**这个块自己的审计行之前**抛的，留下的是：写落了、没有 effect、轨上没有结局、以及一个 500。这样的调用现在以**记录式失败**收尾、带理由：effect 仍然不落（没有东西能记下一个它从未被展示过的主体），领取仍然占着——因为工具跑过了、写可能已落地。**在工具的结果里点名一个结果 id** 才是让它不发生的办法，而 `AiTool.resultType()` 现在把这句话写在工具作者会读到的地方。
 
 ## [0.1.6] - 2026-10-11
 

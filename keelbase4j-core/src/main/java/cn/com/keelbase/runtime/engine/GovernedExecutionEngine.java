@@ -538,6 +538,34 @@ public class GovernedExecutionEngine {
         Long effectId = null;
         if (result.success() && tool.resultType() != null) {
             Long resultId = resultId(result.data());
+            if (resultId == null) {
+                // A write that does not say *what* it produced cannot be recorded: the contract's effect
+                // object requires a `resultId`, and the ledger's column will not take null. By the time
+                // that is knowable the tool has already run, so the honest end is a **recorded** failure
+                // — a line saying why, and an error the caller can act on — rather than an insert that
+                // throws a constraint violation past both the settle and the audit line. That is what
+                // used to happen, and it left a landed write, no effect, no outcome on the trail, and a
+                // 500 that said nothing.
+                //
+                // The claim is deliberately neither settled nor released: the tool ran, so the write may
+                // have landed, and the key has to stay taken until the lease runs out (see the release
+                // rule above).
+                //
+                // 一次**不说清自己产出了什么**的写，记不下来：契约的 effect 对象**要求** `resultId`，而账本
+                // 那一列不收 null。等这件事可知时，工具**已经跑完**了，故诚实的结局是一次**记下来的**失败 —— 一条
+                // 说明理由的行、加一个调用方能据以行动的错误 —— 而不是一条把约束违例抛过 settle 与审计行的插入；
+                // 那正是从前的样子：写落了、没有 effect、轨上没有结局、调用方拿到一个什么都不说的 500。
+                //
+                // 领取**刻意既不 settle 也不 release**：工具跑过了，写就可能已落地，而键必须留到租约跑完
+                //（见上面那条释放规则）。
+                audit.append("tool_call", principal.userId(),
+                        tool.name() + " -> fail: the tool declared result type '" + tool.resultType()
+                                + "' but returned no result id, so the effect cannot be recorded — the"
+                                + " contract requires one and the ledger will not store null",
+                        true, "failed", tool.name());
+                return new ExecutionOutcome("error", null, null, null,
+                        "no result id: the tool returned no id, so the effect could not be recorded");
+            }
             // What the tool produced, captured here — this is the only moment it is still what the
             // decision produced rather than whatever the row has since become. The frozen
             // `traceItem` reads it as `afterSnapshot`.
