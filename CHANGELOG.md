@@ -12,7 +12,35 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-12
+
 **English**
+
+### Added
+
+- **A turn can name a place in a console, and both endpoints say so.** Navigation is an ordinary tool —
+  a read, so it takes no write claim, records no side effect and asks for no confirmation — but what it
+  returns is a route, and until now no route could leave this runtime. `chat-response` declares
+  `navigateTo` and `sse-event` declares a `navigate` event; the reference fills and emits both, and this
+  runtime did neither. `/ai/chat` now answers with the field when a turn named one, and the stream sends
+  the event after the reply, where a console has already begun rendering the turn. The extraction lives
+  in one place, `ChatTurnService.Turn.navigateTo()`, because both endpoints report the same turn and a
+  second reading would be a second place for them to disagree. **No contract change was needed** —
+  both are already declared by the frozen objects.
+
+- **The model-backed replier is told what the deployment is.** Its system prompt now carries the preset,
+  the feature flags, the business modules and the tool catalogue, because "what modules does this system
+  have" is a question only the system can answer, and a model left to guess will guess. It carries no
+  governance metadata: the risk level, the confirmation flag and the revoke class stay server-side,
+  which is the planner's own rule applied to the second seam. Blank in, blank out — a deployment that
+  declared nothing gets no block rather than an empty heading.
+
+> **⚠ Known, and deliberately not fixed in this version.** The chat stream does not conform to the
+> frozen `sse-event` schema in two places, both of which predate this change: `tool_start` omits the
+> `summary` its payload requires, and `confirmation_request` sends `mode: "confirmation"` where the
+> frozen enum is `immediate` / `approval` / `run`. Nothing in this repository asserted the stream
+> against the schema at all. `ConsoleNavigationTest` now holds the `navigate` event to it and records
+> the gap in place rather than narrowing the check quietly.
 
 ### Fixed
 
@@ -36,6 +64,14 @@ Each version is written in two blocks — English first, then Chinese — marked
   keeps it from happening, and `AiTool.resultType()` now says so where a tool's author will read it.
 
 **中文**
+
+### 新增
+
+- **一个回合可以点名控制台里的一处，而两条端点都说出来。** 导航就是一个**普通工具** —— 读，故不占写声明、不记副作用、不要确认 —— 但它交回的**是一条路径**，而在此之前**没有任何路径能离开这个运行时**。`chat-response` 声明了 `navigateTo`、`sse-event` 声明了 `navigate` 事件；参照实现两者都填、都发，而本运行时一个都没做。现在 `/ai/chat` 在本回合点过名时答出那个字段，流则把事件发在 reply **之后** —— 那是控制台**已经**开始渲染本回合的位置。提取只有一处（`ChatTurnService.Turn.navigateTo()`），因为两条端点报的是**同一个回合**，第二次读就是第二个「两处会不一致」的地方。**契约无需改动** —— 两者都是冻结对象自己声明过的。
+
+- **模型版的 replier 现在知道这个部署是什么。** 它的 system prompt 里带上了 preset、特性开关、业务模块与工具目录，因为「这个系统有哪些模块」是**只有系统自己**答得上来的问题，而放任不管的模型**会去猜**。它不携带任何治理元数据：风险级、是否需确认、撤销档都留在服务端 —— 那是 planner 自己的规矩用在**第二条缝**上。空进空出：什么都没声明的部署得到的是**没有那一块**，不是一个空的抬头。
+
+> **⚠ 已知、且本版刻意不修。** 这条聊天流在冻结的 `sse-event` schema 上有两处不合规，且都早于本次改动：`tool_start` 漏了它载荷所要求的 `summary`，而 `confirmation_request` 发的 `mode: "confirmation"` 不在冻结枚举（`immediate` / `approval` / `run`）里。本仓**别处没有任何断言**把这条流拿去对 schema。`ConsoleNavigationTest` 现在把 `navigate` 事件钉在它上面，并把缺口**记在原地**，而不是把检查悄悄收窄。
 
 ### 修复
 
