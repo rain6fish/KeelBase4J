@@ -495,7 +495,10 @@ public class JavaGenerator {
         sb.append("confirmation nobody answered goes with the process, and a revocation recorded before a\n");
         sb.append("restart is no longer listed. The KeelBase4J runtime — the embedding host, not this\n");
         sb.append("application — keeps those in its own tables; this generated application does not. Plan\n");
-        sb.append("restarts accordingly, and tell whoever relies on the record.\n\n");
+        sb.append("restarts accordingly, and tell whoever relies on the record. That half is\n");
+        sb.append("**demo-grade on purpose**, not production-grade governance record-keeping — it is a\n");
+        sb.append("deliberate simplification rather than an oversight, and moving that state into its\n");
+        sb.append("own tables is the change to make before a deployment relies on it.\n\n");
         sb.append("### Where the state lives\n\n");
         sb.append("| state | store | survives a restart |\n|---|---|---|\n");
         sb.append("| `customers` · `follow_ups` · `conversation_messages` | database | yes |\n");

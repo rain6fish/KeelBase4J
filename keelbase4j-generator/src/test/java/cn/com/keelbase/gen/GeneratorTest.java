@@ -453,6 +453,8 @@ class GeneratorTest {
         assertTrue(readme.contains("are held in memory"),
                 "including what a restart loses — the governance record is memory, not the database");
         assertTrue(readme.contains("pg_dump"), "and how to back the durable half up");
+        assertTrue(readme.contains("demo-grade on purpose"),
+                "and that the volatile half is declared as the design rather than read as an oversight");
         assertTrue(readme.contains("`ddl-auto=validate`"), "and that an upgrade is a migration, validated at boot");
 
         // The generated project consumes a *published* coordinate, so the version in its pom has to be
