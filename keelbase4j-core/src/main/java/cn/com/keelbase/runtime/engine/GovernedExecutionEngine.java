@@ -449,6 +449,11 @@ public class GovernedExecutionEngine {
     /**
      * Execute an allowed tool, and audit it — including the case where it refuses.
      *
+     * <p><b>An attempt gets its own line, written before the tool runs.</b> "Who tried" then never
+     * depends on the result line, which is written after the tool's write and is best-effort: a host
+     * write that lands and a bookkeeping step that does not would otherwise leave the attempt
+     * unrecorded. It is not an outcome — the vocabulary says so — and the line after it is.
+     *
      * <p><b>The refusal is an event, so it gets a line.</b> The audit below is composed from the
      * outcome, which means it can only be written once an outcome exists. A refusal arrives as an
      * exception — the row scope rejecting a row that is not the caller's, for instance — and control
@@ -467,6 +472,10 @@ public class GovernedExecutionEngine {
      * service's own transaction commits on its own.
      *
      * 执行一个被允许的工具，并审计它——**包括它拒绝的时候**。
+     *
+     * <p><b>一次尝试有自己的一行，写在工具跑之前。</b>「谁试过」于是**不**取决于结果行——那一行写在工具
+     * 的写**之后**、且是 best-effort：一次落了地的宿主写、加上一步没落地的记账，本来会让这次尝试**无人
+     * 记录**。它**不是结局**（词表自己这么写），**它后面那一行**才是。
      *
      * <p><b>拒绝本身就是一个事件，所以它要有一行。</b>下面那次审计是**由结果拼出来的**，也就是说只有
      * 结果存在时才写得出来。拒绝以异常到来——比如行范围驳回了一行不属于调用方的数据——控制流在到达那
@@ -491,7 +500,15 @@ public class GovernedExecutionEngine {
                 return reused;
             }
             claimed = claimForExecution(tool, argsJson, principal);
-            result = tool.execute(args, principal); // may throw 403 — before any write
+            // The intent row (D36 ②): written before the tool runs, so "who tried" never goes missing
+            // even when the tool's own write lands and the bookkeeping after it does not. Same shape
+            // as the refusal row in the catch below; its outcome is the line after it.
+            //
+            // intent 行（D36 ②）：写在工具跑**之前**，好让「谁试过」**永不缺行** —— 即便工具自己那一笔
+            // 落了地、而它后面的记账没有。与下面 catch 里那条拒绝行**同形**；它的结局在**它后面那一行**。
+            audit.append("tool_call", principal.userId(), tool.name() + " attempted", false, "attempted",
+                    tool.name());
+            result = tool.execute(args, principal); // may throw 403 — before the tool writes anything
         } catch (RuntimeException refused) {
             if (claimed) {
                 claims.release(principal, tool.name(), argsJson);

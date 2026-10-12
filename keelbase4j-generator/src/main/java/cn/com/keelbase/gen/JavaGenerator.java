@@ -1560,6 +1560,14 @@ public class JavaGenerator {
                     }
 
                     private Map<String, Object> run(AiTool tool, Map<String, Object> args, String userId) {
+                        // The intent row (D36 ②): written before the tool runs, so "who tried" never
+                        // goes missing even when the tool's own write lands and the bookkeeping after
+                        // it does not. Its outcome is the line after it.
+                        //
+                        // intent 行（D36 ②）：写在工具跑**之前**，好让「谁试过」**永不缺行** —— 即便工具
+                        // 自己那一笔落了地、而它后面的记账没有。它的结局在**它后面那一行**。
+                        audit.append("tool_call", userId, tool.name() + " attempted", false, "attempted",
+                                tool.name());
                         Map<String, Object> result = tool.execute(args, userId);
                         Long effectId = null;
                         if (Boolean.TRUE.equals(result.get("success")) && result.get("resultId") instanceof Number n) {

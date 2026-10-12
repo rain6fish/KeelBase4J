@@ -321,6 +321,20 @@ class GeneratorTest {
         // 的状态变化。
         assertTrue(governance.contains("audit.append(\"effect_revoke\", principal.userId(),"),
                 "a revocation is audited, under the contract's own value for it");
+        // The attempt is written before the tool runs, so "who tried" does not depend on the result
+        // line — the same row the runtime writes (D36 ②). Ordering is the assertion: a fix that wrote
+        // both after the fact would satisfy a presence check and give nothing.
+        //
+        // 尝试写在工具跑之前，好让「谁试过」不取决于结果行 —— 与运行时写的是同一条（D36 ②）。断的是**顺序**：
+        // 一个「两行都写在事后」的修法能过存在性检查，却什么都没给。
+        String engineSource = Files.readString(
+                out.resolve("src/main/java/com/example/crm/ai/GovernanceEngine.java"));
+        int intentAt = engineSource.indexOf(
+                "audit.append(\"tool_call\", userId, tool.name() + \" attempted\", false, \"attempted\",");
+        int executesAt = engineSource.indexOf("Map<String, Object> result = tool.execute(args, userId);");
+        assertTrue(intentAt > 0, "the generated application records the attempt, not only the result");
+        assertTrue(executesAt > 0, "the tool call is the line the attempt has to precede");
+        assertTrue(intentAt < executesAt, "the attempt is on the chain before the tool runs");
         // The catalogue and the chain's own state are the runtime's admin surfaces, and they are gated
         // here too — a plain caller is refused rather than shown them. Asserted on both files, because
         // "one endpoint per controller" is exactly the shape where one of the two gets forgotten.
