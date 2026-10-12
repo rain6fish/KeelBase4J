@@ -89,7 +89,12 @@ jobs:
           #
           # 与 ci.yml 里那个 pin 同日一同抬起：它被落下两代 schema，而一次拿「本仓早已不再回答的契约」
           # 去校快照的发布，校的是错的东西。理由见 ci.yml 那处的注解。
-          ref: v1.7.0
+          #
+          # Raised with the same pin again on 2026-10-12 (v1.8.0, which carries the v2 registry). See the
+          # note in ci.yml.
+          #
+          # 与 ci.yml 里那个 pin 于 2026-10-12 再次一同抬起（v1.8.0，它带着 v2 registry）。见 ci.yml 那处。
+          ref: v1.8.0
           path: contract-repo
 
       - name: Check out the main repo's scenario packs

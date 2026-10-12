@@ -48,9 +48,17 @@ public final class WireSchemas {
     private WireSchemas() {
     }
 
-    /** The registry: contract id → schema file. */
+    /**
+     * The registry: contract id → schema file — v2, which settles how {@code objects[].schema} is
+     * written (ADR-0007 §3 {@code Q10}). v1 is the same index carrying two spellings; a consumer that
+     * has not migrated reads that one, and nothing here does.
+     *
+     * 登记表：契约 id → schema 文件 —— 这是 **v2**，它把 {@code objects[].schema} 的**写法**定死
+     * （ADR-0007 §3 的 {@code Q10}）。v1 是同一份索引、带着**两种写法**；尚未迁移的消费方读那一份，
+     * 而这里没有一处还读它。
+     */
     public static Map<String, Object> registry() {
-        return Vectors.map(Vectors.read("wire-schema-registry.json"));
+        return Vectors.map(Vectors.read("wire-schema-registry-v2.json"));
     }
 
     /**
@@ -65,19 +73,19 @@ public final class WireSchemas {
         for (Object o : Vectors.list(registry(), "objects")) {
             Map<String, Object> entry = Vectors.map(o);
             if (id.equals(entry.get("id"))) {
-                // The registry names a schema two ways: under its own name (`my-confirmation-item
-                // .schema.json`, v2) or with the version already in the path (`v3/side-effect-revoke
-                // .schema.json`). Prefixing unconditionally reads the second kind at
-                // `schemas/v3/v3/…`, which is a file that does not exist — latent until the first
-                // object of the second kind was asked for.
+                // One way, settled in v2: `schema` is the bare file name, and the entry's own
+                // `version` says which tree it sits in. This used to read two spellings, because v1
+                // carried both: the bare one, and one with the version already in the path. An entry
+                // that was already a path was read at `schemas/v3/v3/…`, which does not exist. That
+                // branch is deleted with v1 (ADR-0007 §3 `Q10`) — not left unreachable.
                 //
-                // 登记表用两种写法指名 schema：只用文件名（`my-confirmation-item.schema.json`，v2），
-                // 或**路径里已经带版本**（`v3/side-effect-revoke.schema.json`）。无条件加前缀会把后一种
-                // 读成 `schemas/v3/v3/…` —— 一个不存在的文件；在**第一个**后一种对象被要之前，它是潜伏的。
+                // 一种写法，v2 定死的：`schema` 是**裸文件名**，它住在哪一棵树由条目自己的 `version`
+                // 说。这里原本读两种写法 —— 因为 v1 两种都带：裸名，以及**路径里已经带版本**的那种。一个
+                // 本身就是路径的条目会被读成 `schemas/v3/v3/…`，那是不存在的。**那段分支随 v1 一并删掉**
+                // （ADR-0007 §3 的 `Q10`）—— 不是留着不用。
                 String named = String.valueOf(entry.get("schema"));
                 String version = String.valueOf(entry.get("version"));
-                String path = named.startsWith(version + "/") ? named : version + "/" + named;
-                return Vectors.map(Vectors.read("schemas/" + path));
+                return Vectors.map(Vectors.read("schemas/" + version + "/" + named));
             }
         }
         for (Object s : Vectors.list(registry(), "supportSchemas")) {

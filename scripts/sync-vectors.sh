@@ -17,7 +17,9 @@
 #
 # The vendored set is the contract the Java tests read, not just the vectors:
 #   *-vector.json                    the language-neutral conformance vectors
-#   wire-schema-registry.json        the wire-object registry (id → schema file)
+#   wire-schema-registry*.json       the wire-object registry family (id → schema file); the Java
+#                                    tests read v2 (ADR-0007 §3 Q10), and the family is picked up
+#                                    whole so a future vN needs no change here either
 #   schemas/**/*.json                the schemas the registry points at
 #   scenarios/*.json                 the behaviour-level scenario packs (their `replay` is the
 #                                    Extended-layer neutral-replay corpus the runtime replays)
@@ -110,7 +112,7 @@ list_files() { # $1 = spec subdir
     cd "$(src_dir_for "$sub")" 2>/dev/null || return 0
     case "$sub" in
       protocol)
-        find . -type f \( -name '*-vector.json' -o -name 'wire-schema-registry.json' \) -print
+        find . -type f \( -name '*-vector.json' -o -name 'wire-schema-registry*.json' \) -print
         find ./schemas -type f -name '*.json' -print 2>/dev/null
         ;;
       *)
@@ -177,7 +179,7 @@ list_vendored() { # $1 = spec subdir
     cd "$root" 2>/dev/null || return 0
     case "$sub" in
       protocol)
-        find . -maxdepth 1 -type f \( -name '*-vector.json' -o -name 'wire-schema-registry.json' \) -print
+        find . -maxdepth 1 -type f \( -name '*-vector.json' -o -name 'wire-schema-registry*.json' \) -print
         find ./schemas -type f -name '*.json' -print 2>/dev/null
         ;;
       *)

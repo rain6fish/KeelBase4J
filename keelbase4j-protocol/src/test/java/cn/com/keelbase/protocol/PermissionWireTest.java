@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
  * {@code org-membership-scope} and {@code authorization}.
  *
  * <p>The expectations are <em>read from the contract</em>, not transcribed from it. The registry
- * ({@code wire-schema-registry.json}) names the schema file for each contract, and each carrier's
+ * ({@code wire-schema-registry-v2.json}) names the schema file for each contract, and each carrier's
  * wire shape is validated against that schema — {@code required}, {@code properties},
  * {@code additionalProperties}, recursing into nested objects, array items and {@code $ref}.
  * <b>That is the point: the contract is the source of the Java shape, not a document the shape was
