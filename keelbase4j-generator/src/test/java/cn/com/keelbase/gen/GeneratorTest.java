@@ -442,6 +442,18 @@ class GeneratorTest {
         assertTrue(readme.contains("## Streaming"), "the README documents the streaming channel");
         assertTrue(readme.contains("Why it stays open"), "including why the stream is long-lived");
         assertTrue(readme.contains("in-process"), "and that the registry behind it is in-process");
+        // The operations checklist is what a deployment hands an operator, and its load-bearing half is
+        // not the commands: it is which half of the state a restart destroys. Asserted here so the claim
+        // cannot quietly leave the README — a deployment told only how to take a backup would believe the
+        // backup covers the audit chain too.
+        //
+        // 运维清单是交给运维的那一页，而它**载重的那半不是命令** —— 是「重启会毁掉哪一半状态」。在这里断言，
+        // 是为了让那句话不能悄悄离开 README：一个只被告知「怎么备份」的部署，会以为备份也盖住了审计链。
+        assertTrue(readme.contains("## Operations"), "the README carries the operations checklist");
+        assertTrue(readme.contains("are held in memory"),
+                "including what a restart loses — the governance record is memory, not the database");
+        assertTrue(readme.contains("pg_dump"), "and how to back the durable half up");
+        assertTrue(readme.contains("`ddl-auto=validate`"), "and that an upgrade is a migration, validated at boot");
 
         // The generated project consumes a *published* coordinate, so the version in its pom has to be
         // the one this build publishes. It is filtered from the project version for that reason; this
