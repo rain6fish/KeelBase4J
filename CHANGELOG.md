@@ -12,6 +12,25 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+**English**
+
+### Fixed
+
+- **A thrown execution frees its write claim only when the throw proves nothing was written.** The
+  pre-execution claim is released on failure so that a call which failed can be made again — but the
+  release was made on *any* `RuntimeException` out of the engine's try, and a throw from the tool is not
+  proof: the tool is where the write happens, so it can write and then fail. The ledger probe cannot
+  catch that either, because the effect is only recorded after `execute` returns. The key is now freed
+  only for a refusal raised *before* the tool does anything — the authorization rule's or a host row
+  scope's — and everything else holds it until the lease runs out. The audit is unchanged and stays as
+  broad as it was: every throw is still a line, whatever its type.
+
+**中文**
+
+### 修复
+
+- **一次抛出的执行，只在抛出**证明**什么都没写时，才放走它的写声明。** 执行前的声明在失败时被释放，好让一次失败的调用可以重做——但那次释放发生在引擎 try 内**任何** `RuntimeException` 上，而**工具的抛出不是证据**：工具正是写发生的地方，所以它可以写了才失败。账本探测也接不住这件事，因为 effect 只在 `execute` 返回**之后**才记。现在**只有工具做任何事之前**抛出的拒绝才放走键——授权规则的、或宿主行范围的——其余一切把键留到租约跑完。**审计未动、照旧一样宽**：每一次抛出都仍然是一行，无论它是哪一类。
+
 ## [0.1.6] - 2026-10-11
 
 **English**

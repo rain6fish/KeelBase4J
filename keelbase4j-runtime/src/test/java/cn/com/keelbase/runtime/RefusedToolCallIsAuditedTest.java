@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.runtime.audit.AuditLog;
 import cn.com.keelbase.runtime.audit.AuditLogRepository;
+import cn.com.keelbase.runtime.authz.RuleDeniedException;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
 import cn.com.keelbase.runtime.identity.Principal;
@@ -65,7 +66,20 @@ class RefusedToolCallIsAuditedTest {
     @TestConfiguration
     static class Probe {
 
-        /** Stands in for a tool refusing: the row gate throwing, as a tool over host data does. */
+        /**
+         * Stands in for a tool refusing: the row gate throwing, as a tool over host data does.
+         *
+         * <p>{@code RuleDeniedException} rather than a bare {@code ResponseStatusException}, since that
+         * is the type the runtime's own gate raises ({@code OwnershipGuard}) and the one the engine
+         * recognises as a refusal that proves nothing was written. The assertions below do not depend on
+         * which, but the fixture should model the thing it names.
+         *
+         * 代替一个正在拒绝的工具：行闸抛出，正如一个跑在宿主数据上的工具所做的那样。
+         *
+         * <p>用 {@code RuleDeniedException}、而不是一个裸的 `ResponseStatusException`——那是本运行时自己的闸
+         * （`OwnershipGuard`）抛的类型，也是引擎认作「证明什么都没写」的那一类。下面的断言不依赖用哪一个，但夹具
+         * 该模拟它**说**的那件东西。
+         */
         @Bean
         AiTool probeRefusingTool() {
             return new AiTool() {
@@ -86,8 +100,7 @@ class RefusedToolCallIsAuditedTest {
 
                 @Override
                 public ToolResult execute(Map<String, Object> args, Principal principal) {
-                    throw new ResponseStatusException(
-                            HttpStatus.FORBIDDEN, "该行不在你的数据范围内");
+                    throw new RuleDeniedException(null, "该行不在你的数据范围内");
                 }
             };
         }

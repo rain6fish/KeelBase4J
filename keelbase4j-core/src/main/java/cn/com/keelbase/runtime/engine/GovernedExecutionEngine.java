@@ -4,6 +4,7 @@ package cn.com.keelbase.runtime.engine;
 import cn.com.keelbase.protocol.CanonicalJson;
 import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.audit.AuditService;
+import cn.com.keelbase.runtime.authz.RuleDeniedException;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectService;
 import cn.com.keelbase.runtime.effect.WriteClaimService;
@@ -28,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -508,9 +510,25 @@ public class GovernedExecutionEngine {
             // 落了地、而它后面的记账没有。与下面 catch 里那条拒绝行**同形**；它的结局在**它后面那一行**。
             audit.append("tool_call", principal.userId(), tool.name() + " attempted", false, "attempted",
                     tool.name());
-            result = tool.execute(args, principal); // may throw 403 — before the tool writes anything
+            // A throw from here is **not** evidence that nothing was written: the tool is where the
+            // write happens, so it can write and then fail. What the catch does with that is split
+            // below — audited either way, released only when the failure proves it.
+            // 从这里抛出**不是**「什么都没写」的证据：工具正是写发生的地方，所以它可以写了才失败。catch 拿它做什么
+            // 在下面分成两半 —— 两边都审、只在失败**证明**了没落地时才释放。
+            result = tool.execute(args, principal);
         } catch (RuntimeException refused) {
-            if (claimed) {
+            // The catch stays broad; the **release** is the half that narrows, and the two want
+            // different things. Broad is right for the audit: filtering it down to the exception types
+            // raised today would silently drop the next kind, and that is the defect the line after
+            // this one exists to fix. Narrow is right for the release, because freeing the key tells
+            // the next attempt it may write — true only when the failure proves nothing landed. See
+            // `provesNothingLanded`.
+            //
+            // 这个 catch 照旧放宽；**收窄的是「释放」那一半**，而两者要的东西不同。放宽对**审计**是对的：把它
+            // 过滤成「今天恰好抛的那些类型」，会让**下一种**被静默漏掉——而它下面那一行正是为修这个而加的。收窄对
+            // **释放**是对的：放走键等于告诉下一次尝试「你可以写」，那只在失败**证明**没落地时成立。见
+            // `provesNothingLanded`。
+            if (claimed && provesNothingLanded(refused)) {
                 claims.release(principal, tool.name(), argsJson);
             }
             audit.append("tool_call", principal.userId(),
@@ -609,6 +627,16 @@ public class GovernedExecutionEngine {
      * instant</em> can both probe and miss and both write, leaving the loser's row untracked again.
      * The reference arbitrates that with a write claim taken before execution; this runtime has no such
      * row, so the concurrent case remains open and is recorded as such rather than claimed.
+     *
+     * <p><b>⚠ Corrected 2026-10-12:</b> that last sentence went stale the same day it was written —
+     * {@code ffc5a0e} ("a write is claimed before it runs") landed the row this paragraph says is
+     * absent ({@code WriteClaimService}, {@code write_claims}), and {@link #claimForExecution} is what
+     * takes it. The concurrent case <em>is</em> arbitrated; what a lost claim gets is a 409 rather than
+     * a second write. The paragraph is kept as written, so the correction has something to point at.
+     *
+     * <p><b>⚠ 2026-10-12 更正：</b>最后那句**写下当天就陈旧了**——`ffc5a0e`（「写在执行前被领取」）落地了本段
+     * 说「没有」的那张表（`WriteClaimService`、`write_claims`），而 {@link #claimForExecution} 正是取它的地方。
+     * 并发那一档**是被仲裁的**；输掉领取的一方拿到的是 409、不是第二次写。原段**保留**，好让这条更正有东西可指。
      */
     private ExecutionOutcome reuseIfAlreadyExecuted(AiTool tool, Map<String, Object> args,
                                                    Principal principal) {
@@ -629,6 +657,36 @@ public class GovernedExecutionEngine {
         return ExecutionOutcome.executed(
                 existing.getResultId() == null ? null : Map.of("id", existing.getResultId()),
                 existing.getId());
+    }
+
+    /**
+     * Whether a failure <b>proves the tool did not write</b> — the precondition {@code
+     * WriteClaimService#release} states for freeing a key ("an attempt that failed in a way that
+     * proves nothing landed").
+     *
+     * <p>Two kinds of exception meet it, and both are refusals raised <em>before</em> the tool does
+     * anything: the authorization rule's {@link RuleDeniedException}, and the row scope's
+     * {@link AccessDeniedException} — the runtime's own denial is the first, a host adapter's is the
+     * second. The host type is named rather than the generic {@code ResponseStatusException} on
+     * purpose: a tool that wraps a remote call's failure in one of those may well have written first,
+     * and a key freed on that guess is how a write happens twice.
+     *
+     * <p><b>Everything else holds the key until the lease runs out</b>, which is the safe direction: a
+     * five-minute wait is recoverable, a second write is not.
+     *
+     * 一次失败**是否证明工具没有写** —— 即 {@code WriteClaimService#release} 为「放走一个键」写下的前提
+     * （「以一种**证明**什么都没落地的方式失败」）。
+     *
+     * <p>两类异常满足它，且两者都是**在工具做任何事之前**抛出的拒绝：授权规则的
+     * {@link RuleDeniedException}，与行范围的 {@link AccessDeniedException} —— 前者是本运行时自己的拒绝，
+     * 后者是宿主适配器的。这里点**宿主那个类型**、而不是泛用 `ResponseStatusException`，是**刻意**的：一个把远端
+     * 调用的失败包进后者的工具，很可能**写了之后才失败**，而按那个猜测放走的键，正是「写两次」的来路。
+     *
+     * <p>**其余一切把键留到租约跑完**，那是安全的方向：**等五分钟可恢复，写第二次不可恢复**。
+     */
+    private static boolean provesNothingLanded(RuntimeException refused) {
+        return refused instanceof RuleDeniedException
+                || refused instanceof AccessDeniedException;
     }
 
     private static Long resultId(Object data) {

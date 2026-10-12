@@ -48,6 +48,11 @@ import tools.jackson.databind.json.JsonMapper;
  * miss and both write. The reference arbitrates that with a write claim taken before execution; this
  * runtime has no such row. Recorded as open rather than claimed.
  *
+ * <p><b>⚠ Corrected 2026-10-12:</b> the row exists — {@code ffc5a0e} landed {@code WriteClaimService}
+ * the same day this was written, so the concurrent case <em>is</em> arbitrated by a claim taken before
+ * execution. The paragraph above is kept as written; what a lost or failed claim does is now covered by
+ * {@code AThrownCallOnlyFreesItsKeyWhenNothingLandedTest}.
+ *
  * <p>同一调用做两次，只写一行、只记一条 effect（缝 S11）。
  *
  * <p>账本的幂等键由内容推导，它的 javadoc 承诺重复同一次调用会「复用已有 effect、而不是写两次」。**写没有
@@ -63,6 +68,10 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>**已知、且本条不覆盖**：两条**同一瞬间**的相同调用仍可能双双探测落空、双双写入。参照实现用执行前
  * 取得的 write claim 仲裁；本运行时没有那张表。记录为**未解决**，而不是宣称修完。
+ *
+ * <p><b>⚠ 2026-10-12 更正：</b>那张表**在**——`ffc5a0e` 在本段写下的**同一天**落地了 `WriteClaimService`，
+ * 故并发那一档**是**由「执行前取得的 claim」仲裁的。原段**保留**；一次领取输掉或失败之后会怎样，现由
+ * `AThrownCallOnlyFreesItsKeyWhenNothingLandedTest` 覆盖。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
