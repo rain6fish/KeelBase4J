@@ -19,6 +19,19 @@ replaying the same corpus is what surfaced the need for this: see `docs/ARCHITEC
 | `permission-capability-list` | `GET /api/v1/auth/me/permissions` | what this identity may do, and on what basis |
 | `capabilities` | `GET /api/v1/app/capabilities` | |
 | `app-provenance` | `GET /api/v1/app/provenance` | |
+| `ai-tool-inventory` | `GET /api/v1/ai/tools` | one item per registered tool — **administrators only**. The governance half is **asked of the engine's own gate** rather than restated, so a tool cannot be described one way and gated another. Three fields answer their defaults because nothing here declares them — see below |
+
+**Three of `ai-tool-inventory`'s fields have no source in this runtime, and they answer their defaults
+rather than a guess.** The reference fills `enabled`, `allowedRoles` and `permissions` from a
+*governance policy* — a per-tool override store this runtime does not have. A registered tool is
+therefore `enabled`, its role list empty and its permissions `null`, which is what "nothing was
+declared" looks like here; inventing values would put a policy on a console that nobody set. Serving
+those fields' real sources is what a governance-policy endpoint would be for.
+
+**`ai-tool-inventory` 里有三个字段在本运行时没有来源，它们答默认值、而不是猜一个。** 参照实现用**治理策略**
+（一个本运行时没有的逐工具覆盖存储）去填 `enabled`、`allowedRoles` 与 `permissions`。所以这里：已注册的工具就是
+`enabled`、角色列表为空、权限为 `null` —— 那就是「什么都没声明」在本运行时的样子；**编造取值**等于把一份**没人设过**
+的策略显示到控制台上。要让这三个字段有真来源，正是**策略端点**要干的事。
 
 **One answer is this runtime's own object rather than the frozen one** — it is a mapping, not a
 divergence, and it is declared in `docs/ARCHITECTURE.md` §3.2.1: the approve response is an
@@ -83,12 +96,16 @@ asserts.)
 | `permission-decision` | the frozen decision is computed (`PermissionAuthorizer.decide`) but only the capability list is on the wire — there is no decision-over-action×subject endpoint |
 | `evidence-package` | no evidence-root export exists here |
 | `side-effect-revoke` read as the **governance view** | no governance-view endpoint; and this runtime's only local target type is `follow_up`, so a `resultType` of `crm_task` could not hold even if there were one |
-| the reference application's tools — `delete_customer` · `create_event` · `query_events` | a tool inventory belongs to the **application**, not the contract: this runtime registers `analyze_customer_risk` and `create_followup`. The packs declare the tools they assume (the pack's `tools`), so "this runtime lacks that tool" is readable off the corpus |
+| the reference application's tools — `delete_customer` · `create_event` · `query_events` | a tool **inventory** belongs to the **application**, not the contract: this runtime registers `analyze_customer_risk` and `create_followup`. The packs declare the tools they assume (the pack's `tools`), so "this runtime lacks that tool" is readable off the corpus. **⚠ 2026-10-13, corrected in place (original kept):** the reason as written — "a tool inventory belongs to the application, not the contract" — **no longer holds literally**, because the contract **freezes** an `ai-tool-inventory` **object** and this runtime now **serves** it (see the table above). **What still holds is the other half**: *which tools exist* is the application's, and the contract freezes the **shape**, not the **list** |
 | `confirm-decision-body` | a **request** body — the corpus names it for callers. There is nothing here to *produce*, so "does this runtime serve it" is not a question with a yes or a no |
 | `api-error-code` | a **vocabulary**, not a payload. No endpoint emits it; the check it would support is a different one (are the codes this runtime *does* emit inside the list), which is not conformance to an object |
 | `mcp-tool-list` | nothing is emitted here: `keelbase4j-mcp`'s `McpServerTools.listTools()` is this runtime **consuming** a tool list from an external server, not publishing one |
 
 **These three were moved out of "the objects this runtime produces" by decision, not discovered to be missing.** The map in `KeelBase-Private/KeelBase4J/JV-46-覆盖图_2026-10-09.md` had listed them as remaining positions to read (§9.4); reading each one showed that the registry sources the objects this runtime *does* answer at the reference implementation — so a row saying "not produced here" is the honest form, and the alternative (making this runtime emit them) is a product change this runtime has not chosen.
+
+**那条「工具清单属于应用、不属于契约」的读法，2026-10-13 就地更正。** 它**字面上已不成立**：契约**冻着一个**
+`ai-tool-inventory` **对象**，而本运行时现在也**服务它**（见上面那张表）。**仍然成立的是另一半**：**哪些工具存在**
+是应用的，契约冻的是**形状**、不是**清单** —— 所以那一行说的「参照实现的这几个工具名在这里没有」仍然对。
 
 ## Scope
 

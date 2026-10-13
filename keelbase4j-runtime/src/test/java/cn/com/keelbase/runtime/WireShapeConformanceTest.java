@@ -12,6 +12,7 @@ import cn.com.keelbase.runtime.domain.CustomerRepository;
 import cn.com.keelbase.protocol.Vectors;
 import cn.com.keelbase.protocol.WireSchemas;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -189,5 +190,60 @@ class WireShapeConformanceTest {
         for (Object item : items) {
             WireSchemas.assertConformsTo(item, "side-effect-revoke");
         }
+    }
+
+    @Test
+    void everyToolTheAdministratorIsShownMatchesTheFrozenInventory() {
+        List<?> items = (List<?>) getData("/ai/tools", "carol");
+
+        assertFalse(items.isEmpty(), "this runtime registers tools, so the inventory cannot be empty");
+        for (Object item : items) {
+            WireSchemas.assertConformsTo(item, "ai-tool-inventory");
+        }
+        // The governance half is asked rather than restated, so this pins it against the runtime's own
+        // declarations: the built-in tools are R1, R3 and R4, and the gate turns those into auto,
+        // confirm and approval. A list that described a tool one way and gated it another would fail
+        // here — and so would one that copied a fixed string.
+        //
+        // 治理那一半是**问来的**、不是复述的，所以这里拿运行时**自己的声明**去钉：内置工具是 R1 / R3 / R4，
+        // 而闸把它们变成 auto / confirm / approval。**描述成一样、把关成另一样**的列表会在这里挂；抄一个固定
+        // 字符串的也会。
+        List<String> gates = new ArrayList<>();
+        for (Object item : items) {
+            Map<?, ?> row = Vectors.map(item);
+            gates.add(row.get("gateMode") + "/" + row.get("riskLevel"));
+        }
+        assertTrue(gates.contains("auto/R1"), "an R1 tool reads as auto: " + gates);
+        assertTrue(gates.contains("confirm/R3"), "an R3 tool reads as confirm: " + gates);
+        assertTrue(gates.contains("approval/R4"), "an R4 tool reads as approval: " + gates);
+
+        Map<?, ?> twoPerson = items.stream().map(o -> Vectors.map(o))
+                .filter(row -> "R4".equals(row.get("riskLevel")))
+                .findFirst().orElseThrow(() -> new AssertionError("no R4 tool to check the gate against"));
+        assertEquals(Boolean.TRUE, twoPerson.get("requiresApproval"),
+                "R4 is the two-person gate: " + twoPerson);
+        assertEquals(Boolean.TRUE, twoPerson.get("requiresConfirmation"),
+                "and it still needs a decision: " + twoPerson);
+        // Nothing here declares a per-tool switch, a role list or a permission set, and the inventory
+        // says so rather than guessing: empty and null are what "not declared" looks like.
+        //
+        // 这里没有任何东西声明过逐工具的开关、角色表或权限集，而清单**如实这么答**而不是猜：空与 null 就是
+        // 「没声明」的样子。
+        for (Object item : items) {
+            Map<?, ?> row = Vectors.map(item);
+            assertEquals(Boolean.TRUE, row.get("enabled"), "a registered tool is enabled here: " + row);
+            assertEquals(List.of(), row.get("allowedRoles"), "no role list is declared here: " + row);
+            assertEquals(null, row.get("permissions"), "no permission set is declared here: " + row);
+        }
+    }
+
+    @Test
+    void theToolInventoryIsRefusedToAPlainCaller() {
+        ResponseEntity<String> response = rest.exchange(URI.create("/ai/tools"), HttpMethod.GET,
+                new HttpEntity<>(asCaller("alice")), String.class);
+
+        assertEquals(403, response.getStatusCode().value(),
+                "the inventory says what governance is doing to each tool, so it is an "
+                        + "administrator's list: " + response);
     }
 }
