@@ -2,6 +2,7 @@
 package cn.com.keelbase.runtime.audit;
 
 import cn.com.keelbase.protocol.AuditChain;
+import cn.com.keelbase.runtime.governance.GovernancePolicyStore;
 import jakarta.persistence.criteria.Predicate;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -31,12 +32,15 @@ public class AuditService {
 
     private final AuditLogRepository repository;
     private final AuditChainHeadRepository heads;
+    private final GovernancePolicyStore policy;
     private final String chainKey;
 
     public AuditService(AuditLogRepository repository, AuditChainHeadRepository heads,
+                        GovernancePolicyStore policy,
                         @Value("${keelbase.audit.hmac-key}") String chainKey) {
         this.repository = repository;
         this.heads = heads;
+        this.policy = policy;
         this.chainKey = chainKey;
     }
 
@@ -85,6 +89,20 @@ public class AuditService {
     @Transactional
     public AuditLog append(String action, String userId, String detail, boolean isError,
                            String outcome, String tool) {
+        // The governance policy's audit granularity is applied here, on the one path every row travels:
+        // `off` writes nothing at all, which is the one value that changes the chain. `write` and `all`
+        // come to the same set here because this runtime records only tool-scoped rows — it has no
+        // conversation-scoped ones for `all` to add — so a policy of either writes the same chain it
+        // always did. A policy that named this and had it ignored would be the failure mode the store
+        // refuses: a switch on a console that nothing enforces.
+        //
+        // 治理策略的审计粒度就施加在**每一行都要走的这一条路**上：`off` 一行都不写 —— 它是唯一改变这条链的取值。
+        // 这里 `write` 与 `all` 落到同一集合，因为本运行时只记**工具范围**的行、没有会话范围的行可供 `all` 多记 ——
+        // 故取任一都写出与以前一样的那条链。一份点名了它、却被忽略的策略，正是存储**拒绝**的那种失败：一项**没有任何
+        // 东西施加**的开关还显示在控制台上。
+        if ("off".equals(policy.granularity())) {
+            return null;
+        }
         // Serialize here for the rest of the transaction: reading the head hash, computing the next
         // one and inserting it all happen while no other appender can be between those same steps.
         if (heads.lockById(AuditChainHead.SINGLETON).isEmpty()) {

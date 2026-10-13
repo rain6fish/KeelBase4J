@@ -23,18 +23,35 @@ replaying the same corpus is what surfaced the need for this: see `docs/ARCHITEC
 | `conversation-data` | `GET /api/v1/ai/conversations` · `GET /api/v1/ai/conversations/{id}/trace` (its `conversation`) | the caller's **own** conversations — user-scoped rather than administrator-only. A list item carries its opening two turns; a trace's carries the whole conversation |
 | `trace-step` | `GET /api/v1/ai/conversations/{id}/trace` (`steps`) | the conversation's turns as `input` / `assistant` steps, plus **one `notice`** — see below for why that notice is the honest form rather than an omission |
 | `operation-audit-log-row` | `GET /api/v1/audit/operations/logs` | the **operations** chain — business writes, administrators only, newest first, envelopes as `{total, page, limit, items}`. A **second, separate** chain from the AI audit beside it: nothing joins the two, and neither is derived from the other. What the row deliberately does not carry is named below rather than left blank |
+| `governance-policy` | `GET` / `PUT /api/v1/ai/governance/policy` | the policy in force and the surface a console changes it on — **administrators only**. A written policy is **enforced** on the gate the engine runs every call through, not merely stored — see below. A submission naming a tool, a mode or a role this deployment cannot apply is refused with a `400` rather than stored and ignored |
 
-**Three of `ai-tool-inventory`'s fields have no source in this runtime, and they answer their defaults
-rather than a guess.** The reference fills `enabled`, `allowedRoles` and `permissions` from a
-*governance policy* — a per-tool override store this runtime does not have. A registered tool is
-therefore `enabled`, its role list empty and its permissions `null`, which is what "nothing was
-declared" looks like here; inventing values would put a policy on a console that nobody set. Serving
-those fields' real sources is what a governance-policy endpoint would be for.
+**Two of `ai-tool-inventory`'s fields now come from the governance policy; the third still has no
+source.** `enabled` and `allowedRoles` are read from the same per-tool override store the gate reads its
+switches from, so the inventory and the gate cannot disagree about whether a tool is on or who may call
+it; with no policy written they answer their defaults (`true` and an empty list), which is what "nothing
+was declared" looks like here. `permissions` still answers `null`, and `null` is the honest form: the
+reference fills it from a permission set this runtime does not have, and inventing one would put a
+permission on a console nobody set.
 
-**`ai-tool-inventory` 里有三个字段在本运行时没有来源，它们答默认值、而不是猜一个。** 参照实现用**治理策略**
-（一个本运行时没有的逐工具覆盖存储）去填 `enabled`、`allowedRoles` 与 `permissions`。所以这里：已注册的工具就是
-`enabled`、角色列表为空、权限为 `null` —— 那就是「什么都没声明」在本运行时的样子；**编造取值**等于把一份**没人设过**
-的策略显示到控制台上。要让这三个字段有真来源，正是**策略端点**要干的事。
+**A written policy changes what happens next, not only what a page shows.** The store refuses rather
+than stores a setting it cannot apply, and the three it can apply are applied where it matters: a
+disabled tool and a role allowlist refuse at the gate, a gate mode moves it in either direction (R5, the
+irreversible or external tools, is decided before the policy is read, so a policy cannot relax it), and
+the audit granularity governs the AI audit chain — `off` writes no rows, while `write` and `all` come to
+the same chain here because this runtime records only tool-scoped rows. A decision's authorization
+reasons name which check refused it (`risk_policy` / `tool_enabled` / `role_allowed`) and carry the
+`revision` of the policy it was taken under.
+
+**`ai-tool-inventory` 里有两个字段现在取自治理策略，第三个仍无来源。** `enabled` 与 `allowedRoles` 读自
+**那道闸自己读开关的同一个逐工具覆盖存储**，故这张清单与那道闸**不可能**对「工具开没开、谁能调」各执一词；未写过
+策略时它们答默认值（`true` 与空表），那就是「什么都没声明」在本运行时的样子。`permissions` 仍答 `null`，而 `null`
+是**诚实**的形态：参照实现用一个本运行时没有的权限集去填它，**编造一个**等于把一项**没人设过**的权限显示到控制台上。
+
+**一份写下的策略改变的是「接下来会发生什么」，不只是页面显示什么。** 存储**拒绝**它施加不了的设置、而不是存下来，
+而它能施加的三项都施加在**要紧的地方**：被禁用的工具与角色白名单在闸上拒绝，门控档位把闸**双向**移动（R5 —— 不可逆
+或对外的工具 —— 在**读策略之前**就定了，故策略**不能**把它放宽），审计粒度管的是 **AI 审计链** —— `off` 一行不写，
+而 `write` 与 `all` 在这里落到同一条链，因为本运行时只记**工具范围**的行。一次决定的授权依据说得清是**哪条检查**拒的
+（`risk_policy` / `tool_enabled` / `role_allowed`），并带上做出该决定时所依据策略的 `revision`。
 
 **A trace here holds the conversation's turns, and says so about the rest.** The reference's decision
 trace also carries the tool calls, the confirmation decisions and their side effects. This runtime

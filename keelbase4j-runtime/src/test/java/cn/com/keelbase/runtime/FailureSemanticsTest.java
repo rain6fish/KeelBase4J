@@ -28,8 +28,12 @@ import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.effect.SideEffectService;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
+import cn.com.keelbase.runtime.governance.GovernancePolicyHistoryRepository;
+import cn.com.keelbase.runtime.governance.GovernancePolicyRepository;
+import cn.com.keelbase.runtime.governance.GovernancePolicyStore;
 import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.tool.AiTool;
+import cn.com.keelbase.runtime.tool.ToolRegistry;
 import cn.com.keelbase.runtime.tool.ToolResult;
 import java.util.List;
 import java.util.Map;
@@ -262,7 +266,13 @@ class FailureSemanticsTest {
         AuditChainHeadRepository heads = mock(AuditChainHeadRepository.class);
         when(heads.lockById(AuditChainHead.SINGLETON))
                 .thenReturn(Optional.of(new AuditChainHead(AuditChainHead.SINGLETON)));
+        // No policy row, so the granularity answers its default ("all") and the append proceeds to the
+        // failure this case is about.
+        GovernancePolicyRepository policies = mock(GovernancePolicyRepository.class);
+        when(policies.findAll()).thenReturn(List.of());
         AuditService service = new AuditService(broken, heads,
+                new GovernancePolicyStore(policies, mock(GovernancePolicyHistoryRepository.class),
+                        mock(ToolRegistry.class)),
                 "abababababababababababababababababababababababababababababababab");
 
         assertThrows(DataAccessResourceFailureException.class,

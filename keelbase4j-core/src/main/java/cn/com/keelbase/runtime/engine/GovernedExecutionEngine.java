@@ -95,17 +95,32 @@ public class GovernedExecutionEngine {
             }
         }
         switch (decision) {
-            case BLOCK:
+            case BLOCK: {
                 // Whether a row is an error is whether the call went the way the caller asked — the
                 // rule the reference uses (`!approved`, `!result.success`). A refusal, a block and a
                 // decline are all "no"; a call merely waiting on a person is not.
                 //
                 // 一行是不是「错误」，看的是这次调用**有没有按调用方所求发生** —— 参照实现用的就是这条规则
                 // （`!approved`、`!result.success`）。拒绝、拦截、否决都是「没有」；而只是在等人的调用不是。
-                audit.append("tool_call", principal.userId(), toolName + " blocked (risk policy)", true,
+                //
+                // The cause is read off the checks rather than named "risk policy" by hand: a tool can
+                // now be blocked by the governance policy (disabled, or a role it excludes) as well as by
+                // its risk level, and an audit row that said "risk policy" for a policy block would be
+                // the sort of thing a reader only finds out is wrong later.
+                //
+                // 成因从检查里读出、而不是手写一句「risk policy」：一个工具现在既可能**按风险级**被拦，也可能被
+                // **治理策略**拦下（被禁用、或角色被排除），而一行把策略拦的写成功「risk policy」的审计，属于
+                // 读的人**事后才发现写错**的那种。
+                var reasons = governance.reasons(tool, principal);
+                String cause = reasons.checks().stream()
+                        .filter(check -> !check.ok())
+                        .map(cn.com.keelbase.protocol.AuthorizationReasons.Check::name)
+                        .findFirst().orElse(cn.com.keelbase.protocol.GovernanceBinding.DENY_RISK_POLICY);
+                audit.append("tool_call", principal.userId(), toolName + " blocked (" + cause + ")", true,
                         "blocked", toolName);
-                return new ExecutionOutcome("blocked", governance.reasons(tool).toWire(), null, null,
-                        "blocked by risk policy");
+                return new ExecutionOutcome("blocked", reasons.toWire(), null, null,
+                        "blocked by " + cause);
+            }
             case REQUIRE_APPROVAL: {
                 // A high-impact action waits for a second person, so the row is written and its token
                 // returned; nothing runs until somebody else answers it (ADR-0018). Until this branch

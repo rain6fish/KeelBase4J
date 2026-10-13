@@ -15,11 +15,17 @@ public final class GovernanceBinding {
     /** The check that refuses a tool on its risk level alone (R5 — irreversible or external). */
     public static final String DENY_RISK_POLICY = "risk_policy";
 
+    /** The check that refuses a tool a governance policy disables. */
+    public static final String DENY_TOOL_ENABLED = "tool_enabled";
+
+    /** The check that refuses a caller whose role a governance policy's allowlist excludes. */
+    public static final String DENY_ROLE_ALLOWED = "role_allowed";
+
     /** Closed set of denial reasons a gate may report. */
     public static final List<String> DENY_CHECKS = List.of(
             DENY_RISK_POLICY,
-            "tool_enabled",
-            "role_allowed",
+            DENY_TOOL_ENABLED,
+            DENY_ROLE_ALLOWED,
             "feature_flag",
             "admin_only",
             "agent_read_only");
