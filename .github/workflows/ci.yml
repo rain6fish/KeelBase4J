@@ -105,6 +105,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
       # The self-test runs first because it is what says the classification works on *this* machine:
       # the check depends on byte-wise string comparison, and a runner whose awk behaves differently
       # should fail as itself rather than report a clean zero.
@@ -116,6 +119,16 @@ jobs:
         run: bash scripts/check-bilingual-comments.sh --self-test
       - name: Every javadoc block is English and then Chinese
         run: bash scripts/check-bilingual-comments.sh --strict
+      # The same class of gate as the one above, and for the same reason: the "KeelBase family" section
+      # at the top of each README is generated, and a generated section that nobody compares against its
+      # source is a section that drifts. This copy carries a stamp of its own body on its BEGIN line, so
+      # the check needs no sibling checkout and no network access — which is what lets it live here.
+      #
+      # 与上面那道同类，也是同一个道理：每个 README 开头的「KeelBase 家族」段是生成的，而一段没人拿去和
+      # 来源比的生成段会漂。这一份在 BEGIN 行自带自身内容的戳，故校验既不需要兄弟检出、也不需要联网 ——
+      # 这也正是它能待在这里的原因。
+      - name: The generated family section still matches its stamp
+        run: node scripts/check-family-block.mjs
 
   release-rehearsal:
     name: The publish set builds the way a release would build it (JDK ${{ matrix.java }})

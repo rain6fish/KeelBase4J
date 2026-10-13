@@ -18,6 +18,45 @@ repository — the same files any other implementation would use.
 
 ---
 
+<!-- BEGIN keelbase-family:en sha256:2b814db6cf768ed2e451305808a7a612049519af49310cef56ce7a5bc97bad2c -->
+## 🧬 The KeelBase family
+
+> KeelBase is **one protocol with several implementations and hosts** — not a set of competing
+> products. The contract is the source of truth; runtimes and hosts consume it, and none of them
+> owns it. Every repository here is **Apache-2.0**.
+
+```text
+  host adapters   KeelBase-YuDao
+                  └ governance added to a mature enterprise platform (yudao)
+
+  runtimes        KeelBase (TypeScript)   ·   KeelBase4J (Java / Spring)
+                  └ two carriers of the same protocol — peers, not translations
+
+  bridge          KeelBase-java-starter
+                  └ wire an existing Java/Spring system in as governed AI tools
+
+  contract        keelbase-contract
+                  └ wire schemas + conformance vectors + the version line they share
+```
+
+| Repository | Role | Stack | Status |
+|---|---|---|---|
+| [`KeelBase`](https://github.com/rain6fish/KeelBase) | Reference implementation · product documentation · demo | TypeScript · NestJS · Vue · Flutter · Taro | active |
+| [`KeelBase4J`](https://github.com/rain6fish/KeelBase4J) | The Java carrier of the same protocol | Java 17 · Spring Boot | active |
+| [`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter) | Wire an existing Java/Spring system in as governed AI tools | Maven · Gradle | 0.1.x |
+| [`KeelBase-YuDao`](https://github.com/rain6fish/KeelBase-YuDao) | Host adapter — the governance layer on a yudao platform | Java · Vue 3 | active |
+| [`keelbase-contract`](https://github.com/rain6fish/keelbase-contract) | The protocol itself — schemas, vectors, the version line | JSON Schema | v1.x |
+
+**Where to start** — see it run: [`KeelBase`](https://github.com/rain6fish/KeelBase) (60-second
+Docker) · make an existing Java system AI-capable:
+[`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter) · you already run yudao:
+[`KeelBase-YuDao`](https://github.com/rain6fish/KeelBase-YuDao) · implement the protocol:
+[`keelbase-contract`](https://github.com/rain6fish/keelbase-contract).
+
+Which contract version each runtime answers for is maintained **once**, in the main repository — see
+[Compatibility](https://github.com/rain6fish/KeelBase#-compatibility). It is not duplicated here.
+<!-- END keelbase-family:en -->
+
 ## What this is
 
 KeelBase (the reference implementation is TypeScript, `rain6fish/KeelBase`) defines a
@@ -269,21 +308,14 @@ The copy under `conformance/vectors/` is a snapshot; see
 
 ## Repositories
 
-- [`keelbase-contract`](https://github.com/rain6fish/keelbase-contract) — the protocol, independent of any implementation
-- [`KeelBase`](https://github.com/rain6fish/KeelBase) — the TypeScript runtime and the product documentation
-- `KeelBase4J` — this repository; the second carrier of the same protocol
-- [`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter) — Spring Boot starter for the Java side of the bridge
+Every repository in the family, with its role and status, is listed in the **KeelBase family** section
+at the top of this file.
 
 ## Compatibility
 
-The protocol has its own version line, independent of any runtime's. This table says which **contract
-version a runtime answers for** — which objects it has committed to speaking.
-
-| Runtime | Runtime version | Contract version |
-|---|---|---|
-| [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `v1.0.11` | **v1.0.1** — carried in-tree; that release predates the contract repository |
-| [`KeelBase`](https://github.com/rain6fish/KeelBase) (TypeScript) | `main`, **unreleased** | **v1.2.0** — bound as a submodule |
-| `KeelBase4J` (Java) | `v0.1.0` | **v1.1.0** — vendored snapshot, taken from the contract repository |
+The version line itself is maintained **once**, in the main repository — see its
+[Compatibility table](https://github.com/rain6fish/KeelBase#-compatibility). What follows is about the
+conformance snapshot, not about the version line.
 
 The snapshot under `conformance/vectors/` has two sources, and CI checks both: the **protocol half**
 comes straight from the contract repository — at the version this repository answers for, not through a

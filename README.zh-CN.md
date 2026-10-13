@@ -14,6 +14,44 @@ KeelBase 协议才是唯一真源，而不是恰好最先实现它的那份 Type
 
 ---
 
+<!-- BEGIN keelbase-family:zh sha256:71b3f61e591ebb6fe93043059b0e22041d60492f0e6bc804ecc44759bef4312f -->
+## 🧬 KeelBase 家族
+
+> KeelBase 是**一套协议、多个实现与多种宿主**——不是几个互相竞争的产品。契约是唯一真源，
+> 各 runtime 与各宿主消费它，**谁也不拥有它**。这里每个仓都是 **Apache-2.0**。
+
+```text
+  宿主适配   KeelBase-YuDao
+             └ 在成熟企业平台上补治理层（芋道）
+
+  runtime    KeelBase（TypeScript）  ·  KeelBase4J（Java / Spring）
+             └ 同一协议的两个载体——互为平行，不是翻译关系
+
+  桥接       KeelBase-java-starter
+             └ 把存量 Java/Spring 系统接成受治理的 AI 工具
+
+  契约       keelbase-contract
+             └ 线缆 schema + 一致性向量 + 两者共用的版本线
+```
+
+| 仓 | 角色 | 技术栈 | 状态 |
+|---|---|---|---|
+| [`KeelBase`](https://github.com/rain6fish/KeelBase) | 参考实现 · 产品文档 · 演示 | TypeScript · NestJS · Vue · Flutter · Taro | 活跃 |
+| [`KeelBase4J`](https://github.com/rain6fish/KeelBase4J) | 同一协议的 Java 载体 | Java 17 · Spring Boot | 活跃 |
+| [`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter) | 把存量 Java/Spring 系统接成受治理的 AI 工具 | Maven · Gradle | 0.1.x |
+| [`KeelBase-YuDao`](https://github.com/rain6fish/KeelBase-YuDao) | 宿主适配——芋道平台上的治理层 | Java · Vue 3 | 活跃 |
+| [`keelbase-contract`](https://github.com/rain6fish/keelbase-contract) | 协议本体——schema、向量、版本线 | JSON Schema | v1.x |
+
+**从哪里开始** —— 想看它跑起来：[`KeelBase`](https://github.com/rain6fish/KeelBase)（60 秒
+Docker）· 想让存量 Java 系统具备 AI 能力：
+[`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter) · 你已经在用芋道：
+[`KeelBase-YuDao`](https://github.com/rain6fish/KeelBase-YuDao) · 想实现这个协议：
+[`keelbase-contract`](https://github.com/rain6fish/keelbase-contract)。
+
+每个 runtime 对着哪一版契约应答，**只在主仓维护一处**——见
+[兼容矩阵](https://github.com/rain6fish/KeelBase/blob/main/README.zh-CN.md#-兼容矩阵)。此处不重复。
+<!-- END keelbase-family:zh -->
+
 ## 这是什么
 
 KeelBase（参照实现是 TypeScript，位于 `rain6fish/KeelBase`）定义了一套语言无关的 AI 治理协议：审计哈希链、委托令牌、工具风险级、确认生命周期，以及权限/授权线缆契约。
@@ -200,21 +238,13 @@ bash scripts/demo-changeability.sh    # 手改在变更后存活
 
 ## 仓库
 
-- [`keelbase-contract`](https://github.com/rain6fish/keelbase-contract)——协议本体，独立于任何实现
-- [`KeelBase`](https://github.com/rain6fish/KeelBase)——TypeScript runtime 与产品文档
-- `KeelBase4J`——本仓，同一协议的第二载体
-- [`KeelBase-java-starter`](https://github.com/rain6fish/KeelBase-java-starter)——桥接的 Java 侧 Spring Boot Starter
+家族各仓（角色 · 技术栈 · 状态）见本文开头的 **「KeelBase 家族」** 段。
 
 ## 兼容矩阵
 
-协议有自己的一条版本线，独立于任何 runtime 的版本。下表说明**每个 runtime 对着哪一版契约应答**——
-也就是它已承诺会说哪些对象。
-
-| Runtime | Runtime 版本 | Contract 版本 |
-|---|---|---|
-| [`KeelBase`](https://github.com/rain6fish/KeelBase)（TypeScript） | `v1.0.11` | **v1.0.1**——树内携带；该发布早于契约仓的建立 |
-| [`KeelBase`](https://github.com/rain6fish/KeelBase)（TypeScript） | `main`，**未发布** | **v1.2.0**——以 submodule 绑定 |
-| `KeelBase4J`（Java） | `v0.1.0` | **v1.1.0**——vendor 快照，取自契约仓 |
+版本线本身**只在主仓维护一处**——见其
+[兼容矩阵](https://github.com/rain6fish/KeelBase/blob/main/README.zh-CN.md#-兼容矩阵)。以下讲的是
+一致性快照，不是版本线。
 
 `conformance/vectors/` 下的快照有**两个来源**，CI 两个都查：**协议那一半**直接来自契约仓——是**本仓应答的
 那一版**，而不是经由某个消费方仓转发——**场景包**来自主仓，它们本就住在那里。所以那个曾让它成为
