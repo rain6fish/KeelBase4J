@@ -16,6 +16,13 @@
 #      included, on the baseline JDK and on 25 (javadoc is the part most likely to disagree with a newer
 #      one). Also not a conformance claim, and for the same reason as 3: the release job's own
 #      check runs after the tag exists, which is the moment nothing can be undone.
+#   5. version-coordinate — no local coordinate of this runtime claims a release it was not built from.
+#      The same shape as 3 and 4: the version only advances inside a release commit, so a tree left on a
+#      released number keeps building under that number, and a local install then answers for a release
+#      it was not built from — silently, on whatever machine did the install. The gate reads the local
+#      Maven repository against this repository's own tags and fails when a released coordinate holds a
+#      jar written after that release. An install runs first, and it is not incidental: a fresh runner
+#      has nothing to read, so without it the gate would pass by having nothing to look at.
 name: CI
 
 on:
@@ -192,4 +199,37 @@ jobs:
             echo "expected the parent pom, keelbase4j-protocol, keelbase4j-core and keelbase4j-springai" >&2
             exit 1
           }
+
+  version-coordinate:
+    name: No local coordinate claims a release it was not built from
+    runs-on: ubuntu-latest
+    # The check compares the local Maven repository against this repository's release tags, and a fresh
+    # runner has neither a populated repository nor, by default, any tags — so the job supplies both.
+    # A full checkout brings the tags; installing the reactor puts this tree's own version into ~/.m2,
+    # and that install is the whole reason the check can say anything: a clean runner has nothing to
+    # read, so on its own the check would pass by finding nothing. With a version a tag already owns,
+    # the install writes under that released coordinate and the check finds a jar built here where the
+    # published artifact belongs. The release commit itself is not caught — its version has no tag yet,
+    # so there is nothing to compare it against; the bump that must follow it is the thing that is.
+    #
+    # 这道检查拿本机 Maven 仓库去对本仓的发版 tag，而干净的 runner 既没有填过的仓库、默认也没有任何 tag
+    # —— 所以本 job 两样都补上：完整检出把 tag 带进来；安装 reactor 把这棵树自己的版本写进 ~/.m2，
+    # 而**正是这次安装**让检查说得上话：干净的 runner 无物可读，故单靠它只会「什么都没找到」地通过。
+    # 当版本号是某个 tag 已占用的号时，安装就写进那个已发布坐标，检查便在发布物该在的地方发现一份本地构建的 jar。
+    # 发版提交本身不会被拦 —— 那个版本的 tag 还不存在、无物可比；该被拦的是它之后必须发生的那次递增。
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The tags are the reference itself; a shallow clone carries none.
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Install the reactor under the version this tree declares
+        run: mvn -B -ntp -DskipTests install
+      - name: No released coordinate holds a jar this tree built
+        run: bash scripts/check-m2-drift.sh --strict
 
