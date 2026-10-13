@@ -72,6 +72,12 @@ public class JavaGenerator {
         // 操作链（第二条审计，记的是**业务写本身**）。版本钉在 V3，且在下面的 diff **之前** keep —— 与 V2
         // 同一做法、同一个理由：后续的变更于是取它**之后**的号，而不是与它撞车。
         project.keep(migrationDir.resolve("V3__operation_audit_log.sql"), operationAuditMigration());
+        // The governance policy: one row holding it, and one row per version it has been. Version-pinned
+        // at V4, kept before the diff below the same way V2 and V3 are and for the same reason.
+        //
+        // 治理策略：一行存着它，另一行记它曾经是什么。版本钉在 V4，与 V2、V3 一样在下面的 diff **之前**
+        // keep，理由也相同。
+        project.keep(migrationDir.resolve("V4__governance_policy.sql"), governancePolicyMigration());
         if (!fresh) {
             Map<String, List<String>> missing = missingColumns(spec, applied);
             if (!missing.isEmpty()) {
@@ -183,6 +189,23 @@ public class JavaGenerator {
         project.write(javaDir.resolve("web/OperationsAuditConfiguration.java"),
                 operationsAuditConfiguration(pkg));
         project.write(javaDir.resolve("web/OperationAuditController.java"), operationAuditController(pkg));
+        // The governance policy: what this deployment has declared about its tools, and where a console
+        // changes it — enforced at the gate the engine runs every call through, not merely stored.
+        // Emitted whole (rows, repositories, store, endpoint, migration) because the generated
+        // application depends only on the protocol library.
+        //
+        // 治理策略：本部署就它的工具声明了什么，以及控制台在哪里改它 —— 在**引擎每次调用都要过的那道闸**上
+        // 施加、不是只存着。整份发射（行 · 仓储 · 存储 · 端点 · 迁移），因为生成物只依赖协议库。
+        project.write(javaDir.resolve("policy/GovernancePolicyRow.java"), governancePolicyRow(pkg));
+        project.write(javaDir.resolve("policy/GovernancePolicyHistoryRow.java"),
+                governancePolicyHistoryRow(pkg));
+        project.write(javaDir.resolve("policy/GovernancePolicyRepository.java"),
+                governancePolicyRepository(pkg));
+        project.write(javaDir.resolve("policy/GovernancePolicyHistoryRepository.java"),
+                governancePolicyHistoryRepository(pkg));
+        project.write(javaDir.resolve("policy/GovernancePolicyStore.java"), governancePolicyStore(pkg));
+        project.write(javaDir.resolve("web/GovernancePolicyController.java"),
+                governancePolicyController(pkg));
         // One CRUD controller per entity, each enforcing the spec's policy rules. Everything else about
         // a second entity was already generated — its table, its repository, and its rule in the
         // authorization source — so leaving its REST surface out made half of the model reachable only
@@ -489,6 +512,22 @@ public class JavaGenerator {
         sb.append("redact by, so a stored body would be a leak), the field-level diff, and the two hash columns\n");
         sb.append("(a chained audit needs a second chain head and its own locking). The recorder is on by\n");
         sb.append("default; turn it off with `keelbase.operations-audit.enabled=false`.\n\n");
+        sb.append("## The governance policy\n\n");
+        sb.append("What this deployment has declared about its tools, and where a console changes it:\n\n");
+        sb.append("```\nGET /ai/governance/policy              (administrators only)\n");
+        sb.append("PUT /ai/governance/policy              ->  same object back\n");
+        sb.append("->  { tools: { <name>: { enabled?, requiresConfirmation?, mode?, allowedRoles? } },\n");
+        sb.append("      audit: { granularity: \"all\" | \"write\" | \"off\" }, updatedAt, revision }\n```\n\n");
+        sb.append("**A written policy is enforced, not merely stored.** A disabled tool and a role allowlist\n");
+        sb.append("refuse at the gate the engine runs every call through, an explicit `mode` moves that gate,\n");
+        sb.append("and the granularity governs the AI audit chain (`off` writes no rows). R5 is decided before\n");
+        sb.append("the policy is read, so a policy cannot relax it, and the catalogue reads the same policy, so\n");
+        sb.append("the list and the gate cannot disagree.\n\n");
+        sb.append("**A submission it cannot apply is refused, in whole, with the reason** — a `400`, not a\n");
+        sb.append("silently ignored setting: a tool this application does not register, a mode outside the\n");
+        sb.append("frozen three, a role outside this application's vocabulary, or an unknown key. `revision`\n");
+        sb.append("is the frozen object's first-twelve-hex content fingerprint, so the same policy submitted\n");
+        sb.append("twice fingerprints the same.\n\n");
         sb.append("## Streaming\n\n");
         sb.append("`POST /ai/chat/stream` answers `text/event-stream` — the channel the web console's assistant\n");
         sb.append("drawer uses. An administrator is sent to `/admin/ai/chat/stream`: same handler, gated by the\n");
@@ -1102,27 +1141,88 @@ public class JavaGenerator {
                 package %s.ai;
 
                 import cn.com.keelbase.protocol.RiskLevel;
+                import %s.policy.GovernancePolicyStore;
+                import java.util.List;
+                import java.util.Map;
                 import org.springframework.stereotype.Component;
 
-                /** A tool's declared risk level maps to a decision via the frozen protocol binding. */
+                /**
+                 * A tool's declared risk level — and the governance policy in force — map to a decision.
+                 *
+                 * <p>The risk level alone is the frozen protocol binding. On top of it sit the policy's
+                 * per-tool overrides, which is where a deployment narrows or widens a gate without a code
+                 * change — and which is why a written policy is enforced here rather than merely stored.
+                 * <b>The order matters, and it is the runtime's:</b> R5 is decided first and the policy
+                 * never sees it (an irreversible or external tool is refused on its risk level, and a
+                 * policy cannot relax that); then a disabled tool and an excluded role refuse; then an
+                 * explicit gate mode overrides the risk binding; then the legacy boolean, then the risk
+                 * binding itself.
+                 *
+                 * 一个工具声明的风险级 —— 以及生效中的治理策略 —— 映射成一个决定。
+                 *
+                 * <p>光看风险级，就是冻结的协议绑定。其上叠着策略的逐工具覆盖，那是**部署方不发版就能收窄或
+                 * 放宽一道闸**的地方 —— 也正是「写下的策略在这里被**施加**、而不是仅仅被存着」的原因。
+                 * <b>顺序要紧，且用的是运行时的顺序：</b> R5 先定、策略根本见不到它（不可逆或对外的工具**按风险级
+                 * 被拒**，策略**不能**放宽）；然后禁用的工具与被排除的角色被拒；再是显式的门控档位覆盖风险绑定；
+                 * 最后才是 legacy 布尔、再是风险绑定本身。
+                 */
                 @Component
                 public class GovernanceGate {
 
-                    public String decide(AiTool tool) {
+                    private final GovernancePolicyStore policy;
+
+                    public GovernanceGate(GovernancePolicyStore policy) {
+                        this.policy = policy;
+                    }
+
+                    public String decide(AiTool tool, String role) {
                         String strategy = RiskLevel.strategy(tool.riskLevel());
-                        switch (strategy) {
-                            case "block":
-                                return "BLOCK";
-                            case "human_approval":
-                                return "REQUIRE_APPROVAL";
-                            case "confirmation":
-                                return "CONFIRM";
-                            default:
-                                return "ALLOW";
+                        // R5 is refused on the risk level and the policy is not consulted: a gate decided
+                        // before the policy is read cannot be widened by it.
+                        //
+                        // R5 按风险级被拒、**不查策略**：在读策略之前就定下的闸，不可能被策略放宽。
+                        if ("block".equals(strategy)) {
+                            return "BLOCK";
                         }
+                        Map<String, Object> override = policy.overrideFor(tool.name());
+                        if (Boolean.FALSE.equals(override.get("enabled"))) {
+                            return "BLOCK";
+                        }
+                        List<String> allowedRoles = allowedRoles(override);
+                        if (!allowedRoles.isEmpty() && !allowedRoles.contains(role)) {
+                            return "BLOCK";
+                        }
+                        Object mode = override.get("mode");
+                        if (mode != null) {
+                            return switch (String.valueOf(mode)) {
+                                case "confirm" -> "CONFIRM";
+                                case "approval" -> "REQUIRE_APPROVAL";
+                                default -> "ALLOW";
+                            };
+                        }
+                        if (Boolean.FALSE.equals(override.get("requiresConfirmation"))) {
+                            return "ALLOW";
+                        }
+                        if ("human_approval".equals(strategy)) {
+                            return "REQUIRE_APPROVAL";
+                        }
+                        if ("confirmation".equals(strategy)
+                                || Boolean.TRUE.equals(override.get("requiresConfirmation"))) {
+                            return "CONFIRM";
+                        }
+                        return "ALLOW";
+                    }
+
+                    /** The role allowlist the policy names for a tool — empty means "no restriction". */
+                    private static List<String> allowedRoles(Map<String, Object> override) {
+                        Object roles = override.get("allowedRoles");
+                        if (!(roles instanceof List<?> list)) {
+                            return List.of();
+                        }
+                        return list.stream().map(String::valueOf).toList();
                     }
                 }
-                """.formatted(pkg);
+                """.formatted(pkg, pkg);
     }
 
     private String toolRegistry(String pkg) {
@@ -1469,6 +1569,7 @@ public class JavaGenerator {
                 package %s.ai;
 
                 import cn.com.keelbase.protocol.AuditChain;
+                import %s.policy.GovernancePolicyStore;
                 import java.time.Instant;
                 import java.util.ArrayList;
                 import java.util.LinkedHashMap;
@@ -1533,10 +1634,12 @@ public class JavaGenerator {
 
                     private final List<Row> rows = new ArrayList<>();
                     private final String key;
+                    private final GovernancePolicyStore policy;
 
                     public AuditChainStore(@Value("${keelbase.audit.hmac-key:abababababababababababababababababababababababababababababababab}")
-                                           String key) {
+                                           String key, GovernancePolicyStore policy) {
                         this.key = key;
+                        this.policy = policy;
                     }
 
                     /**
@@ -1561,6 +1664,17 @@ public class JavaGenerator {
                     public synchronized void append(String action, String userId, String detail,
                                                     boolean isError, String outcome, String tool,
                                                     String conversationId) {
+                        // The policy's audit granularity is applied here, on the one path every row
+                        // travels: `off` writes nothing at all. `write` and `all` come to the same chain
+                        // here, because this application records only tool-scoped rows. A policy that named
+                        // this and had it ignored would be a switch on a console that nothing enforces.
+                        //
+                        // 策略的审计粒度就施加在**每一行都要走的这一条路**上：`off` 一行都不写。这里 `write`
+                        // 与 `all` 落到同一条链，因为本应用只记**工具范围**的行。一份点名了它、却被忽略的策略，
+                        // 就是一项**没有任何东西施加**的开关还显示在控制台上。
+                        if ("off".equals(policy.granularity())) {
+                            return;
+                        }
                         String prev = rows.isEmpty() ? null : rows.get(rows.size() - 1).hash();
                         String hash = AuditChain.hash(key, prev, payload(action, userId, detail));
                         rows.add(new Row(rows.size() + 1, action, userId, detail, Instant.now(), isError,
@@ -1618,7 +1732,7 @@ public class JavaGenerator {
                         return payload;
                     }
                 }
-                """.formatted(pkg);
+                """.formatted(pkg, pkg);
     }
 
     private String governanceEngine(String pkg) {
@@ -1667,9 +1781,9 @@ public class JavaGenerator {
                      * （一次任务运行）下为 null；那样的一行本来不属于任何会话，也不出现在任何追踪里。
                      */
                     public Map<String, Object> execute(String toolName, Map<String, Object> args, String userId,
-                                                       String conversationId) {
+                                                       String role, String conversationId) {
                         AiTool tool = registry.require(toolName);
-                        String decision = gate.decide(tool);
+                        String decision = gate.decide(tool, role);
                         if ("BLOCK".equals(decision)) {
                             // Whether a row is an error is whether the call went the way the caller asked —
                             // the rule the runtime applies. A block is a "no"; a proposal merely waiting on
@@ -2906,7 +3020,7 @@ public class JavaGenerator {
                         // this — risk, confirmation and audit are applied by the engine, unconditionally.
                         Map<String, Object> outcome = plan == null
                                 ? null
-                                : engine.execute(plan.tool(), plan.args(), principal.userId(), id);
+                                : engine.execute(plan.tool(), plan.args(), principal.userId(), principal.role(), id);
 
                         Reply reply = replier.reply(message, turns(id), outcome);
                         conversations.append(id, principal.userId(), ConversationMessage.ASSISTANT, reply.text());
@@ -3228,6 +3342,7 @@ public class JavaGenerator {
                 import %s.ai.GovernanceGate;
                 import %s.ai.ToolRegistry;
                 import cn.com.keelbase.protocol.RiskLevel;
+                import %s.policy.GovernancePolicyStore;
                 import %s.identity.IdentityEvidence;
                 import %s.identity.IdentityResolver;
                 import %s.identity.Principal;
@@ -3266,14 +3381,17 @@ public class JavaGenerator {
                     private final ChatTurnService turns;
                     private final GovernanceEngine engine;
                     private final GovernanceGate gate;
+                    private final GovernancePolicyStore policy;
                     private final IdentityResolver identities;
 
                     public AiController(ToolRegistry registry, ChatTurnService turns, GovernanceEngine engine,
-                                        GovernanceGate gate, IdentityResolver identities) {
+                                        GovernanceGate gate, GovernancePolicyStore policy,
+                                        IdentityResolver identities) {
                         this.registry = registry;
                         this.turns = turns;
                         this.engine = engine;
                         this.gate = gate;
+                        this.policy = policy;
                         this.identities = identities;
                     }
 
@@ -3304,7 +3422,7 @@ public class JavaGenerator {
                             //
                             // 治理那一半向**引擎自己用的那道闸**问来、从不复述：闸要确认的工具，不可能被列成
                             // 一个**自己就会跑**的工具。
-                            String decision = gate.decide(tool);
+                            String decision = gate.decide(tool, principal.role());
                             Map<String, Object> view = new LinkedHashMap<>();
                             view.put("name", tool.name());
                             view.put("description", tool.description());
@@ -3315,7 +3433,14 @@ public class JavaGenerator {
                             // 本应用不声明参数表，故对象要求的那数组**空着**、不是编一个 —— 与运行时自己的清单
                             // 对未设的维度报的是同一句「什么都没声明」。
                             view.put("parameters", List.of());
-                            view.put("enabled", true);
+                            // The switch and the role list come from the policy the gate itself reads, so a
+                            // tool the policy disabled is not shown as enabled; with no policy written both
+                            // answer their defaults.
+                            //
+                            // 开关与角色表取自**那道闸自己读的**那份策略，故被策略禁用的工具在这里**不会**显示成
+                            // 开着；未写过策略时两者都答默认值。
+                            Map<String, Object> override = policy.overrideFor(tool.name());
+                            view.put("enabled", override.getOrDefault("enabled", true));
                             view.put("requiresConfirmation",
                                     "CONFIRM".equals(decision) || "REQUIRE_APPROVAL".equals(decision));
                             view.put("requiresApproval", "REQUIRE_APPROVAL".equals(decision));
@@ -3325,7 +3450,7 @@ public class JavaGenerator {
                                 case "REQUIRE_APPROVAL" -> "approval";
                                 default -> "auto";
                             });
-                            view.put("allowedRoles", List.of());
+                            view.put("allowedRoles", override.getOrDefault("allowedRoles", List.of()));
                             view.put("permissions", null);
                             view.put("riskLevel", tool.riskLevel());
                             view.put("riskStrategy", RiskLevel.strategy(tool.riskLevel()));
@@ -3407,7 +3532,7 @@ public class JavaGenerator {
                                 "decision must be approve or decline");
                     }
                 }
-                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg, pkg);
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg);
     }
 
     private String authController(String pkg) {
@@ -5402,5 +5527,532 @@ public class JavaGenerator {
                     }
                 }
                 """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
+    }
+
+    // ── The governance policy: what this deployment declared, and what saying it does ─────────────
+
+    /**
+     * The policy's tables: one row holding it, and one row per version it has been.
+     *
+     * 策略的表：一行存着它，另一行记它曾经是什么。
+     */
+    private String governancePolicyMigration() {
+        return """
+                -- The governance policy: one row holding it, and one row per version it has been.
+                --
+                -- The policy is stored as the JSON the frozen `governance-policy` object describes rather
+                -- than shredded into columns: its `tools` map is keyed by tool name and its overrides are
+                -- open, so a table per field would be this application inventing a shape the contract
+                -- deliberately left open.
+                --
+                -- The history table exists because a policy change is a governance act and nothing else
+                -- records it: the operations chain excludes the AI surface, and an AI-surface endpoint is
+                -- not a business operation. Each accepted write leaves the revision it produced.
+                --
+                -- 治理策略：一行存着它，另一行记它曾经是什么。
+                --
+                -- 策略按冻结 `governance-policy` 对象所描述的那份 JSON 存，而不是拆成列：该对象的 `tools`
+                -- 以**工具名**为键、覆盖项又是开放的，所以「一字段一列」等于本应用**自己发明一个契约刻意留开
+                -- 的形状**。
+                --
+                -- 历史表存在，是因为**改策略是一次治理动作、而没有别的东西记它**：操作链**排除 AI 面**，
+                -- 而 AI 面上的端点不是业务操作。每一次被接受的写都留下它产出的 revision。
+
+                CREATE TABLE governance_policy (
+                    id          BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    policy_json TEXT NOT NULL,
+                    updated_at  TIMESTAMP(6) WITH TIME ZONE NOT NULL
+                );
+
+                CREATE TABLE governance_policy_history (
+                    id          BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    revision    VARCHAR(64) NOT NULL,
+                    policy_json TEXT NOT NULL,
+                    applied_at  TIMESTAMP(6) WITH TIME ZONE NOT NULL
+                );
+                """;
+    }
+
+    /** The one row holding the policy, as the JSON the frozen object describes. */
+    private String governancePolicyRow(String pkg) {
+        return """
+                package %s.policy;
+
+                import jakarta.persistence.Column;
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.GeneratedValue;
+                import jakarta.persistence.GenerationType;
+                import jakarta.persistence.Id;
+                import jakarta.persistence.Table;
+                import java.time.Instant;
+
+                /** The one row holding the governance policy, as the JSON the frozen object describes. */
+                @Entity
+                @Table(name = "governance_policy")
+                public class GovernancePolicyRow {
+
+                    @Id
+                    @GeneratedValue(strategy = GenerationType.IDENTITY)
+                    private Long id;
+
+                    @Column(name = "policy_json", nullable = false)
+                    private String policyJson;
+
+                    @Column(name = "updated_at", nullable = false)
+                    private Instant updatedAt = Instant.now();
+
+                    protected GovernancePolicyRow() {
+                    }
+
+                    public GovernancePolicyRow(String policyJson) {
+                        this.policyJson = policyJson;
+                    }
+
+                    public Long getId() {
+                        return id;
+                    }
+
+                    public String getPolicyJson() {
+                        return policyJson;
+                    }
+
+                    public Instant getUpdatedAt() {
+                        return updatedAt;
+                    }
+
+                    public void setPolicyJson(String policyJson) {
+                        this.policyJson = policyJson;
+                        this.updatedAt = Instant.now();
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    /** One version a policy has been: its content fingerprint, the content, and when it was applied. */
+    private String governancePolicyHistoryRow(String pkg) {
+        return """
+                package %s.policy;
+
+                import jakarta.persistence.Column;
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.GeneratedValue;
+                import jakarta.persistence.GenerationType;
+                import jakarta.persistence.Id;
+                import jakarta.persistence.Table;
+                import java.time.Instant;
+
+                /** One version a policy has been: its content fingerprint, the content, and when it was applied. */
+                @Entity
+                @Table(name = "governance_policy_history")
+                public class GovernancePolicyHistoryRow {
+
+                    @Id
+                    @GeneratedValue(strategy = GenerationType.IDENTITY)
+                    private Long id;
+
+                    @Column(nullable = false, length = 64)
+                    private String revision;
+
+                    @Column(name = "policy_json", nullable = false)
+                    private String policyJson;
+
+                    @Column(name = "applied_at", nullable = false)
+                    private Instant appliedAt = Instant.now();
+
+                    protected GovernancePolicyHistoryRow() {
+                    }
+
+                    public GovernancePolicyHistoryRow(String revision, String policyJson) {
+                        this.revision = revision;
+                        this.policyJson = policyJson;
+                    }
+
+                    public Long getId() {
+                        return id;
+                    }
+
+                    public String getRevision() {
+                        return revision;
+                    }
+
+                    public String getPolicyJson() {
+                        return policyJson;
+                    }
+
+                    public Instant getAppliedAt() {
+                        return appliedAt;
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    private String governancePolicyRepository(String pkg) {
+        return """
+                package %s.policy;
+
+                import org.springframework.data.jpa.repository.JpaRepository;
+
+                public interface GovernancePolicyRepository extends JpaRepository<GovernancePolicyRow, Long> {
+                }
+                """.formatted(pkg);
+    }
+
+    private String governancePolicyHistoryRepository(String pkg) {
+        return """
+                package %s.policy;
+
+                import org.springframework.data.jpa.repository.JpaRepository;
+
+                public interface GovernancePolicyHistoryRepository
+                        extends JpaRepository<GovernancePolicyHistoryRow, Long> {
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * The policy in force — what it says, and what saying it does.
+     *
+     * <p><b>Nothing is accepted and then ignored.</b> A policy naming a tool this application does not
+     * register, a mode outside the frozen three, or a role outside this application's vocabulary is
+     * refused with the reason, in the same spirit as the operations endpoint refusing a filter it
+     * cannot apply. The two derived keys are the exception: {@code updatedAt} and {@code revision} are
+     * this object's own fields, filled in here, so a console that reads a policy and writes it back is
+     * not refused for returning what it was handed.
+     *
+     * <p><b>The revision is content, not a counter.</b> It is the digest of the ordered canonical JSON
+     * cut to the width the frozen object documents (its first twelve hex), so the same policy submitted
+     * twice produces the same revision rather than a version of nothing.
+     *
+     * **生效中的治理策略** —— 它说什么，以及说出口之后做什么。
+     *
+     * <p><b>没有任何东西是「接受了、然后被忽略」的。</b> 点名了本应用**没有注册**的工具、用了冻结三值之外的
+     * `mode`、或点名了本应用**词表之外**的角色，都会被**拒绝并给出理由** —— 与操作审计端点**拒绝一个它施加
+     * 不了的筛选**同一个道理。两个**派生键**是例外：`updatedAt` 与 `revision` 是这个对象**自己的字段**、
+     * 在这里填上，所以一个控制台**读出来再写回去**，不会因为「把它拿到的东西还回来」被拒。
+     *
+     * <p><b>revision 是内容、不是计数。</b> 它是**有序**规范化 JSON 摘要**截到冻结对象写明的宽度**（前十二位
+     * 十六进制），所以同一份策略提交两次得到同一个 revision，而不是凭空多出一个版本。
+     */
+    private String governancePolicyStore(String pkg) {
+        return """
+                package %s.policy;
+
+                import cn.com.keelbase.protocol.CanonicalJson;
+                import cn.com.keelbase.protocol.Json;
+                import %s.ai.AiTool;
+                import %s.ai.ToolRegistry;
+                import %s.identity.Principal;
+                import java.nio.charset.StandardCharsets;
+                import java.security.MessageDigest;
+                import java.security.NoSuchAlgorithmException;
+                import java.util.ArrayList;
+                import java.util.LinkedHashMap;
+                import java.util.List;
+                import java.util.Map;
+                import java.util.Set;
+                import org.springframework.http.HttpStatus;
+                import org.springframework.stereotype.Component;
+                import org.springframework.web.server.ResponseStatusException;
+
+                @Component
+                public class GovernancePolicyStore {
+
+                    /** The frozen vocabulary's own granularity, and what is answered when nothing is stored. */
+                    public static final String DEFAULT_GRANULARITY = "all";
+
+                    private static final Set<String> GRANULARITIES = Set.of("all", "write", "off");
+                    private static final Set<String> MODES = Set.of("auto", "confirm", "approval");
+                    /** This application's role vocabulary — the contract's own two values, and nothing else. */
+                    private static final Set<String> KNOWN_ROLES =
+                            Set.of(Principal.ROLE_USER, Principal.ROLE_ADMIN);
+                    private static final Set<String> OVERRIDE_KEYS =
+                            Set.of("enabled", "requiresConfirmation", "allowedRoles", "mode");
+                    private static final Set<String> AUDIT_KEYS = Set.of("granularity");
+                    private static final Set<String> STORED_KEYS =
+                            Set.of("tools", "audit", "updatedAt", "revision");
+                    /** The revision's width in hex digits, as the frozen object documents it. */
+                    private static final int REVISION_HEX = 12;
+
+                    private final GovernancePolicyRepository policies;
+                    private final GovernancePolicyHistoryRepository history;
+                    private final ToolRegistry tools;
+
+                    public GovernancePolicyStore(GovernancePolicyRepository policies,
+                                                 GovernancePolicyHistoryRepository history, ToolRegistry tools) {
+                        this.policies = policies;
+                        this.history = history;
+                        this.tools = tools;
+                    }
+
+                    /** The policy in force, or the frozen default when none was ever written. */
+                    public Map<String, Object> current() {
+                        return policies.findAll().stream().findFirst()
+                                .map(row -> view(row.getPolicyJson(), row.getUpdatedAt()))
+                                .orElseGet(() -> view(defaultJson(), null));
+                    }
+
+                    /**
+                     * Replace the policy — or refuse the submission, in whole, with the reason. A policy is
+                     * not applied field by field: half of one is a gate nobody asked for.
+                     */
+                    public Map<String, Object> set(Map<String, Object> body) {
+                        rejectUnknown(body.keySet(), STORED_KEYS, "the policy");
+                        Map<String, Object> tools = requireMap(body.get("tools"), "`tools`");
+                        Map<String, Object> audit = requireMap(body.get("audit"), "`audit`");
+                        for (Map.Entry<String, Object> entry : tools.entrySet()) {
+                            if (this.tools.all().stream().noneMatch(tool -> tool.name().equals(entry.getKey()))) {
+                                throw refused("`tools` names `" + entry.getKey() + "`, which this application "
+                                        + "does not register — an override for it could only be ignored");
+                            }
+                            validateOverride(entry.getKey(), requireMap(entry.getValue(),
+                                    "the override for `" + entry.getKey() + "`"));
+                        }
+                        rejectUnknown(audit.keySet(), AUDIT_KEYS, "`audit`");
+                        if (!GRANULARITIES.contains(String.valueOf(audit.get("granularity")))) {
+                            throw refused("`audit.granularity` must be one of " + GRANULARITIES + ", not `"
+                                    + audit.get("granularity") + "`");
+                        }
+                        String json = CanonicalJson.json(ordered(tools, audit));
+                        GovernancePolicyRow row = policies.findAll().stream().findFirst()
+                                .orElseGet(() -> new GovernancePolicyRow(json));
+                        row.setPolicyJson(json);
+                        policies.save(row);
+                        history.save(new GovernancePolicyHistoryRow(revision(json), json));
+                        return view(json, row.getUpdatedAt());
+                    }
+
+                    /**
+                     * What the policy says about one tool, or an empty map — the shape every reader here
+                     * wants, so that "no override" and "an override that says nothing" cannot be told
+                     * apart by accident.
+                     */
+                    public Map<String, Object> overrideFor(String toolName) {
+                        Object stored = currentTools().get(toolName);
+                        return stored instanceof Map<?, ?> override ? stringKeys(override) : Map.of();
+                    }
+
+                    /**
+                     * How much this application records on its AI audit chain. It governs the AI chain
+                     * rather than the operations one: `off` writes nothing at all, while `write` and `all`
+                     * come to the same set here — this application records only tool-scoped rows, so it
+                     * has no conversation-scoped ones for `all` to add.
+                     *
+                     * 本应用往它的 **AI 审计链**里记多少。它管的是 AI 链、不是操作链：`off` 一行都不写，而
+                     * 这里 `write` 与 `all` 落到同一集合 —— 本应用只记**工具范围**的行、没有会话范围的行可供
+                     * `all` 多记。
+                     */
+                    public String granularity() {
+                        Object audit = current().get("audit");
+                        Object granularity = audit instanceof Map<?, ?> block ? block.get("granularity") : null;
+                        return granularity == null ? DEFAULT_GRANULARITY : String.valueOf(granularity);
+                    }
+
+                    /** The revision of the policy in force — the fingerprint a decision is recorded under. */
+                    public String currentRevision() {
+                        return String.valueOf(current().get("revision"));
+                    }
+
+                    private Map<String, Object> currentTools() {
+                        Object stored = current().get("tools");
+                        return stored instanceof Map<?, ?> all ? stringKeys(all) : Map.of();
+                    }
+
+                    private static void validateOverride(String toolName, Map<String, Object> override) {
+                        rejectUnknown(override.keySet(), OVERRIDE_KEYS, "the override for `" + toolName + "`");
+                        for (String flag : List.of("enabled", "requiresConfirmation")) {
+                            if (override.containsKey(flag) && !(override.get(flag) instanceof Boolean)) {
+                                throw refused("`" + toolName + "." + flag + "` must be true or false");
+                            }
+                        }
+                        if (override.containsKey("mode") && !MODES.contains(String.valueOf(override.get("mode")))) {
+                            throw refused("`" + toolName + ".mode` must be one of " + MODES + " — a policy can "
+                                    + "tighten or relax a gate, but it cannot invent a mode");
+                        }
+                        if (override.containsKey("allowedRoles")) {
+                            if (!(override.get("allowedRoles") instanceof List<?> roles)) {
+                                throw refused("`" + toolName + ".allowedRoles` must be a list of roles");
+                            }
+                            for (Object role : roles) {
+                                if (!KNOWN_ROLES.contains(String.valueOf(role))) {
+                                    throw refused("`" + toolName + ".allowedRoles` names `" + role + "`, and this "
+                                            + "application's roles are " + KNOWN_ROLES + " — a list it cannot apply "
+                                            + "is refused rather than stored");
+                                }
+                            }
+                        }
+                    }
+
+                    private static void rejectUnknown(Set<String> keys, Set<String> allowed, String where) {
+                        List<String> unknown = keys.stream().filter(key -> !allowed.contains(key)).sorted().toList();
+                        if (!unknown.isEmpty()) {
+                            throw refused(where + " names " + unknown + ", which this application does not apply "
+                                    + "— accepted and ignored is the one answer it does not give");
+                        }
+                    }
+
+                    private static Map<String, Object> requireMap(Object value, String what) {
+                        if (!(value instanceof Map<?, ?> map)) {
+                            throw refused(what + " must be an object");
+                        }
+                        return stringKeys(map);
+                    }
+
+                    private static Map<String, Object> stringKeys(Map<?, ?> map) {
+                        Map<String, Object> out = new LinkedHashMap<>();
+                        map.forEach((key, value) -> out.put(String.valueOf(key), value));
+                        return out;
+                    }
+
+                    private static Map<String, Object> view(String json, java.time.Instant updatedAt) {
+                        Map<String, Object> policy = new LinkedHashMap<>();
+                        policy.putAll(Json.parse(json) instanceof Map<?, ?> stored ? stringKeys(stored) : Map.of());
+                        policy.put("updatedAt", updatedAt);
+                        policy.put("revision", revision(json));
+                        return policy;
+                    }
+
+                    private static String defaultJson() {
+                        return CanonicalJson.json(ordered(Map.of(), Map.of("granularity", DEFAULT_GRANULARITY)));
+                    }
+
+                    /**
+                     * The policy as the bytes a revision is taken over: every key ordered, so the same
+                     * content always serialises the same way and "same content, same revision" holds
+                     * across processes — not merely within one.
+                     *
+                     * 策略按其**取 revision 所依据的字节**成形：每个键有序，故同一内容总是序列化成同一串、且
+                     * 「同内容同号」**跨进程**成立 —— 不只是在同一个进程里成立。
+                     */
+                    private static Map<String, Object> ordered(Map<String, Object> tools,
+                                                               Map<String, Object> audit) {
+                        Map<String, Object> sortedTools = new LinkedHashMap<>();
+                        tools.keySet().stream().sorted().forEach(name -> {
+                            Map<String, Object> override = requireMap(tools.get(name), "the override for `" + name + "`");
+                            Map<String, Object> orderedOverride = new LinkedHashMap<>();
+                            for (String key : List.of("enabled", "requiresConfirmation", "mode", "allowedRoles")) {
+                                if (override.containsKey(key)) {
+                                    orderedOverride.put(key, "allowedRoles".equals(key)
+                                            ? sortedRoles(override.get(key))
+                                            : override.get(key));
+                                }
+                            }
+                            sortedTools.put(name, orderedOverride);
+                        });
+                        Map<String, Object> orderedAudit = new LinkedHashMap<>();
+                        orderedAudit.put("granularity", audit.get("granularity"));
+                        Map<String, Object> policy = new LinkedHashMap<>();
+                        policy.put("tools", sortedTools);
+                        policy.put("audit", orderedAudit);
+                        return policy;
+                    }
+
+                    /** A role list in a fixed order, so two submissions of the same set fingerprint the same. */
+                    private static List<String> sortedRoles(Object roles) {
+                        List<String> sorted = new ArrayList<>();
+                        ((List<?>) roles).forEach(role -> sorted.add(String.valueOf(role)));
+                        sorted.sort(null);
+                        return sorted;
+                    }
+
+                    private static String revision(String json) {
+                        try {
+                            byte[] digest = MessageDigest.getInstance("SHA-256")
+                                    .digest(json.getBytes(StandardCharsets.UTF_8));
+                            StringBuilder hex = new StringBuilder();
+                            for (byte b : digest) {
+                                hex.append(String.format("%%02x", b));
+                            }
+                            return hex.substring(0, REVISION_HEX);
+                        } catch (NoSuchAlgorithmException impossible) {
+                            throw new IllegalStateException("SHA-256 is required of every JVM", impossible);
+                        }
+                    }
+
+                    private static ResponseStatusException refused(String why) {
+                        return new ResponseStatusException(HttpStatus.BAD_REQUEST, why);
+                    }
+                }
+                """.formatted(pkg, pkg, pkg, pkg);
+    }
+
+    /**
+     * The governance policy: what this application has declared about its tools, and where a console
+     * changes it — administrators only.
+     *
+     * <p>It answers the frozen {@code governance-policy} with nothing added: the per-tool overrides and
+     * the audit granularity, plus the two keys the object carries about the policy itself. What a GET
+     * returns is therefore also a valid PUT body. <b>The policy is enforced</b> — a disabled tool, a gate
+     * mode and a role allowlist all land on the gate the engine runs every call through — and what the
+     * store will not do is accept a setting it cannot apply: such a submission comes back as a 400 with
+     * the reason rather than being stored and quietly ignored.
+     *
+     * 治理策略：本应用就它的工具声明了什么，以及控制台在哪里改它 —— 仅管理员。
+     *
+     * <p>它答冻结的 `governance-policy`、一点没多加：逐工具的覆盖与审计粒度，外加对象自带的两个「关于策略
+     * 本身」的键。所以一次 GET 的结果也是一份合法的 PUT 体。<b>策略是被施加的</b> —— 被禁用的工具、门控档位与
+     * 角色白名单都落在**引擎每次调用都要过的那道闸**上 —— 而存储**不会**接受一项它施加不了的设置：那样的提交
+     * 会带着理由回一个 400，而不是被存下来、再被悄悄忽略。
+     */
+    private String governancePolicyController(String pkg) {
+        return """
+                package %s.web;
+
+                import %s.identity.IdentityEvidence;
+                import %s.identity.IdentityResolver;
+                import %s.identity.Principal;
+                import %s.policy.GovernancePolicyStore;
+                import java.util.Map;
+                import org.springframework.http.HttpStatus;
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.PutMapping;
+                import org.springframework.web.bind.annotation.RequestBody;
+                import org.springframework.web.bind.annotation.RequestHeader;
+                import org.springframework.web.bind.annotation.RestController;
+                import org.springframework.web.server.ResponseStatusException;
+
+                @RestController
+                public class GovernancePolicyController {
+
+                    private final GovernancePolicyStore policy;
+                    private final IdentityResolver identities;
+
+                    public GovernancePolicyController(GovernancePolicyStore policy, IdentityResolver identities) {
+                        this.policy = policy;
+                        this.identities = identities;
+                    }
+
+                    @GetMapping("/ai/governance/policy")
+                    public Map<String, Object> read(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        requireAdministrator(authorization, userId, role, oidcSubject);
+                        return policy.current();
+                    }
+
+                    @PutMapping("/ai/governance/policy")
+                    public Map<String, Object> write(
+                            @RequestBody Map<String, Object> body,
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        requireAdministrator(authorization, userId, role, oidcSubject);
+                        return policy.set(body);
+                    }
+
+                    /** The policy says what governance is doing to every tool: an administrator's surface. */
+                    private void requireAdministrator(String authorization, String userId, String role,
+                                                      String oidcSubject) {
+                        Principal caller = identities.resolve(
+                                IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        if (!caller.isManager()) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "the governance policy is readable and writable by an administrator");
+                        }
+                    }
+                }
+                """.formatted(pkg, pkg, pkg, pkg, pkg);
     }
 }

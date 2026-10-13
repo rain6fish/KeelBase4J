@@ -166,6 +166,42 @@ check "the read tool runs by itself" '"gateMode":"auto"' "$TOOLS"
 check "and there is nothing to revoke" '"revokeClass":"none"' "$TOOLS"
 check "the object requires no invented dimension" '"allowedRoles":[],"permissions":null' "$TOOLS"
 
+# ── the governance policy: what the deployment declared, and what saying it does ───────────────────
+# A written policy is enforced at the gate the engine runs, not merely stored: disabling a tool makes
+# the gate refuse it, and the catalogue — which reads the same policy — shows it switched off, so the
+# list and the gate cannot disagree. Refused to a plain caller, and a submission this application
+# cannot apply comes back as a 400 with the reason.
+#
+# 写下的策略在**引擎每次调用都要过的那道闸**上被施加、不是只存着：禁用一个工具会让闸拒绝它，而**读同一份
+# 策略**的名录显示它关着 —— 清单与那道闸不可能各执一词。普通调用者被拒；本应用施加不了的提交回 400 并给出理由。
+POLICY=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/ai/governance/policy")
+check "the policy answers the frozen object" '"tools":{' "$POLICY"
+check "with the frozen default granularity" '"granularity":"all"' "$POLICY"
+POLICY_REV=$(printf '%s' "$POLICY" | sed -n 's/.*"revision":"\([^"]*\)".*/\1/p')
+check "and a twelve-hex content fingerprint" '12' "$(printf '%s' "$POLICY_REV" | wc -c | tr -d ' ')"
+check "the policy is closed to a plain user" '403' \
+  "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/ai/governance/policy")"
+
+PUT=$(curl -s -X PUT "$BASE/ai/governance/policy" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $CAROL" \
+  -d '{"tools":{"create_followup":{"enabled":false}},"audit":{"granularity":"all"}}')
+check "a policy write is accepted and comes back" '"enabled":false' "$PUT"
+check "and the catalogue now shows that tool switched off" '"enabled":false' \
+  "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/ai/tools")"
+post_chat "$ALICE" '{"message":"给客户建一条跟进记录","customerId":1}' > /dev/null
+check "and the disabled tool is refused at the gate" 'create_followup blocked' \
+  "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?userId=alice")"
+check "a submission naming what cannot be applied is refused" '400' \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$BASE/ai/governance/policy" \
+     -H 'Content-Type: application/json' -H "Authorization: Bearer $CAROL" \
+     -d '{"tools":{"no_such_tool":{}},"audit":{"granularity":"all"}}')"
+# Restore the default so the sections below still exercise the write path — the policy takes effect at
+# once, which is what the check above proves and the reason this one is needed.
+#
+# 恢复默认，好让下面的段落还能走写路径 —— 策略**立即**生效，那正是上面那条检查证到的东西，也是这条存在的理由。
+curl -s -o /dev/null -X PUT "$BASE/ai/governance/policy" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $CAROL" -d '{"tools":{},"audit":{"granularity":"all"}}'
+
 # The chat entry takes a *message* and answers the conversation shape the runtime answers — the same
 # fields, so one frontend reads either. The reply is not from a model and says so, and conversationId
 # names a stored turn rather than an id made up on the spot.

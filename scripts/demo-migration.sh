@@ -108,6 +108,7 @@ cp "$MIGRATIONS/V1__crm_baseline.sql" "$GEN_DIR/v1.before"
 # either — the numbering is part of what this checks.
 cp "$MIGRATIONS/V2__add_conversations.sql" "$GEN_DIR/v2.before"
 cp "$MIGRATIONS/V3__operation_audit_log.sql" "$GEN_DIR/v3.before"
+cp "$MIGRATIONS/V4__governance_policy.sql" "$GEN_DIR/v4.before"
 
 echo "== 3/4 apply the change =="
 mvn -q -B -DskipTests -pl keelbase4j-generator compile exec:java \
@@ -128,10 +129,15 @@ if cmp -s "$GEN_DIR/v3.before" "$MIGRATIONS/V3__operation_audit_log.sql"; then
 else
   echo "  FAIL the change rewrote the operations-chain migration"; fail=1
 fi
+if cmp -s "$GEN_DIR/v4.before" "$MIGRATIONS/V4__governance_policy.sql"; then
+  echo "  ok   and the governance-policy migration pinned at V4 is untouched"
+else
+  echo "  FAIL the change rewrote the governance-policy migration"; fail=1
+fi
 
-# The baseline is V1, the transcript took V2 and the operations chain V3, so the change is the next
-# version after all three.
-CHANGED="$(ls "$MIGRATIONS"/V4__*.sql 2>/dev/null | head -1 || true)"
+# The baseline is V1, the transcript V2, the operations chain V3 and the policy V4, so the change is the
+# next version after all four.
+CHANGED="$(ls "$MIGRATIONS"/V5__*.sql 2>/dev/null | head -1 || true)"
 if [ -n "$CHANGED" ]; then
   echo "  ok   the change generated a new migration ($(basename "$CHANGED"))"
 else
@@ -151,7 +157,7 @@ check "the row written before the change is still there" '"name":"Legacy Co"' "$
 check "and it now carries the added column" '"tier":null' "$AFTER"
 
 RUN2_LOG="$(cat "$ROOT/$GEN_DIR/run2.log")"
-check "the second run rolled forward one version" 'to version "4' "$RUN2_LOG"
+check "the second run rolled forward one version" 'to version "5' "$RUN2_LOG"
 check_absent "without re-running the baseline" '1 - crm baseline' "$RUN2_LOG"
 stop_app
 

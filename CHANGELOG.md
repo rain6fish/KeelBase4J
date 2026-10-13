@@ -84,6 +84,18 @@ Each version is written in two blocks — English first, then Chinese — marked
   honestly is. The effect list's `conversationId` is no longer hard-coded null, and the generated
   README no longer says it is.
 
+- **A generated application serves the governance policy too, and enforces it.** The generated
+  `GET` / `PUT /ai/governance/policy` answers the frozen `governance-policy` — administrators only —
+  with the per-tool overrides and the audit granularity plus the object's own `updatedAt` and
+  `revision`, and what a GET returns is also a valid PUT body. What it says is enforced on the gate the
+  engine runs every call through: a disabled tool and a role allowlist refuse, an explicit gate mode
+  moves the gate, and the granularity governs the AI audit chain (`off` writes no rows). The store
+  refuses a submission it cannot apply — an unregistered tool, a mode outside the frozen three, a role
+  outside this application's vocabulary, an unknown key — with a 400 and the reason, in whole rather
+  than field by field. The catalogue's `enabled` and `allowedRoles` read from this same policy, so the
+  list and the gate cannot disagree, and `revision` is the frozen object's first-twelve-hex content
+  fingerprint taken over ordered content.
+
 **中文**
 
 ### 新增
@@ -99,6 +111,8 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **生成物也带上操作链了 —— 第二条审计，记的是业务写本身。** 生成物发出的 `GET /audit/operations/logs` 按冻结的 `operation-audit-log-row` 作答（仅管理员 · `{total, page, limit, items}` · 最新在前），而它读的这条链**不是** AI 那条：它的行是**业务写本身**，包括**没有 AI 参与**的那些。一个请求拦截器在**业务路径的写方法**上、于处理器**答完之后**记下一行 —— 所以那一行说得出这次请求**怎么结束的** —— 而**身份在之前**读，因为到那时请求的安全上下文已经没了；**没带身份**的请求被记下、只是**不挂人**，而不是丢掉；**AI 面被排除**，因为它的调用有隔壁那条链。**写不进这一行不会让请求失败**。这些行是一张**表**（`operation_audit_logs`、迁移 `V3`），故与 AI 链不同、**活得过重启** —— 生成物 README 的「状态住在哪里」表现在这么说，并把原先笼统写作「审计链·在内存」的那一格点明为 **AI** 审计链（它本来就是）。
 
 - **生成物的决策轨迹也答得出它的治理那一半了。** 生成物发出的 `GET /ai/conversations` 列出调用方自己的会话，`GET /ai/conversations/{id}/trace` 答 `{conversation, steps}` —— 回合，加上那些回合产出的治理事件，按**事情发生的先后**并成一条时间线。会话 id 记在**引擎写下的每一行旁边**：审计行上、把提议从「提议时刻」带到「裁决时刻」的待决记录上、以及批准产出的副作用上 —— 故一个**在自己的请求里**到达的批准，仍点得出提议它的那条会话。**没有会话**时写下的行（一次任务运行）带 null、也不出现在任何追踪里 —— 而「没有会话」本来就该如此。副作用清单的 `conversationId` 不再是写死的 null，生成物 README 也不再那么说。
+
+- **生成物也服务治理策略了，而且施加它。** 生成物发出的 `GET` / `PUT /ai/governance/policy` 按冻结的 `governance-policy` 作答 —— 仅管理员 —— 给出逐工具的覆盖与审计粒度，外加对象自带的 `updatedAt` 与 `revision`，而一次 GET 的结果也是一份合法的 PUT 体。它说的东西在**引擎每次调用都要过的那道闸**上被施加：被禁用的工具与角色白名单拒绝、显式的门控档位移动那道闸、粒度管的是 AI 审计链（`off` 一行不写）。存储**拒绝**它施加不了的提交 —— 未注册的工具、冻结三值之外的 `mode`、本应用词表之外的角色、未识别的键 —— 回 `400` 并给出理由，且是**整份**拒绝、不是逐字段半应用。名录的 `enabled` 与 `allowedRoles` 读自**同一份**策略，故清单与那道闸不可能各执一词；`revision` 是冻结对象写明的**前十二位十六进制内容指纹**，取自**有序内容**。
 
 ## [0.1.7] - 2026-10-12
 
