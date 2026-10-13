@@ -3009,9 +3009,10 @@ public class JavaGenerator {
                         confirmation.put("token", turn.outcome().get("token"));
                         confirmation.put("toolName", turn.plan().tool());
                         confirmation.put("arguments", turn.plan().args());
-                        // R3 — the operator confirms their own write. This application has no R4 approval
-                        // mode, and saying it did would put a claim on the wire that nothing backs.
-                        confirmation.put("mode", "confirmation");
+                        // R3 — the operator confirms their own write, which the frozen vocabulary calls
+                        // `immediate`. This application implements neither of the other two, and saying it
+                        // did would put a claim on the wire that nothing backs.
+                        confirmation.put("mode", "immediate");
                         return confirmation;
                     }
 

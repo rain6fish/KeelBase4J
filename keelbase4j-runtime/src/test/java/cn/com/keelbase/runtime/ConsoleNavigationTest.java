@@ -156,16 +156,16 @@ class ConsoleNavigationTest {
         assertEquals(List.of("tool_start", "text", "navigate", "tool_end", "done"), types(events),
                 "the console expects these in this order; got " + events);
         // Every event is now held to the frozen set, not only the one this test is about. The check was
-        // drawn around `navigate` for a reason that has since been repaired: `tool_start` was leaving
-        // out the `summary` its payload requires, so the whole stream could not pass it (JV-61). What
-        // remains outside this check is `confirmation_request`'s `mode`, which the frozen enum does not
-        // contain — and no turn here produces that event, because a navigation tool is a read and a read
-        // raises no confirmation. A write turn is ChatStreamTest's to cover.
+        // drawn around `navigate` while the whole stream could not pass it at all: `tool_start` left out
+        // the `summary` its payload requires, and `confirmation_request` sent a `mode` no enum contains —
+        // both halves of JV-61, both since repaired. Nothing is missing from this check now; this turn
+        // simply raises no confirmation, because a navigation tool is a read. The write turn is
+        // ChatStreamTest's, and it holds its own events to the same schema.
         //
-        // 现在**每个**事件都拿冻结集来量，不只是本测试关心的那一个。它此前只画在 `navigate` 周围，理由是
-        // **后来被修掉**的那个：`tool_start` 漏了它载荷所要求的 `summary`，故整条流过不了（`JV-61`）。
-        // 仍在这个检查之外的只剩 `confirmation_request` 的 `mode`（冻结枚举里没有它）—— 而本测试的任何回合都
-        // 产不出那个事件：导航工具是**读**，而读不起确认。写回合归 `ChatStreamTest` 覆盖。
+        // 现在**每个**事件都拿冻结集来量，不只是本测试关心的那一个。它此前只画在 `navigate` 周围，是因为整条流
+        // **根本过不了**：`tool_start` 漏了它载荷所要求的 `summary`，而 `confirmation_request` 发了一个任何枚举
+        // 都没有的 `mode` —— `JV-61` 的两半，都已修好。这个检查如今不缺什么；本测试的回合只是**不起确认**，因为
+        // 导航工具是**读**。写回合归 `ChatStreamTest`，它把自己的事件也对着同一条 schema 量。
         events.forEach(event -> WireSchemas.assertConformsTo(event, "sse-event"));
         assertEquals("/users", payload(events, "navigate").get("route"),
                 "and the event carries the route itself: " + events);

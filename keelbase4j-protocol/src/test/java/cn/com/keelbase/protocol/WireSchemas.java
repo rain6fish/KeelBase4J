@@ -3,8 +3,14 @@ package cn.com.keelbase.protocol;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * The vendored contract's schemas, and a check a wire value can be held to.
@@ -44,6 +50,20 @@ import java.util.Map;
  * 那是机器能定的那一种。
  */
 public final class WireSchemas {
+
+    /**
+     * Every schema under {@code schemas/}, keyed by its own {@code $id} — the way the contract itself
+     * is indexed, and the only way a cross-file {@code $ref} can be resolved (see {@link #schemaNamed}).
+     *
+     * <p>Built once, at class initialisation, so a failure to read the tree is as loud here as it was
+     * per-lookup before.
+     *
+     * {@code schemas/} 下的每一份 schema，按**它自己的 `$id`** 索引 —— 契约自己就是这么被索引的，也是跨文件
+     * `$ref` 唯一解得开的方式（见 {@link #schemaNamed}）。
+     *
+     * <p>在**类初始化**时构建一次，故「读不了那棵树」这件事在这里**一样响亮**，与它此前每次查一样。
+     */
+    private static final Map<String, Map<String, Object>> BY_ID = indexById();
 
     private WireSchemas() {
     }
@@ -107,6 +127,57 @@ public final class WireSchemas {
     }
 
     /**
+     * The document a cross-file {@code $ref} names, resolved the way the contract is indexed: by
+     * {@code $id}.
+     *
+     * <p><b>An {@code $id} is not a file name.</b> {@code sse-event} v2 refs
+     * {@code confirmation-request-v3.schema.json}, and that names no file at all — it is the {@code $id}
+     * of {@code schemas/v3/confirmation-request.schema.json}. This used to be read as a path inside the
+     * v1 tree, with {@code schemas/v1/} hard-coded, which held only while every cross-file ref happened
+     * to live there; the first v2 one that did not made this check fail on a missing file instead of on
+     * a value. The contract's own validator keys its schemas by {@code $id} for exactly this reason.
+     *
+     * <p>The v1 path is still tried when no {@code $id} matches, so nothing that resolved before stops
+     * resolving. A reference that matches neither still fails loudly: the one outcome this check must
+     * never have is a green that says nothing.
+     *
+     * 跨文件 `$ref` 指名的那份文档，按契约被索引的方式解：按 `$id`。
+     *
+     * <p><b>`$id` 不是文件名。</b>`sse-event` v2 引的是 `confirmation-request-v3.schema.json`，而它**根本不是一个
+     * 文件名** —— 它是 `schemas/v3/confirmation-request.schema.json` 的 `$id`。它此前被当作 **v1 树里的一条路径**
+     * 来读（`schemas/v1/` 是写死的），而那只在**每一个**跨文件引用恰好住在那里时成立；第一个不住在那里的 v2 引用，
+     * 就让这个检查栽在**一个不存在的文件**上、而不是栽在取值上。契约**自己的**校验器按 `$id` 索引 schema，正是这个
+     * 缘故。
+     *
+     * <p>没有任何 `$id` 匹配时，仍回落到 v1 那条路径，故**以前解得开的不会解不开**。两者都不匹配的引用照样**响亮地
+     * 失败**：这个检查唯一不能有的结果，就是一个什么都不说的绿。
+     */
+    private static Map<String, Object> schemaNamed(String reference) {
+        Map<String, Object> named = BY_ID.get(reference);
+        return named != null ? named : Vectors.map(Vectors.read("schemas/v1/" + reference));
+    }
+
+    /** Walks {@code schemas/} once and keys every schema by its own {@code $id}. */
+    private static Map<String, Map<String, Object>> indexById() {
+        Map<String, Map<String, Object>> index = new LinkedHashMap<>();
+        try (Stream<Path> files = Files.walk(Vectors.dir().resolve("schemas"))) {
+            for (Path file : files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".schema.json"))
+                    .toList()) {
+                Map<String, Object> schema = Vectors.map(Vectors.read(
+                        Vectors.dir().relativize(file).toString().replace('\\', '/')));
+                Object id = schema.get("$id");
+                if (id != null) {
+                    index.putIfAbsent(String.valueOf(id), schema);
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return index;
+    }
+
+    /**
      * The same check, carrying the document a local reference has to be resolved against.
      *
      * <p>{@code $ref} comes in two shapes and the check has to tell them apart: one names another file
@@ -128,7 +199,7 @@ public final class WireSchemas {
             assertConforms(value,
                     pointer.startsWith("#/")
                             ? resolveWithin(document, pointer)
-                            : Vectors.map(Vectors.read("schemas/v1/" + ref)),
+                            : schemaNamed(pointer),
                     document);
             return;
         }

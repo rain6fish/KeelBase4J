@@ -201,9 +201,17 @@ public class ChatStreamController {
         confirmation.put("token", turn.outcome().token());
         confirmation.put("toolName", turn.plan().tool());
         confirmation.put("arguments", turn.plan().args());
-        // R3 — the operator confirms their own write. The console also has an R4 approval mode the
-        // runtime does not implement.
-        confirmation.put("mode", "confirmation");
+        // R3 — the operator confirms their own write, which the frozen vocabulary calls `immediate`;
+        // the runtime implements neither of the other two, `approval` (an R4 two-person decision) or
+        // `run` (one authorisation for a whole batch). It used to say `"confirmation"` — a value that
+        // appears in no enum the contract or the reference writes, and that this runtime's own read side
+        // never spoke either: `/ai/my/confirmations` has always reported `immediate` for these rows.
+        //
+        // R3 —— 操作者确认自己的写，而冻结词表管这叫 `immediate`；另外两个本运行时**都不实现** ——
+        // `approval`（R4 的双人裁决）与 `run`（对一整批的一次授权）。它此前写的是 `"confirmation"` ——
+        // 一个**契约与参照实现都不写的取值**，而本运行时**自己的读侧**也从没说过它：
+        // `/ai/my/confirmations` 对这些行一直报的就是 `immediate`。
+        confirmation.put("mode", "immediate");
         return confirmation;
     }
 

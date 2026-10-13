@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.protocol.Json;
+import cn.com.keelbase.protocol.WireSchemas;
 import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
 import java.net.URI;
@@ -96,6 +97,15 @@ class ChatStreamTest {
                         "confirmation_decision", "tool_end", "done"),
                 types(events),
                 "the console expects these in this order; got " + events);
+        // Every event of a write turn is now held to the frozen `sse-event` set as well. Two required
+        // fields on this path used to be missing or outside the vocabulary — `tool_start` carried no
+        // `summary`, and `confirmation_request` sent a `mode` no enum contains (JV-61) — so the check
+        // could not be made here before. Both are repaired, and this is the turn that exercises them.
+        //
+        // 写回合的**每一个**事件现在也拿冻结的 `sse-event` 集来量。这条路上此前有两处必填字段缺失或取值不在
+        // 词表里 —— `tool_start` 没有 `summary`、`confirmation_request` 发的 `mode` 不在任何枚举内（`JV-61`）
+        // —— 所以这个检查之前在这里做不了。两处都修好了，而**正是这个回合**走到它们。
+        events.forEach(event -> WireSchemas.assertConformsTo(event, "sse-event"));
         Map<String, Object> decision = payload(events, "confirmation_decision");
         assertEquals(true, decision.get("approved"), "and it says what was decided");
         assertEquals(true, decision.get("success"), "and the write it approved really ran: " + decision);
