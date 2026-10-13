@@ -38,7 +38,6 @@ public class JavaGenerator {
      * there last time — see {@link Project}. Returns what was written and what could not be merged.
      */
     public Generation generate(BusinessSpec spec, Path outDir) {
-        requireTheWriteToolsArguments(spec);
         String pkg = "com.example." + spec.module();
         Path javaDir = outDir.resolve("src/main/java").resolve(pkg.replace('.', '/'));
         Path resources = outDir.resolve("src/main/resources");
@@ -1800,54 +1799,6 @@ public class JavaGenerator {
                     }
                 }
                 """.formatted(pkg);
-    }
-
-    /**
-     * The argument names the emitted write tool sets on the spec's detail entity — the two the
-     * generated planner proposes and the emitted body reads. Declared once, beside the guard that
-     * refuses a spec that body cannot be emitted for.
-     *
-     * 发射出的写工具在 spec 的 detail 实体上设置的两个参数名 —— 也就是生成的规划器提议、而发射体读取的那两个。
-     * 只在这里声明一次，紧挨着那条「拒绝一份发不出这个体的 spec」的守卫。
-     */
-    private static final List<String> WRITE_TOOL_ARGS = List.of("customerId", "note");
-
-    /**
-     * Refuse a spec whose detail entity cannot carry what the emitted write tool sets on it.
-     *
-     * <p><b>Why this exists, and what it is not.</b> The write tool's body sets {@code customerId} and
-     * {@code note} by name, and it is emitted for whatever the spec's second entity happens to be — so
-     * a spec of another shape yields Java that does not compile, and the caller finds that out at
-     * their own build. This is not the generator learning a second shape: it declares one shape, in
-     * {@link #toolClass}, and it keeps the line (Demand-Gate — generalising for an input nobody has
-     * is the abstraction this repository does not add). What it is, is the one place that knows the
-     * shape saying so <em>here</em>, rather than leaving an uncompilable tree behind.
-     *
-     * <p>A spec that emits no write tool is not checked: nothing carries that body, so a detail
-     * entity of another shape generates fine there.
-     *
-     * <p>**为什么有它、以及它不是什么。** 写工具的体**按名字**设置 `customerId` 与 `note`，而它是为 **spec 的
-     * 第二个实体恰好是什么** 而发射的 —— 所以另一形状的 spec 会产出**编译不过**的 Java，而调用方要**在自己的构建里**
-     * 才发现。这**不是**生成器学会了第二种形状：它只声明一种，写在 {@link #toolClass} 里，而它**守着自己的线**（Demand-Gate
-     * —— 为一个没人有的输入做泛化，正是本仓不加的那种抽象）。它是**知道那个形状的那一处在这里就把话说出来**，而不是留下
-     * 一棵编译不过的树。
-     *
-     * <p>**不发写工具的 spec 不检查**：那里没有东西承载那个体，故另一种形状的 detail 实体照常生成。
-     */
-    private static void requireTheWriteToolsArguments(BusinessSpec spec) {
-        if (spec.tools().stream().noneMatch(ToolSpec::requiresConfirmation)) {
-            return;
-        }
-        EntitySpec detail = spec.entities().size() > 1 ? spec.entities().get(1) : spec.entities().get(0);
-        List<String> declared = detail.fields().stream().map(FieldSpec::name).toList();
-        List<String> missing = WRITE_TOOL_ARGS.stream().filter(name -> !declared.contains(name)).toList();
-        if (!missing.isEmpty()) {
-            throw new IllegalStateException("this spec's write tool sets " + missing + " on the entity `"
-                    + detail.name() + "`, and that entity does not declare "
-                    + (missing.size() == 1 ? "it" : "them") + ". The generated Java would not compile,"
-                    + " so it is refused here instead of written out: this generator emits one shape,"
-                    + " and its second entity must carry " + WRITE_TOOL_ARGS);
-        }
     }
 
     private String toolClass(String pkg, ToolSpec tool, BusinessSpec spec) {

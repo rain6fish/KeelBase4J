@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.gen;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import cn.com.keelbase.gen.BusinessSpec.EntitySpec;
-import cn.com.keelbase.gen.BusinessSpec.FieldSpec;
-import cn.com.keelbase.gen.BusinessSpec.RoleRule;
 import cn.com.keelbase.gen.BusinessSpec.ToolSpec;
 import java.io.File;
 import java.io.IOException;
@@ -528,57 +523,6 @@ class GeneratorTest {
     }
 
     /** What the build filtered into the generator's resources — the one source for the version. */
-    @Test
-    void aSpecWhoseSecondEntityCannotCarryTheWriteToolsArgumentsIsRefusedBeforeAnythingIsWritten()
-            throws IOException {
-        // The one shape this generator emits, written out by hand so the check lands on the spec
-        // rather than on the parser: a second entity whose fields are not the two the emitted write
-        // tool sets. Left unchecked this yields Java that does not compile, and the caller only finds
-        // that out at their own build — so the generator says it here instead.
-        //
-        // 这个生成器发射的**唯一**那种形状，这里手写出来，好让检查落在 **spec** 上而不是解析器上：第二实体的字段
-        // 不是发射出的写工具所设置的那两个。放着不管，它会产出**编译不过**的 Java，而调用方要**在自己的构建里**才知道
-        // —— 所以生成器在这里就把话说出来。
-        BusinessSpec spec = new BusinessSpec("invoices", "发票",
-                List.of(new EntitySpec("Invoice", List.of(new FieldSpec("title", "string", "标题"))),
-                        new EntitySpec("InvoiceLine", List.of(new FieldSpec("sku", "string", "SKU")))),
-                new RoleRule("ownerUserId", "user", "本人"),
-                List.of(new ToolSpec("create_line", "R3", true, "invoice_line", "建一行发票明细",
-                        List.of("建"))),
-                List.of());
-        Path out = Path.of("target", "gen-test-refused");
-        deleteRecursively(out);
-
-        IllegalStateException refused = assertThrows(IllegalStateException.class,
-                () -> new JavaGenerator().generate(spec, out));
-
-        assertTrue(refused.getMessage().contains("customerId"), refused.getMessage());
-        assertTrue(refused.getMessage().contains("note"), refused.getMessage());
-        assertTrue(refused.getMessage().contains("InvoiceLine"),
-                "it names the entity it could not fill: " + refused.getMessage());
-        assertFalse(Files.exists(out), "a refused spec leaves no tree behind: " + out);
-    }
-
-    @Test
-    void aSpecThatEmitsNoWriteToolIsNotHeldToThatShape() throws IOException {
-        // The boundary of the check above, stated rather than left to be inferred: nothing carries the
-        // write body when every tool is a read, so a detail entity of another shape generates without
-        // complaint.
-        //
-        // 上面那条检查的**边界**，写明、而不是留给读者去推：当每个工具都是读时，没有东西承载那个写体，故另一种形状的
-        // detail 实体照常生成、不吭声。
-        BusinessSpec spec = new BusinessSpec("invoices", "发票",
-                List.of(new EntitySpec("Invoice", List.of(new FieldSpec("title", "string", "标题"))),
-                        new EntitySpec("InvoiceLine", List.of(new FieldSpec("sku", "string", "SKU")))),
-                new RoleRule("ownerUserId", "user", "本人"),
-                List.of(new ToolSpec("analyze_invoice", "R1", false, null, "分析发票风险", List.of("分析"))),
-                List.of());
-        Path out = Path.of("target", "gen-test-read-only");
-        deleteRecursively(out);
-
-        assertDoesNotThrow(() -> new JavaGenerator().generate(spec, out));
-    }
-
     private static String versionThisBuildPublishes() throws IOException {
         try (InputStream in = GeneratorTest.class.getResourceAsStream("/keelbase4j-generator.properties")) {
             assertNotNull(in, "the filtered resource must be on the test classpath");
