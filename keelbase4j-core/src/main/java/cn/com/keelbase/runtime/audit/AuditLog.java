@@ -71,6 +71,18 @@ public class AuditLog {
     @Column(length = 64)
     private String tool;
 
+    /**
+     * The conversation this row belongs to, or null when it belongs to none — a task run, an MCP
+     * caller, or a row written before the column existed (see {@code V11__conversation_link}). Not
+     * part of the hashed payload, so adding it beside the chain leaves every existing chain
+     * verifiable.
+     *
+     * 本行所属的**会话**；**不属于任何会话**时为 null —— 一次任务运行、一个 MCP 调用方，或在本列存在之前写下的行
+     * （见 `V11__conversation_link`）。不进哈希载荷，故把它加在链**旁边**不破坏任何既有链。
+     */
+    @Column(name = "conversation_id", length = 64)
+    private String conversationId;
+
     protected AuditLog() {
     }
 
@@ -85,8 +97,19 @@ public class AuditLog {
         this(action, userId, detail, prevHash, hash, error, null, null);
     }
 
+    /**
+     * The same, without a conversation — kept for the callers that have none to pass, and for the
+     * published artifact's sake. See the roomier constructor below.
+     *
+     * 同上、但不带会话 —— 为没有会话可传的调用方、也为已发布的 artifact 而保留。见下面那个更宽的构造器。
+     */
     public AuditLog(String action, String userId, String detail, String prevHash, String hash,
                     boolean error, String outcome, String tool) {
+        this(action, userId, detail, prevHash, hash, error, outcome, tool, null);
+    }
+
+    public AuditLog(String action, String userId, String detail, String prevHash, String hash,
+                    boolean error, String outcome, String tool, String conversationId) {
         this.action = action;
         this.userId = userId;
         this.detail = detail;
@@ -95,6 +118,7 @@ public class AuditLog {
         this.error = error;
         this.outcome = outcome;
         this.tool = tool;
+        this.conversationId = conversationId;
     }
 
     public Long getId() {
@@ -131,6 +155,10 @@ public class AuditLog {
 
     public String getTool() {
         return tool;
+    }
+
+    public String getConversationId() {
+        return conversationId;
     }
 
     public Instant getCreatedAt() {

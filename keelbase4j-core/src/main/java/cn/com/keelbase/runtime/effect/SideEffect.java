@@ -72,11 +72,36 @@ public class SideEffect {
     @Column(name = "after_snapshot")
     private String afterSnapshot;
 
+    /**
+     * The conversation whose call produced this effect, or null when the call belonged to none — a
+     * task run, an MCP caller, or an effect recorded before the column existed (see
+     * {@code V11__conversation_link}). It is what lets a decision trace show the write a
+     * conversation proposed.
+     *
+     * 产出这一副作用的那次调用所属的**会话**；那次调用不属于任何会话时为 null —— 一次任务运行、一个 MCP 调用方，
+     * 或在列存在之前记下的副作用（见 `V11__conversation_link`）。正是它让决策轨迹显示得出某条会话提议的那次写。
+     */
+    @Column(name = "conversation_id", length = 64)
+    private String conversationId;
+
     protected SideEffect() {
     }
 
+    /**
+     * The same, without a conversation — kept for the callers that have none to pass, and for the
+     * published artifact's sake. See the roomier constructor below.
+     *
+     * 同上、但不带会话 —— 为没有会话可传的调用方、也为已发布的 artifact 而保留。见下面那个更宽的构造器。
+     */
     public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
                       Long resultId, String revokeClass, String argsHash, String afterSnapshot) {
+        this(idempotencyKey, userId, toolName, resultType, resultId, revokeClass, argsHash,
+                afterSnapshot, null);
+    }
+
+    public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
+                      Long resultId, String revokeClass, String argsHash, String afterSnapshot,
+                      String conversationId) {
         this.idempotencyKey = idempotencyKey;
         this.userId = userId;
         this.toolName = toolName;
@@ -85,6 +110,7 @@ public class SideEffect {
         this.revokeClass = revokeClass;
         this.argsHash = argsHash;
         this.afterSnapshot = afterSnapshot;
+        this.conversationId = conversationId;
     }
 
     public Long getId() {
@@ -121,6 +147,10 @@ public class SideEffect {
 
     public String getAfterSnapshot() {
         return afterSnapshot;
+    }
+
+    public String getConversationId() {
+        return conversationId;
     }
 
     public Instant getCreatedAt() {

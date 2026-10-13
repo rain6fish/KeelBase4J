@@ -94,6 +94,19 @@ public class ConfirmationRequest {
     @Column(name = "execution_error", length = 1000)
     private String executionError;
 
+    /**
+     * The conversation this proposal came from, or null when it came from none — a task run, an MCP
+     * caller, or a row raised before the column existed (see {@code V11__conversation_link}). It is
+     * remembered here because a confirmation is answered in a later request than the one that raised
+     * it: without it, the decision's own audit row could not be placed in the conversation either.
+     *
+     * 这份提议来自哪条**会话**；不属于任何会话时为 null —— 一次任务运行、一个 MCP 调用方，或在列存在之前签发的行
+     * （见 `V11__conversation_link`）。它记在这里，是因为确认是在**比发起它的那次请求更晚**的一次请求里被回答的：
+     * 没有它，裁决自己那行审计也无从归位。
+     */
+    @Column(name = "conversation_id", length = 64)
+    private String conversationId;
+
     protected ConfirmationRequest() {
     }
 
@@ -127,6 +140,14 @@ public class ConfirmationRequest {
 
     public String getRiskLevel() {
         return riskLevel;
+    }
+
+    public String getConversationId() {
+        return conversationId;
+    }
+
+    public void setConversationId(String conversationId) {
+        this.conversationId = conversationId;
     }
 
     public String getMode() {

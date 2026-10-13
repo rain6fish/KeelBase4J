@@ -110,7 +110,7 @@ public class ChatTurnService {
         IntentPlan plan = planner.plan(message, context).orElse(null);
         ExecutionOutcome outcome = plan == null
                 ? null
-                : engine.execute(plan.tool(), plan.args(), principal);
+                : engine.execute(plan.tool(), plan.args(), principal, id);
 
         ChatReply reply = replier.reply(message, turns(id), outcome);
         conversations.append(id, principal, ConversationMessage.ASSISTANT, reply.text());

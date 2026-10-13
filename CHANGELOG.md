@@ -50,6 +50,17 @@ Each version is written in two blocks — English first, then Chinese — marked
   (`parameters`, `permissions`) answer empty and `null` rather than an invented value. The generated
   `AiTool` gained the `description()` it was missing, since the object requires one.
 
+- **A conversation's decision trace now answers its governance half, not only its turns.** The
+  conversation a call was made in is recorded where the call is made — on the audit row, on the
+  confirmation row that carries the proposal from proposal time to decision time, and on the side-effect
+  row the write produced — so `GET /api/v1/ai/conversations/{id}/trace` merges the turns with the
+  `tool_call`, `confirmation` and `effect` steps in the order they happened, rather than answering the
+  turns and stating that the rest cannot be placed. Three nullable columns and an additive migration
+  (`V11`) carry the link; a row written with no conversation (a task run, an MCP caller) carries null and
+  appears in no trace, which is what "no conversation" honestly is. Nothing already written changes, and
+  the audit hash chain — over `{action, userId, detail}` — still verifies, because the link is stored
+  beside it.
+
 **中文**
 
 ### 新增
@@ -59,6 +70,8 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **治理策略在线缆上答得出来，而它说的东西是被施加的。** 冻结的 `governance-policy` 对象现在服务在 `GET` / `PUT /api/v1/ai/governance/policy`、**仅管理员**：逐工具的覆盖与审计粒度，外加对象自带的 `updatedAt` 与 `revision`。写下它改变的是**接下来会发生什么**、不只是控制台显示什么 —— 被禁用的工具与角色白名单在引擎每次调用都要过的**那道闸**上拒绝、门控档位把闸移动、粒度管的是 AI 审计链 —— 因为**被存下却被忽略**的策略正是这条面生来要避免的失败。存储**拒绝**它施加不了的提交（本部署没有注册的工具、冻结三值之外的 `mode`、本部署词表之外的角色、未识别的键），回 `400` 并给出理由，且是**整份**拒绝、不是逐字段半应用。`revision` 是冻结对象写明的**前十二位十六进制内容指纹**，故同一份策略提交两次指纹相同。工具清单的 `enabled` 与 `allowedRoles` 现在读自同一份策略，故清单与那道闸不可能各执一词。
 
 - **生成物的工具名录也答冻结的 `ai-tool-inventory` 了。** 生成器发出的 `GET /ai/tools` 原本答的是手搓的 `{name, riskLevel}`；现在按冻结对象**逐字段**作答，与运行时服务的是**同一个形状** —— 故读运行时的控制台**原样**读生成物。它的治理那一半向**生成物引擎自己用的那道闸**问来、从不复述：写工具列成闸会确认的那个（它的 `R3` 推出 `riskStrategy: "confirmation"`）、读工具列成自己就跑的那个。撤销会是什么，从**它写什么**读出 —— 写下一行的工具靠**本地**撤销、什么都不写的**没有可撤的** —— 而本应用**哪里都没声明**的两个维度（`parameters`、`permissions`）答**空**与 `null`、不是编一个。生成物的 `AiTool` 补上了它缺的 `description()`，因为对象要求这一项。
+
+- **一条会话的决策轨迹现在答得出它的治理那一半，不只是回合。** 一次调用所在的**那条会话**，就在**调用发生的地方**被记下 —— 记在审计行上、记在把提议从「提议时刻」带到「裁决时刻」的那条确认行上、也记在那次写产出的副作用行上 —— 于是 `GET /api/v1/ai/conversations/{id}/trace` 把回合与 `tool_call` / `confirmation` / `effect` 三种步**按发生先后**并成一条时间线，而不是只答回合、再说其余放不进去。三个**可空**列与一条**加性**迁移（`V11`）承载这条链；**没有会话**时写下的行（一次任务运行、一个 MCP 调用方）带 null、也不出现在任何追踪里 —— 而「没有会话」本来就该如此。已经写下的一切都不变，审计哈希链（取自 `{action, userId, detail}`）仍验得过，因为这条链**存在链旁边**。
 
 ## [0.1.7] - 2026-10-12
 

@@ -20,4 +20,13 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long>,
     Optional<AuditLog> findTopByOrderByIdDesc();
 
     List<AuditLog> findAllByOrderByIdAsc();
+
+    /**
+     * The rows a conversation proposed, oldest first — the spine of its decision trace. Ordering by
+     * id is ordering by time: ids are issued by this deployment, in the order the rows were written.
+     *
+     * 某条会话提议的那些行，最早的在前 —— 那就是它决策轨迹的脊。按 id 排序即按时间排序：id 由本部署按写下的
+     * 先后发出。
+     */
+    List<AuditLog> findByConversationIdOrderByIdAsc(String conversationId);
 }

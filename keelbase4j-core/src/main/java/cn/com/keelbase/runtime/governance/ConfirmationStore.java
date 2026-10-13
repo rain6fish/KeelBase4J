@@ -39,11 +39,36 @@ public class ConfirmationStore {
      */
     public ConfirmationRequest create(Principal principal, String toolName, String argsJson,
                                       String riskLevel, String mode) {
+        return create(principal, toolName, argsJson, riskLevel, mode, null);
+    }
+
+    /**
+     * The same, remembering the conversation the proposal came from.
+     *
+     * <p>An overload rather than a change to the one above it: this class lives in a published
+     * artifact. A row raised through the shorter call remembers no conversation, which is what "this
+     * proposal came from no conversation" honestly is — a task run or an MCP caller.
+     *
+     * <p>It is remembered at all because a confirmation is answered in a later request than the one
+     * that raised it: without it the decision's own audit row could not be placed in the conversation
+     * the proposal belonged to (see {@code V11__conversation_link}).
+     *
+     * 同上，并记住这份提议来自哪条会话。
+     *
+     * <p>做成**重载**、而不去改上面那个：这个类住在一个**已发布**的 artifact 里。走短签名签发的行不记会话，
+     * 而「这份提议不来自任何会话」本来就该如此 —— 一次任务运行或一个 MCP 调用方。
+     *
+     * <p>它之所以要记：确认是在**比发起它的那次请求更晚**的一次请求里被回答的，故没有它，裁决自己那行审计就
+     * 无从归位到提议所属的那条会话（见 {@code V11__conversation_link}）。
+     */
+    public ConfirmationRequest create(Principal principal, String toolName, String argsJson,
+                                      String riskLevel, String mode, String conversationId) {
         String token = UUID.randomUUID().toString();
         ConfirmationRequest request =
                 new ConfirmationRequest(token, toolName, argsJson, principal.userId(), riskLevel);
         request.setMode(mode);
         request.setOperatorIdentity(OperatorIdentity.toWireJson(principal));
+        request.setConversationId(conversationId);
         return repository.save(request);
     }
 

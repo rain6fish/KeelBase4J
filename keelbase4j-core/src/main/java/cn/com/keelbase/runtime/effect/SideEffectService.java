@@ -141,6 +141,27 @@ public class SideEffectService {
      */
     public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
                              String argsJson, String revokeClass, String afterSnapshot) {
+        return record(principal, toolName, resultType, resultId, argsJson, revokeClass, afterSnapshot,
+                null);
+    }
+
+    /**
+     * The same, plus the conversation whose call produced this effect — the half a decision trace
+     * needs to show the write a conversation proposed.
+     *
+     * <p>An overload, for the reason the shorter one above it is an overload: this class lives in a
+     * published artifact. The idempotency key is unchanged — it folds in the user, the tool and the
+     * arguments, and a conversation is none of those — so the same call still reuses its effect
+     * whichever conversation it arrived in.
+     *
+     * 同上，另加产出这一副作用的那次调用所属的**会话** —— 决策轨迹要显示某条会话提议的那次写，靠的正是这一半。
+     *
+     * <p>做成**重载**，理由与上面那个短重载相同：这个类住在一个**已发布**的 artifact 里。幂等键**不变** —— 它折进的是
+     * 用户、工具与参数，会话不在这三者之中 —— 所以同一次调用无论从哪条会话来，都仍复用它自己的 effect。
+     */
+    public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
+                             String argsJson, String revokeClass, String afterSnapshot,
+                             String conversationId) {
         String key = idempotencyKey(principal.userId(), toolName, argsJson);
         Optional<SideEffect> existing = repository.findByIdempotencyKey(key);
         if (existing.isPresent()) {
@@ -149,7 +170,7 @@ public class SideEffectService {
         try {
             return repository.saveAndFlush(new SideEffect(
                     key, principal.userId(), toolName, resultType, resultId, revokeClass,
-                    argsHash(argsJson), afterSnapshot));
+                    argsHash(argsJson), afterSnapshot, conversationId));
         } catch (DataIntegrityViolationException race) {
             // A concurrent call with the same key won. The effect exists, so this call is a skip, not
             // a failure — return the winner's row. If the re-read finds nothing the violation was

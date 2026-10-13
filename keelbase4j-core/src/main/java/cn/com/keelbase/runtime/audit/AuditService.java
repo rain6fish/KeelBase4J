@@ -89,6 +89,34 @@ public class AuditService {
     @Transactional
     public AuditLog append(String action, String userId, String detail, boolean isError,
                            String outcome, String tool) {
+        return append(action, userId, detail, isError, outcome, tool, null);
+    }
+
+    /**
+     * The same, plus the conversation this row belongs to — the link a decision trace is built on.
+     *
+     * <p>An overload rather than a change to the one above it, for the reason this class already
+     * states about its shorter calls: the six-argument signature lives in a published artifact, and a
+     * signature that gains a parameter breaks a caller with none to pass. A row written through the
+     * shorter call carries null, which is what "this call belongs to no conversation" honestly is — a
+     * task run, an MCP caller, or a write made before the column existed.
+     *
+     * <p>The link is stored beside the chain, not inside it — see {@code V11__conversation_link} for
+     * why folding it into the hashed {@code {action, userId, detail}} payload would report every
+     * deployment's existing history as a broken chain.
+     *
+     * 同上，另加本行所属的**会话** —— 决策轨迹正是搭在这条链上。
+     *
+     * <p>做成**重载**、而不去改上面那个，理由本类对它的短签名已经写过：六参那个签名住在一个**已发布**的 artifact 里，
+     * 而签名多一个参数会让手上没有这个值的调用方编译不过。走短签名的行带 null，而「这次调用不属于任何会话」本来就该是
+     * null —— 一次任务运行、一个 MCP 调用方，或在本列存在之前写下的一笔。
+     *
+     * <p>这条链**存在链旁边、不在链里面** —— 把它折进哈希载荷 {@code {action, userId, detail}} 会让每个部署**既有的
+     * 历史**都被报成断链，理由见 {@code V11__conversation_link}。
+     */
+    @Transactional
+    public AuditLog append(String action, String userId, String detail, boolean isError,
+                           String outcome, String tool, String conversationId) {
         // The governance policy's audit granularity is applied here, on the one path every row travels:
         // `off` writes nothing at all, which is the one value that changes the chain. `write` and `all`
         // come to the same set here because this runtime records only tool-scoped rows — it has no
@@ -116,7 +144,8 @@ public class AuditService {
         payload.put("userId", userId);
         payload.put("detail", detail);
         String hash = AuditChain.hash(chainKey, prevHash, payload);
-        return repository.save(new AuditLog(action, userId, detail, prevHash, hash, isError, outcome, tool));
+        return repository.save(new AuditLog(action, userId, detail, prevHash, hash, isError, outcome,
+                tool, conversationId));
     }
 
     /** Walk the chain and recompute every hash. */

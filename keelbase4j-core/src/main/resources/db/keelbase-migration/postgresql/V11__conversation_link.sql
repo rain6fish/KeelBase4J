@@ -1,0 +1,43 @@
+-- The conversation link: which conversation a call, a decision and its effect belong to.
+--
+-- A decision trace is a conversation's own story — the tool calls it proposed, the confirmations a
+-- person answered, the effects those writes produced. This runtime could not tell that story: its
+-- audit rows and its side-effect rows carried no conversation id, so nothing tied a call to the
+-- conversation that proposed it, and `GET /ai/conversations/{id}/trace` could answer only the turns
+-- while saying the governance half was unlinked.
+--
+-- Three nullable columns close that, one per write path:
+--   * `ai_audit_logs` — every row a call or a decision leaves, so the call and the decision it waited
+--     on are both placeable in the conversation.
+--   * `side_effects` — the effect a write produced, so the trace can show what it changed.
+--   * `confirmation_requests` — the row that carries a proposal from proposal time to decision time.
+--     A confirmation is answered in a later request than the one that raised it, so unless this row
+--     remembers the conversation, the decision's own audit row cannot be linked either. (The roadmap
+--     entry named two tables; the goal needs three, and this is where that is stated.)
+--
+-- All three are **nullable and additive**: a row written before this column existed — or by a path
+-- that has no conversation, such as a task run or an MCP caller — carries null, which is what "this
+-- call belongs to no conversation" honestly is. Nothing already written changes, and no hash folds
+-- these in: `ai_audit_logs`'s chain is over {action, userId, detail}, so adding a column beside it
+-- leaves every existing chain verifiable (the same reason V6 and V7 stored their columns beside it).
+--
+-- 会话链：一次调用、一次裁决与它产出的副作用，分别属于哪条会话。
+--
+-- 一条决策轨迹是**某条会话自己的故事** —— 它提议过的工具调用、有人回答过的确认、那些写产出的副作用。
+-- 本运行时讲不出这个故事：它的审计行与副作用行都**不带会话 id**，于是没有任何东西把一次调用拴回提议它的那条
+-- 会话，而 `GET /ai/conversations/{id}/trace` 只能答出回合、并说明治理那一半没有链。
+--
+-- 三个可空列把它接上，每个写入路径一个：
+--   * `ai_audit_logs` —— 一次调用或一次裁决留下的每一行，好让那次调用、以及它等过的那次裁决，都能在会话里归位。
+--   * `side_effects` —— 一次写产出的副作用，好让轨迹显示它改了什么。
+--   * `confirmation_requests` —— 把一份提议从「提议时刻」带到「裁决时刻」的那一行。确认是在**比发起它的那次请求更晚**的
+--     一次请求里被回答的，所以除非这一行**记住会话**，裁决自己那行审计也无从归位。（roadmap 条目写的是**两张表**；
+--     目标需要三张，此处就是写明这一点的地方。）
+--
+-- 三列都是**可空、加性**的：本列存在之前写下的行 —— 或走**没有会话**的路径（任务运行、MCP 调用方）的行 —— 带 null，
+-- 而「这次调用不属于任何会话」本来就该是 null。已经写下的一切都不变，也没有任何哈希把这几列折进去：`ai_audit_logs`
+-- 的链取自 {action, userId, detail}，所以**在旁边**加一列不破坏任何既有链（V6 与 V7 把它们的列存在旁边，理由相同）。
+
+ALTER TABLE ai_audit_logs ADD COLUMN conversation_id VARCHAR(64);
+ALTER TABLE side_effects ADD COLUMN conversation_id VARCHAR(64);
+ALTER TABLE confirmation_requests ADD COLUMN conversation_id VARCHAR(64);

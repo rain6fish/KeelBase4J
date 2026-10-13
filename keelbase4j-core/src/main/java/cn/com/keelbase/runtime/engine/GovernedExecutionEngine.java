@@ -80,6 +80,19 @@ public class GovernedExecutionEngine {
 
     /** Gate and (if allowed) execute a tool call. */
     public ExecutionOutcome execute(String toolName, Map<String, Object> args, Principal principal) {
+        return execute(toolName, args, principal, null);
+    }
+
+    /**
+     * The same, recording which conversation proposed the call — the link a decision trace is built
+     * on. A caller with no conversation (a task run, an MCP caller) uses the shorter call and leaves
+     * every row it writes unlinked, which is what "no conversation" honestly is.
+     *
+     * 同上，并记下**哪条会话**提议了这次调用 —— 决策轨迹正是搭在这条链上。没有会话的调用方（任务运行、MCP 调用方）
+     * 走短签名，写下的每一行都不带链 —— 而「没有会话」本来就该如此。
+     */
+    public ExecutionOutcome execute(String toolName, Map<String, Object> args, Principal principal,
+                                    String conversationId) {
         AiTool tool = registry.require(toolName);
         GateDecision decision = governance.decide(tool, principal);
         if (decision != GateDecision.BLOCK) {
@@ -89,7 +102,8 @@ public class GovernedExecutionEngine {
             //
             // 参数就在**所有规划器的提议都会走的那一条路**上校验，且排在 block 检查**之后**而不是之前：
             // 告诉模型「你的参数不对」等于请它再来一次，而被策略挡住的工具是**再试也修不好**的。
-            Optional<ExecutionOutcome> malformed = refuseInvalidArguments(tool, args, principal);
+            Optional<ExecutionOutcome> malformed =
+                    refuseInvalidArguments(tool, args, principal, conversationId);
             if (malformed.isPresent()) {
                 return malformed.get();
             }
@@ -117,7 +131,7 @@ public class GovernedExecutionEngine {
                         .map(cn.com.keelbase.protocol.AuthorizationReasons.Check::name)
                         .findFirst().orElse(cn.com.keelbase.protocol.GovernanceBinding.DENY_RISK_POLICY);
                 audit.append("tool_call", principal.userId(), toolName + " blocked (" + cause + ")", true,
-                        "blocked", toolName);
+                        "blocked", toolName, conversationId);
                 return new ExecutionOutcome("blocked", reasons.toWire(), null, null,
                         "blocked by " + cause);
             }
@@ -131,21 +145,21 @@ public class GovernedExecutionEngine {
                 // 不跑（ADR-0018）。在此之前这条分支只留一行审计就返回，没有人持有 token，也就没有人能回答它。
                 ConfirmationRequest req = confirmations.create(
                         principal, toolName, CanonicalJson.json(args), tool.riskLevel(),
-                        ConfirmationMode.APPROVAL);
+                        ConfirmationMode.APPROVAL, conversationId);
                 audit.append("tool_call", principal.userId(), toolName + " awaiting a second person",
-                        false, "pending", toolName);
+                        false, "pending", toolName, conversationId);
                 return new ExecutionOutcome("requires_approval", null, req.getToken(), null, null);
             }
             case CONFIRM: {
                 ConfirmationRequest req = confirmations.create(
                         principal, toolName, CanonicalJson.json(args), tool.riskLevel(),
-                        ConfirmationMode.IMMEDIATE);
+                        ConfirmationMode.IMMEDIATE, conversationId);
                 audit.append("tool_call", principal.userId(), toolName + " pending confirmation",
-                        false, "pending", toolName);
+                        false, "pending", toolName, conversationId);
                 return new ExecutionOutcome("pending_confirmation", null, req.getToken(), null, null);
             }
             default:
-                return run(tool, args, principal);
+                return run(tool, args, principal, conversationId);
         }
     }
 
@@ -180,7 +194,8 @@ public class GovernedExecutionEngine {
      * 工具靠**声明**来加入校验。
      */
     private Optional<ExecutionOutcome> refuseInvalidArguments(AiTool tool, Map<String, Object> args,
-                                                              Principal principal) {
+                                                              Principal principal,
+                                                              String conversationId) {
         List<ToolParameter> declared = tool.parameters();
         if (declared.isEmpty()) {
             return Optional.empty();
@@ -203,7 +218,7 @@ public class GovernedExecutionEngine {
         String detail = String.join("; ", problems)
                 + " (expected: " + ToolParameter.describe(declared) + ")";
         audit.append("tool_call", principal.userId(), tool.name() + " refused: " + detail, true,
-                "refused", tool.name());
+                "refused", tool.name(), conversationId);
         return Optional.of(new ExecutionOutcome("invalid_arguments", null, null, null, detail));
     }
 
@@ -324,7 +339,7 @@ public class GovernedExecutionEngine {
         // C-3：这是**一次尝试**、不是一次结局 —— 与 intent 行同形（结局在它后面那一行，见
         // `executeApproved` 尾部那条）。故用 `attempted`，而不是为「重试」另造一个值。
         audit.append("tool_confirmation", retriedBy.userId(), req.getToolName() + " execution retried",
-                false, "attempted", req.getToolName());
+                false, "attempted", req.getToolName(), req.getConversationId());
         return executeApproved(req, initiator(req, retriedBy));
     }
 
@@ -348,8 +363,12 @@ public class GovernedExecutionEngine {
      */
     private ExecutionOutcome performApproval(ConfirmationRequest req, Principal decider, String via) {
         AiTool tool = registry.require(req.getToolName());
+        // The conversation is read off the row, not off this request: a confirmation is answered later
+        // than it was raised, and this request has no conversation of its own.
+        //
+        // 会话从**行**里读、不从这次请求读：确认被回答的时刻晚于它被签发，而这次请求本身没有会话。
         audit.append("tool_confirmation", decider.userId(), tool.name() + " approved (" + via + ")",
-                false, "approved", tool.name());
+                false, "approved", tool.name(), req.getConversationId());
         return executeApproved(req, initiator(req, decider));
     }
 
@@ -387,7 +406,7 @@ public class GovernedExecutionEngine {
         req.setExecutionClaimedAt(claimedAt);
         ExecutionOutcome outcome;
         try {
-            outcome = run(tool, parseArgs(req.getArgsJson()), initiator);
+            outcome = run(tool, parseArgs(req.getArgsJson()), initiator, req.getConversationId());
         } catch (RuntimeException failed) {
             // The tool threw instead of answering. The attempt is recorded as failed and keeps its
             // claim on purpose: clearing it would say the attempt never happened, and a claim with no
@@ -437,7 +456,7 @@ public class GovernedExecutionEngine {
     /** The decline tail. Nothing is written, and whoever is watching is told the same way. */
     private ExecutionOutcome performDecline(ConfirmationRequest req, Principal principal, String via) {
         audit.append("tool_confirmation", principal.userId(), req.getToolName() + " declined (" + via + ")",
-                true, "declined", req.getToolName());
+                true, "declined", req.getToolName(), req.getConversationId());
         ExecutionOutcome outcome =
                 new ExecutionOutcome(ConfirmationLifecycle.DECLINED, null, null, null, null);
         watchers.decided(req.getToken(), decision(ConfirmationLifecycle.DECLINE, req.getToolName(), outcome));
@@ -507,12 +526,13 @@ public class GovernedExecutionEngine {
      *
      * <p>这里写下的行**不可能被回滚**：引擎调用外面没有事务，审计服务自己的事务独立提交。
      */
-    private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal) {
+    private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal,
+                                 String conversationId) {
         String argsJson = CanonicalJson.json(args);
         ToolResult result;
         boolean claimed = false;
         try {
-            ExecutionOutcome reused = reuseIfAlreadyExecuted(tool, args, principal);
+            ExecutionOutcome reused = reuseIfAlreadyExecuted(tool, args, principal, conversationId);
             if (reused != null) {
                 return reused;
             }
@@ -524,7 +544,7 @@ public class GovernedExecutionEngine {
             // intent 行（D36 ②）：写在工具跑**之前**，好让「谁试过」**永不缺行** —— 即便工具自己那一笔
             // 落了地、而它后面的记账没有。与下面 catch 里那条拒绝行**同形**；它的结局在**它后面那一行**。
             audit.append("tool_call", principal.userId(), tool.name() + " attempted", false, "attempted",
-                    tool.name());
+                    tool.name(), conversationId);
             // A throw from here is **not** evidence that nothing was written: the tool is where the
             // write happens, so it can write and then fail. What the catch does with that is split
             // below — audited either way, released only when the failure proves it.
@@ -547,7 +567,8 @@ public class GovernedExecutionEngine {
                 claims.release(principal, tool.name(), argsJson);
             }
             audit.append("tool_call", principal.userId(),
-                    tool.name() + " refused: " + refused.getMessage(), true, "refused", tool.name());
+                    tool.name() + " refused: " + refused.getMessage(), true, "refused", tool.name(),
+                    conversationId);
             throw refused;
         }
         Long effectId = null;
@@ -577,7 +598,7 @@ public class GovernedExecutionEngine {
                         tool.name() + " -> fail: the tool declared result type '" + tool.resultType()
                                 + "' but returned no result id, so the effect cannot be recorded — the"
                                 + " contract requires one and the ledger will not store null",
-                        true, "failed", tool.name());
+                        true, "failed", tool.name(), conversationId);
                 return new ExecutionOutcome("error", null, null, null,
                         "no result id: the tool returned no id, so the effect could not be recorded");
             }
@@ -589,7 +610,7 @@ public class GovernedExecutionEngine {
             // 再往后读到的就是这一行后来变成的样子了。冻结的 `traceItem` 把它读作 `afterSnapshot`。
             SideEffect effect = sideEffects.record(principal, tool.name(), tool.resultType(), resultId,
                     argsJson, tool.revokeClass(),
-                    result.data() == null ? null : CanonicalJson.json(result.data()));
+                    result.data() == null ? null : CanonicalJson.json(result.data()), conversationId);
             effectId = effect.getId();
         }
         if (claimed) {
@@ -598,7 +619,7 @@ public class GovernedExecutionEngine {
         audit.append("tool_call", principal.userId(),
                 tool.name() + " -> " + (result.success() ? "ok" : "fail: " + result.error()),
                 !result.success(),
-                result.success() ? "executed" : "failed", tool.name());
+                result.success() ? "executed" : "failed", tool.name(), conversationId);
         return result.success()
                 ? ExecutionOutcome.executed(result.data(), effectId)
                 : new ExecutionOutcome("error", null, null, null, result.error());
@@ -682,7 +703,7 @@ public class GovernedExecutionEngine {
      * 并发那一档**是被仲裁的**；输掉领取的一方拿到的是 409、不是第二次写。原段**保留**，好让这条更正有东西可指。
      */
     private ExecutionOutcome reuseIfAlreadyExecuted(AiTool tool, Map<String, Object> args,
-                                                   Principal principal) {
+                                                   Principal principal, String conversationId) {
         SideEffect existing = sideEffects
                 .existingFor(principal, tool.name(), CanonicalJson.json(args))
                 .orElse(null);
@@ -696,7 +717,7 @@ public class GovernedExecutionEngine {
         }
         audit.append("tool_call", principal.userId(),
                 tool.name() + " -> ok (effect " + existing.getId() + " reused: the same call)",
-                false, "executed", tool.name());
+                false, "executed", tool.name(), conversationId);
         return ExecutionOutcome.executed(
                 existing.getResultId() == null ? null : Map.of("id", existing.getResultId()),
                 existing.getId());

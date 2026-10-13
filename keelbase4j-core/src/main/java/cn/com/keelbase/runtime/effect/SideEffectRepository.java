@@ -11,6 +11,9 @@ public interface SideEffectRepository extends JpaRepository<SideEffect, Long> {
 
     Optional<SideEffect> findByIdempotencyKey(String idempotencyKey);
 
+    /** The effects a conversation's calls produced, oldest first — a trace's effect steps. */
+    List<SideEffect> findByConversationIdOrderByIdAsc(String conversationId);
+
     List<SideEffect> findByUserIdOrderByIdDesc(String userId);
 
     /** The same view, paged at the database — which is what the console asks for. */

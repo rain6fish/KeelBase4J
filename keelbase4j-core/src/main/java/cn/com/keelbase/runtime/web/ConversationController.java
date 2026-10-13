@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.web;
 
+import cn.com.keelbase.runtime.audit.AuditLog;
+import cn.com.keelbase.runtime.audit.AuditLogRepository;
 import cn.com.keelbase.runtime.conversation.ConversationMessage;
 import cn.com.keelbase.runtime.conversation.ConversationMessageRepository;
+import cn.com.keelbase.runtime.effect.SideEffect;
+import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
 import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.pipeline.DeterministicReplier;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,14 +26,19 @@ import org.springframework.web.server.ResponseStatusException;
  * A caller's own conversations, and the trace of one of them — the two faces the console's decision
  * trace page reads.
  *
- * <p><b>What a trace can hold here, and what it cannot.</b> The turns are answered from the
- * conversation itself: a caller's message is an `input` step and the reply an `assistant` one. The
- * other half of a reference trace — the tool calls, the confirmation decisions and their side effects —
- * is <em>not</em> answerable, and not because this deployment chose to leave it out: this runtime's
- * audit rows and side-effect rows carry **no conversation id**, so nothing links a call to the
- * conversation that proposed it. The steps are therefore what the conversation itself knows, and the
- * fact that the rest is unlinked is stated rather than dressed up as an empty list a reader would take
- * for "nothing happened".
+ * <p><b>A trace is the conversation's own story, and now it holds both halves of it.</b> The turns
+ * are answered from the conversation: a caller's message is an `input` step and the reply an
+ * `assistant` one. The governance half — the tool calls the turns proposed, the decisions a person
+ * took, and the effects those writes produced — is answered from the audit and side-effect rows that
+ * carry this conversation's id, and the two are merged into one timeline in the order things
+ * happened. The id is recorded where the call is made (see {@code V11__conversation_link}), so the
+ * half that a reference trace shows is answerable here too.
+ *
+ * <p><b>What a trace still does not carry.</b> A row written with no conversation — a task run, an
+ * MCP caller — is genuinely not this conversation's, so it does not appear, and neither does the
+ * call's argument string: this runtime does not store it on the audit row, and inventing one would be
+ * a description of a call the row never held. Those absences are the row's own, not a statement about
+ * the conversation.
  *
  * <p>`provider` and `model` are answered from the default replier's own constants. This runtime keeps
  * them per reply, not per conversation — the reference stores them on the conversation — so a
@@ -37,11 +47,14 @@ import org.springframework.web.server.ResponseStatusException;
  *
  * <p>**某个调用方自己的会话，以及其中一条的追踪** —— 控制台决策轨迹页读的就是这两条面。
  *
- * <p><b>这里一条追踪装得下什么、装不下什么。</b>回合是从**会话自己**答出来的：调用方那句是 `input` 步、回复是
- * `assistant` 步。参照那条追踪的**另一半** —— 工具调用、确认裁决与它们的副作用 —— **答不出来**，而原因不是这个
- * 部署选择不做：本运行时的**审计行与副作用行都不带会话 id**，于是**没有任何东西**把一次调用拴回提议它的那条会话。
- * 所以步骤只有会话自己知道的那部分；而「其余没有链」这件事**如实说出来**，不粉饰成一个会被读成「什么都没发生」的
- * 空列表。
+ * <p><b>一条追踪是这条会话自己的故事，而现在它两半都在。</b>回合从**会话自己**答出来：调用方那句是 `input` 步、
+ * 回复是 `assistant` 步。治理那一半 —— 这些回合提议过的工具调用、有人作过的裁决、以及那些写产出的副作用 —— 从**带着
+ * 这条会话 id** 的审计行与副作用行答出来，两半按**事情发生的先后**并成一条时间线。这个 id 在调用发生的地方就被记下
+ * （见 `V11__conversation_link`），所以参照追踪显示的那一半，这里也答得出。
+ *
+ * <p><b>一条追踪仍然不装的东西。</b>**没有会话**时写下的行 —— 一次任务运行、一个 MCP 调用方 —— 本来就不属于这条会话，
+ * 故不出现；也没有调用的参数串：本运行时**不在审计行上存它**，而编一个等于**描述一次那一行从未持有过的调用**。
+ * 这些缺席是**行自身**的，不是关于这条会话的陈述。
  *
  * <p>`provider` 与 `model` 取自**默认 replier 自己的常量**。本运行时把它们记在**每次回复**上、不是每条会话上
  * —— 参照实现存在会话上 —— 所以**换过 replier 的部署**应把这两个值读作**本运行时的默认**，而不是某一回合究竟由谁
@@ -51,10 +64,15 @@ import org.springframework.web.server.ResponseStatusException;
 public class ConversationController {
 
     private final ConversationMessageRepository messages;
+    private final AuditLogRepository audit;
+    private final SideEffectRepository effects;
     private final CurrentPrincipal principals;
 
-    public ConversationController(ConversationMessageRepository messages, CurrentPrincipal principals) {
+    public ConversationController(ConversationMessageRepository messages, AuditLogRepository audit,
+                                  SideEffectRepository effects, CurrentPrincipal principals) {
         this.messages = messages;
+        this.audit = audit;
+        this.effects = effects;
         this.principals = principals;
     }
 
@@ -91,16 +109,27 @@ public class ConversationController {
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("conversation", new Conversation(id, turns).data());
-        body.put("steps", steps(turns));
+        body.put("steps", steps(id, turns));
         return body;
     }
 
     /**
-     * The turns as steps. A caller's message is an input and a reply is an assistant turn; an empty
-     * reply is skipped, the way the reference skips one, because there is no content to show.
+     * The trace as one timeline: the turns, and the governance events those turns produced, merged by
+     * when each happened.
+     *
+     * <p>Merged rather than concatenated because a trace is a story in order — a tool call belongs
+     * between the message that proposed it and the reply that reports it, and two lists side by side
+     * would lose that. Each source carries its own timestamp, so the merge is an ordering by time; a
+     * tie is broken by the order the steps were gathered in, so the result is stable.
+     *
+     * 把追踪并成**一条时间线**：回合，与那些回合产出的治理事件，按各自发生的先后合并。
+     *
+     * <p>合并、而不是拼接，因为一条追踪是**按序的故事** —— 一次工具调用落在**提议它的那句**与**报告它的那句回复**
+     * 之间，两份并列的列表会丢掉这一点。每个来源自带时间戳，故合并就是按时间排序；并列时按**收集的先后**打破，
+     * 于是结果是稳定的。
      */
-    private static List<Map<String, Object>> steps(List<ConversationMessage> turns) {
-        List<Map<String, Object>> steps = new ArrayList<>();
+    private List<Map<String, Object>> steps(String conversationId, List<ConversationMessage> turns) {
+        List<Timed> timeline = new ArrayList<>();
         for (int i = 0; i < turns.size(); i++) {
             ConversationMessage turn = turns.get(i);
             String type;
@@ -117,26 +146,104 @@ public class ConversationController {
             step.put("type", type);
             step.put("time", turn.getCreatedAt());
             step.put("content", turn.getContent());
-            steps.add(step);
+            timeline.add(new Timed(turn.getCreatedAt(), timeline.size(), step));
         }
-        // The one step that is not a turn, and it is a statement about this deployment rather than an
-        // event in the conversation: the governance half of a reference trace has nothing to link it
-        // here, and an empty list would be read as "nothing happened" rather than as "nothing is
-        // recorded". A notice says which one it is, and a test holds it there so it cannot go quiet.
-        //
-        // 唯一不是回合的一步，而它说的是**这个部署**、不是会话里的一件事：参照追踪的治理那一半在本部署**没有东西
-        // 可拴**，而一个空列表会被读成「什么都没发生」、不是「什么都没记」。一条 notice 说清是哪一种，并有测试
-        // 把它钉住、不许它悄声消失。
-        Map<String, Object> notice = new LinkedHashMap<>();
-        notice.put("id", "notice-unlinked-governance");
-        notice.put("type", "notice");
-        notice.put("time", turns.get(turns.size() - 1).getCreatedAt());
-        notice.put("content",
-                "this deployment records no conversation link on its audit and side-effect rows, so a "
-                        + "tool call, a confirmation decision or an effect cannot be placed in this "
-                        + "conversation's trace");
-        steps.add(notice);
-        return steps;
+        for (AuditLog row : audit.findByConversationIdOrderByIdAsc(conversationId)) {
+            Map<String, Object> step = auditStep(row);
+            if (step != null) {
+                timeline.add(new Timed(row.getCreatedAt(), timeline.size(), step));
+            }
+        }
+        for (SideEffect effect : effects.findByConversationIdOrderByIdAsc(conversationId)) {
+            timeline.add(new Timed(effect.getCreatedAt(), timeline.size(), effectStep(effect)));
+        }
+        timeline.sort(Comparator.comparing(Timed::time).thenComparingInt(Timed::order));
+        return timeline.stream().map(Timed::step).toList();
+    }
+
+    /**
+     * One audit row as a step: a {@code tool_call} for a call, a {@code confirmation} for a decision.
+     *
+     * <p>A row that is neither — none exists today, but the vocabulary is the store's to widen — is
+     * left out rather than shown as a step type it is not. The call's outcome is carried as
+     * {@code success} (false is a refusal, a block, a failed execution or a pending one, matching the
+     * row's own {@code isError}), and a decision carries the frozen {@code outcome} the row's action
+     * maps to.
+     *
+     * 一行审计作为一步：一次调用是 `tool_call`，一次裁决是 `confirmation`。
+     *
+     * <p>两者都不是的行 —— 今天不存在，但词表归存储去放宽 —— **略过**，而不是显示成它并非的那个步类型。调用那一行
+     * 的结局以 {@code success} 承载（false 即拒绝、拦截、执行失败或尚在待决，与那一行自己的 `isError` 一致），
+     * 裁决则承载它那一行映射到的冻结 {@code outcome}。
+     */
+    private static Map<String, Object> auditStep(AuditLog row) {
+        String type;
+        if ("tool_call".equals(row.getAction())) {
+            type = "tool_call";
+        } else if ("tool_confirmation".equals(row.getAction())) {
+            type = "confirmation";
+        } else {
+            return null;
+        }
+        Map<String, Object> step = new LinkedHashMap<>();
+        step.put("id", "audit-" + row.getId());
+        step.put("type", type);
+        step.put("time", row.getCreatedAt());
+        if (row.getTool() != null) {
+            step.put("toolName", row.getTool());
+        }
+        step.put("detail", row.getDetail());
+        if ("tool_call".equals(type)) {
+            step.put("success", !row.isError());
+        } else {
+            String outcome = confirmationOutcome(row.getOutcome());
+            if (outcome != null) {
+                step.put("outcome", outcome);
+            }
+        }
+        return step;
+    }
+
+    /**
+     * The frozen {@code confirmation} step's {@code outcome}, from this runtime's audit outcome.
+     *
+     * <p>The vocabulary is the object's own (approve / decline / timeout / pending_approval). A retry
+     * records {@code attempted}, which is none of those — a decision is not what happened — so it is
+     * left off rather than forced into a word that would misdescribe it.
+     *
+     * 冻结 `confirmation` 步的 {@code outcome}，取自本运行时的审计结局。
+     *
+     * <p>词表是对象自己的（approve / decline / timeout / pending_approval）。一次重试记的是 {@code attempted}，
+     * 它不属于其中任何一个 —— 发生的不是一次裁决 —— 故**不填**，而不是硬塞进一个会misdescribe它的词。
+     */
+    private static String confirmationOutcome(String auditOutcome) {
+        if ("approved".equals(auditOutcome)) {
+            return "approve";
+        }
+        if ("declined".equals(auditOutcome)) {
+            return "decline";
+        }
+        return null;
+    }
+
+    /** One effect as a step, in the frozen {@code traceEffect} shape the object declares. */
+    private static Map<String, Object> effectStep(SideEffect effect) {
+        Map<String, Object> traceEffect = new LinkedHashMap<>();
+        traceEffect.put("effectId", effect.getId());
+        traceEffect.put("resultType", effect.getResultType());
+        traceEffect.put("resultId", effect.getResultId());
+        traceEffect.put("revocable", !"none".equals(effect.getRevokeClass()));
+        traceEffect.put("after", effect.getAfterSnapshot());
+        Map<String, Object> step = new LinkedHashMap<>();
+        step.put("id", "effect-" + effect.getId());
+        step.put("type", "effect");
+        step.put("time", effect.getCreatedAt());
+        step.put("effect", traceEffect);
+        return step;
+    }
+
+    /** A step with the moment it happened and the order it was gathered in, for a stable merge. */
+    private record Timed(Instant time, int order, Map<String, Object> step) {
     }
 
     /** A conversation and the turns that were looked up for it. */

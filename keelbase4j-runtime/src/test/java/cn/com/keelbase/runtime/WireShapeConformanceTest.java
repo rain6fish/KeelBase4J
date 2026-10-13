@@ -304,16 +304,48 @@ class WireShapeConformanceTest {
         }
         assertEquals("input", Vectors.map(steps.get(0)).get("type"),
                 "the first step is the caller's own message: " + steps);
-        // The governance half has nothing to link it here, and the notice is what says so. Pinned,
-        // because the alternative — an empty list — reads as a quiet conversation, and a page that
-        // cannot show tool calls must not be mistakable for one with none.
+        // The governance half is linked now: the write this turn proposed left an audit row carrying
+        // the conversation's id, so the trace places the tool call inside the conversation rather than
+        // saying it cannot. This replaced the notice that used to stand here — the notice said the
+        // half was unlinked, and it is retired because the link is recorded (see JV-62).
         //
-        // 治理那一半在这里没有东西可拴，而那条 notice 就是说明这件事的。钉住它，因为**另一种样子**——一个空列表
-        // ——读起来像是一场安静的对话，而**显示不出工具调用的页**不该被误认成**没有工具调用的页**。
-        boolean told = steps.stream().map(o -> Vectors.map(o))
-                .anyMatch(step -> "notice".equals(step.get("type"))
-                        && String.valueOf(step.get("content")).contains("no conversation link"));
-        assertTrue(told, "the trace must say the governance half is unlinked here: " + steps);
+        // 治理那一半现在有链了：这一回合提议的那次写留下了一行**带着会话 id** 的审计，故追踪把那次工具调用**放在
+        // 会话里面**、而不是说放不进去。这正是**替换掉**原先那条 notice 的东西 —— notice 说的是那一半没有链，而
+        // 它被撤下，正因为链已经记下（见 `JV-62`）。
+        boolean linked = steps.stream().map(o -> Vectors.map(o))
+                .anyMatch(step -> "tool_call".equals(step.get("type")));
+        assertTrue(linked, "the trace must place the tool call this turn proposed: " + steps);
+    }
+
+    @Test
+    void aTracePlacesTheWriteAConversationProposedAndTheEffectItLeft() {
+        // The whole story of one conversation: a message proposes a write, a person approves it, and
+        // the trace must show the call, the decision and the effect it produced — all linked by the id
+        // recorded where the call was made.
+        //
+        // 一条会话的完整故事：一句消息提议一次写、有人批准它，而追踪必须显示出那次调用、那次裁决、以及它产出的
+        // 副作用 —— 三者都由**调用发生时记下的那个 id** 拴上。
+        String conversationId = aConversationOf("alice");
+        String token = Pending.token(rest, "alice", delegationSecret);
+        Object decided = dataOf(rest.postForEntity("/ai/confirmations/" + token,
+                new HttpEntity<>(Map.of("decision", "approve"), asCaller("alice")), String.class));
+        assertEquals("executed", Vectors.map(decided).get("status"),
+                "the approval must run the write, or there is no effect step to look for: " + decided);
+
+        Map<String, Object> trace =
+                Vectors.map(getData("/ai/conversations/" + conversationId + "/trace", "alice"));
+        List<?> steps = (List<?>) trace.get("steps");
+        for (Object step : steps) {
+            WireSchemas.assertConformsTo(step, "trace-step");
+        }
+        List<String> types = steps.stream()
+                .map(o -> String.valueOf(Vectors.map(o).get("type")))
+                .toList();
+        assertTrue(types.contains("tool_call"), "the trace must place the call: " + types);
+        assertTrue(types.contains("confirmation"), "the trace must place the decision: " + types);
+        assertTrue(types.contains("effect"), "the trace must place the effect the write produced: " + types);
+        assertTrue(types.indexOf("input") < types.indexOf("assistant"),
+                "the turns keep their order: " + types);
     }
 
     @Test

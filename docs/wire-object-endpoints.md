@@ -21,7 +21,7 @@ replaying the same corpus is what surfaced the need for this: see `docs/ARCHITEC
 | `app-provenance` | `GET /api/v1/app/provenance` | |
 | `ai-tool-inventory` | `GET /api/v1/ai/tools` | one item per registered tool — **administrators only**. The governance half is **asked of the engine's own gate** rather than restated, so a tool cannot be described one way and gated another. Three fields answer their defaults because nothing here declares them — see below |
 | `conversation-data` | `GET /api/v1/ai/conversations` · `GET /api/v1/ai/conversations/{id}/trace` (its `conversation`) | the caller's **own** conversations — user-scoped rather than administrator-only. A list item carries its opening two turns; a trace's carries the whole conversation |
-| `trace-step` | `GET /api/v1/ai/conversations/{id}/trace` (`steps`) | the conversation's turns as `input` / `assistant` steps, plus **one `notice`** — see below for why that notice is the honest form rather than an omission |
+| `trace-step` | `GET /api/v1/ai/conversations/{id}/trace` (`steps`) | the conversation's turns as `input` / `assistant` steps, merged in time order with the **governance half** — the `tool_call`, `confirmation` and `effect` steps its own audit and side-effect rows carry. A row written with no conversation (a task run, an MCP caller) is genuinely not this conversation's and does not appear — see below |
 | `operation-audit-log-row` | `GET /api/v1/audit/operations/logs` | the **operations** chain — business writes, administrators only, newest first, envelopes as `{total, page, limit, items}`. A **second, separate** chain from the AI audit beside it: nothing joins the two, and neither is derived from the other. What the row deliberately does not carry is named below rather than left blank |
 | `governance-policy` | `GET` / `PUT /api/v1/ai/governance/policy` | the policy in force and the surface a console changes it on — **administrators only**. A written policy is **enforced** on the gate the engine runs every call through, not merely stored — see below. A submission naming a tool, a mode or a role this deployment cannot apply is refused with a `400` rather than stored and ignored |
 
@@ -53,22 +53,28 @@ reasons name which check refused it (`risk_policy` / `tool_enabled` / `role_allo
 而 `write` 与 `all` 在这里落到同一条链，因为本运行时只记**工具范围**的行。一次决定的授权依据说得清是**哪条检查**拒的
 （`risk_policy` / `tool_enabled` / `role_allowed`），并带上做出该决定时所依据策略的 `revision`。
 
-**A trace here holds the conversation's turns, and says so about the rest.** The reference's decision
-trace also carries the tool calls, the confirmation decisions and their side effects. This runtime
-cannot place them: its audit rows and its side-effect rows carry **no conversation id**, so nothing links
-a call to the conversation that proposed it, and the same is true of a confirmation row. The trace
-therefore answers the turns as `input` / `assistant` steps and adds **one `notice`** saying the
-governance half is unlinked here — a step type the object declares for exactly this kind of statement.
-The alternative was an empty list, and an empty list on a page that is *supposed* to show tool calls
-reads as "nothing happened" rather than as "nothing is recorded". A test holds the notice in place so it
-cannot go quiet; retiring it means recording the link, which is its own change.
+**A trace here holds both halves of the conversation's story.** The reference's decision trace carries
+the turns and, with them, the tool calls, the confirmation decisions and their side effects. So does
+this one now: the id of the conversation a call was made in is recorded where the call is made — on the
+audit row, on the confirmation row that carries a proposal from proposal time to decision time, and on
+the side-effect row the write produced — so the trace places all three inside the conversation. The
+turns and the governance events are merged into one timeline in the order they happened, because a tool
+call belongs between the message that proposed it and the reply that reports it.
 
-**这里的追踪装的是会话的回合，并对其余部分把话说清。** 参照实现的决策轨迹还带工具调用、确认裁决与它们的副作用。
-本运行时放不进去：它的**审计行与副作用行都不带会话 id**，于是**没有任何东西**把一次调用拴回提议它的那条会话 ——
-确认行也一样。所以追踪把回合答成 `input` / `assistant` 步，并**加一条 `notice`** 说明治理那一半在这里没有链 ——
-那是该对象**为这类声明**保留的一个步类型。另一种选择是一个空列表，而在一个**本该**显示工具调用的页上，空列表读起来
-是「什么都没发生」、不是「什么都没记」。有测试把这条 notice 钉住、不许它悄声消失；要撤掉它，就得**把那条链记下来**，
-那是另一件改动。
+**What a trace still does not carry.** A row written with no conversation — a task run, an MCP caller —
+is genuinely not this conversation's, so it does not appear; and neither does a call's argument string,
+because this runtime does not store one on the audit row, and inventing it would describe a call the row
+never held. Those absences are the row's own, not a statement about the conversation, and a test holds
+the linked steps in place so they cannot go quiet.
+
+**这里的追踪装的是会话故事的两半。** 参照实现的决策轨迹带回合，也带工具调用、确认裁决与它们的副作用。
+本运行时现在也一样：一次调用所在的**那条会话的 id**，就在**调用发生的地方**被记下 —— 记在审计行上、记在把提议从
+「提议时刻」带到「裁决时刻」的那条确认行上、也记在那次写产出的副作用行上 —— 于是追踪把这三者都放进会话里。
+回合与治理事件按**事情发生的先后**并成一条时间线，因为一次工具调用落在**提议它的那句**与**报告它的那句回复**之间。
+
+**追踪仍然不装的东西。** **没有会话**时写下的行 —— 一次任务运行、一个 MCP 调用方 —— 本来就不属于这条会话，故不
+出现；也没有调用的参数串，因为本运行时**不在审计行上存它**，编一个等于**描述一次那一行从未持有过的调用**。这些缺席
+是**行自身**的、不是关于这条会话的陈述；并有测试把**已链接的那些步**钉住，不许它们悄声消失。
 
 **The operations row carries what this runtime sources, and names what it does not.** The reference
 stores a request body (redacted field by field against a PII declaration), a field-level before/after
