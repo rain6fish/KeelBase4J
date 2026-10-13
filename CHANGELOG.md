@@ -39,6 +39,17 @@ Each version is written in two blocks — English first, then Chinese — marked
   the same. The `ai-tool-inventory`'s `enabled` and `allowedRoles` now read from this same policy, so the
   inventory and the gate cannot disagree.
 
+- **A generated application's tool catalogue answers the frozen `ai-tool-inventory` too.** The
+  generator's emitted `GET /ai/tools` answered a hand-rolled `{name, riskLevel}`; it now answers the
+  frozen object field for field, the same shape the runtime serves — so a console reading the runtime
+  reads a generated application unchanged. Its governance half is asked of the gate the generated engine
+  itself runs, never restated, so the write tool is listed as the one the gate confirms (its `R3`
+  deriving `riskStrategy: "confirmation"`) and the read tool as one that runs by itself. What a
+  revocation would be is read off what the tool writes — a tool that writes a row is undone locally, one
+  that writes nothing has nothing to revoke — and the two dimensions this application declares nowhere
+  (`parameters`, `permissions`) answer empty and `null` rather than an invented value. The generated
+  `AiTool` gained the `description()` it was missing, since the object requires one.
+
 **中文**
 
 ### 新增
@@ -46,6 +57,8 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **生成物现在自带运维清单，并说清它的状态有哪一半活不过一次重启。** 生成器发出的 `README` 多了一节 `## Operations` —— 什么留得下（业务表与 `flyway_schema_history`）、什么留不下（**审计链**、待裁决的确认、以及副作用记录 —— **撤销就记在那里** —— **都在内存**）、怎么把它指向 PostgreSQL、哪些密钥的出厂值是 spike 值、对**持久那一半**做 `pg_dump`，以及「升级就是一条加性迁移、`ddl-auto=validate` 在不一致时让启动失败」。**活不过重启的那一半被声明为「刻意 demo 级」**，而不是留给读者当成疏漏：它是**刻意的简化**，而把这份状态搬进它自己的表，才是**真的依赖它的部署**该做的改动。
 
 - **治理策略在线缆上答得出来，而它说的东西是被施加的。** 冻结的 `governance-policy` 对象现在服务在 `GET` / `PUT /api/v1/ai/governance/policy`、**仅管理员**：逐工具的覆盖与审计粒度，外加对象自带的 `updatedAt` 与 `revision`。写下它改变的是**接下来会发生什么**、不只是控制台显示什么 —— 被禁用的工具与角色白名单在引擎每次调用都要过的**那道闸**上拒绝、门控档位把闸移动、粒度管的是 AI 审计链 —— 因为**被存下却被忽略**的策略正是这条面生来要避免的失败。存储**拒绝**它施加不了的提交（本部署没有注册的工具、冻结三值之外的 `mode`、本部署词表之外的角色、未识别的键），回 `400` 并给出理由，且是**整份**拒绝、不是逐字段半应用。`revision` 是冻结对象写明的**前十二位十六进制内容指纹**，故同一份策略提交两次指纹相同。工具清单的 `enabled` 与 `allowedRoles` 现在读自同一份策略，故清单与那道闸不可能各执一词。
+
+- **生成物的工具名录也答冻结的 `ai-tool-inventory` 了。** 生成器发出的 `GET /ai/tools` 原本答的是手搓的 `{name, riskLevel}`；现在按冻结对象**逐字段**作答，与运行时服务的是**同一个形状** —— 故读运行时的控制台**原样**读生成物。它的治理那一半向**生成物引擎自己用的那道闸**问来、从不复述：写工具列成闸会确认的那个（它的 `R3` 推出 `riskStrategy: "confirmation"`）、读工具列成自己就跑的那个。撤销会是什么，从**它写什么**读出 —— 写下一行的工具靠**本地**撤销、什么都不写的**没有可撤的** —— 而本应用**哪里都没声明**的两个维度（`parameters`、`permissions`）答**空**与 `null`、不是编一个。生成物的 `AiTool` 补上了它缺的 `description()`，因为对象要求这一项。
 
 ## [0.1.7] - 2026-10-12
 

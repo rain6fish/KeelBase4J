@@ -1001,6 +1001,18 @@ public class JavaGenerator {
                 public interface AiTool {
                     String name();
 
+                    /**
+                     * What the tool does, as the business specification declared it. It is the one
+                     * description a reader of {@code GET /ai/tools} is shown, so it says what the tool
+                     * is for and nothing about how the call is governed — the risk level is where that
+                     * belongs (the runtime's hard rule 7, applied here).
+                     *
+                     * 这个工具做什么，按业务规格所声明的。它是 `GET /ai/tools` 的读者所看到的**唯一一条**描述，
+                     * 故它说这个工具**是干什么用的**、不说这次调用**怎么被治理** —— 治理结论属于风险级
+                     * （本运行时的硬规则 7，用在这里）。
+                     */
+                    String description();
+
                     String riskLevel();
 
                     /**
@@ -1712,6 +1724,11 @@ public class JavaGenerator {
                     }
 
                     @Override
+                    public String description() {
+                        return %s;
+                    }
+
+                    @Override
                     public String riskLevel() {
                         return "%s";
                     }
@@ -1729,7 +1746,8 @@ public class JavaGenerator {
                 """
                 .formatted(pkg, pkg, detail.name(), pkg, detail.name(), tool.description(), pascal(tool.name()),
                         detail.name(), decap(detail.name()), pascal(tool.name()), detail.name(), decap(detail.name()),
-                        decap(detail.name()), decap(detail.name()), tool.name(), tool.riskLevel(),
+                        decap(detail.name()), decap(detail.name()), tool.name(),
+                        literal(tool.description()), tool.riskLevel(),
                         tool.resultType() == null ? "null" : "\"" + tool.resultType() + "\"", body);
     }
 
@@ -3074,7 +3092,9 @@ public class JavaGenerator {
                 package %s.web;
 
                 import %s.ai.GovernanceEngine;
+                import %s.ai.GovernanceGate;
                 import %s.ai.ToolRegistry;
+                import cn.com.keelbase.protocol.RiskLevel;
                 import %s.identity.IdentityEvidence;
                 import %s.identity.IdentityResolver;
                 import %s.identity.Principal;
@@ -3112,13 +3132,15 @@ public class JavaGenerator {
                     private final ToolRegistry registry;
                     private final ChatTurnService turns;
                     private final GovernanceEngine engine;
+                    private final GovernanceGate gate;
                     private final IdentityResolver identities;
 
                     public AiController(ToolRegistry registry, ChatTurnService turns, GovernanceEngine engine,
-                                        IdentityResolver identities) {
+                                        GovernanceGate gate, IdentityResolver identities) {
                         this.registry = registry;
                         this.turns = turns;
                         this.engine = engine;
+                        this.gate = gate;
                         this.identities = identities;
                     }
 
@@ -3144,9 +3166,43 @@ public class JavaGenerator {
                                     "the tool catalogue is administration");
                         }
                         return registry.all().stream().map(tool -> {
+                            // The governance half is asked of the very gate the engine runs, never restated,
+                            // so a tool the gate would confirm cannot be listed as one that runs by itself.
+                            //
+                            // 治理那一半向**引擎自己用的那道闸**问来、从不复述：闸要确认的工具，不可能被列成
+                            // 一个**自己就会跑**的工具。
+                            String decision = gate.decide(tool);
                             Map<String, Object> view = new LinkedHashMap<>();
                             view.put("name", tool.name());
+                            view.put("description", tool.description());
+                            // This application declares no parameter list, so the object's required array is
+                            // empty rather than invented — the same "nothing was declared" the runtime's own
+                            // list reports for its unset dimensions.
+                            //
+                            // 本应用不声明参数表，故对象要求的那数组**空着**、不是编一个 —— 与运行时自己的清单
+                            // 对未设的维度报的是同一句「什么都没声明」。
+                            view.put("parameters", List.of());
+                            view.put("enabled", true);
+                            view.put("requiresConfirmation",
+                                    "CONFIRM".equals(decision) || "REQUIRE_APPROVAL".equals(decision));
+                            view.put("requiresApproval", "REQUIRE_APPROVAL".equals(decision));
+                            view.put("gateMode", switch (decision) {
+                                case "BLOCK" -> "blocked";
+                                case "CONFIRM" -> "confirm";
+                                case "REQUIRE_APPROVAL" -> "approval";
+                                default -> "auto";
+                            });
+                            view.put("allowedRoles", List.of());
+                            view.put("permissions", null);
                             view.put("riskLevel", tool.riskLevel());
+                            view.put("riskStrategy", RiskLevel.strategy(tool.riskLevel()));
+                            // What a revocation of this tool's result would be, read off what the tool writes:
+                            // a tool that writes a row is undone locally by soft-deleting it, and one that
+                            // writes nothing has nothing to revoke.
+                            //
+                            // 撤销这个工具的结果会是什么，从**它写什么**读出：写下一行的工具靠软删那一行**本地**
+                            // 撤销，什么都不写的工具**没有可撤的**。
+                            view.put("revokeClass", tool.resultType() == null ? "none" : "local_compensate");
                             return view;
                         }).toList();
                     }
@@ -3218,7 +3274,7 @@ public class JavaGenerator {
                                 "decision must be approve or decline");
                     }
                 }
-                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg, pkg);
     }
 
     private String authController(String pkg) {

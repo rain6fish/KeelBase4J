@@ -149,6 +149,23 @@ check "tools exposed (R1/R3)" '"riskLevel":"R3"' "$TOOLS"
 check "the tool catalogue is closed to a plain user" '403' \
   "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/ai/tools")"
 
+# The catalogue answers the frozen `ai-tool-inventory` field for field — an upgraded shape, not a
+# hand-rolled `{name, riskLevel}` — and the governance half is asked of the gate the engine itself runs
+# rather than restated: the write tool is listed as the one the gate confirms and the read tool as one
+# that runs by itself, each with the strategy its own risk level derives. What a revocation would be is
+# read off what the tool writes.
+#
+# 这份名录按冻结的 `ai-tool-inventory` 逐字段作答 —— 是**升过形的**、不是手搓的 `{name, riskLevel}` ——
+# 而治理那一半向**引擎自己用的那道闸**问来、不复述：要确认的工具列成闸会确认的、只读的列成自己就跑的，
+# 各自带上它自己的风险级所推导出的策略。撤销会是什么，从**它写什么**读出。
+check "the catalogue carries a description" '"name":"create_followup","description":' "$TOOLS"
+check "the write tool's gate is the confirmation gate" '"gateMode":"confirm"' "$TOOLS"
+check "and its risk level derives the confirmation strategy" '"riskStrategy":"confirmation"' "$TOOLS"
+check "it says how its result can be revoked" '"revokeClass":"local_compensate"' "$TOOLS"
+check "the read tool runs by itself" '"gateMode":"auto"' "$TOOLS"
+check "and there is nothing to revoke" '"revokeClass":"none"' "$TOOLS"
+check "the object requires no invented dimension" '"allowedRoles":[],"permissions":null' "$TOOLS"
+
 # The chat entry takes a *message* and answers the conversation shape the runtime answers — the same
 # fields, so one frontend reads either. The reply is not from a model and says so, and conversationId
 # names a stored turn rather than an id made up on the spot.
