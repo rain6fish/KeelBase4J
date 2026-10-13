@@ -88,12 +88,13 @@ class ChangeabilityTest {
                 "the controller must not carry its own role check");
 
         // 5b. The schema evolved as a migration rather than a re-create: the applied baseline is left
-        //     untouched and the change lands as a new, additive one. V2 is the conversation transcript
-        //     (ADR-0013 D4) — a fixed version, kept before the change — so the change takes V3.
+        //     untouched and the change lands as a new, additive one. V2 (the conversation transcript) and
+        //     V3 (the operations chain) are fixed versions, kept before the change — so the change takes
+        //     V4.
         Path migrations = out.resolve("src/main/resources/db/migration");
         String baseline = Files.readString(migrations.resolve("V1__crm_baseline.sql"));
         assertFalse(baseline.contains("tier"), "an applied migration must not be rewritten");
-        String added = Files.readString(migrations.resolve("V3__add_customers_tier.sql"));
+        String added = Files.readString(migrations.resolve("V4__add_customers_tier.sql"));
         assertTrue(added.contains("ADD COLUMN tier"), "the change adds the column");
         assertFalse(added.contains("DROP"), "and drops nothing");
         assertFalse(added.contains("CREATE TABLE"), "and re-creates nothing");
@@ -113,7 +114,7 @@ class ChangeabilityTest {
             migrationNames = stream.map(p -> p.getFileName().toString()).sorted().toList();
         }
         assertEquals(List.of("V1__crm_baseline.sql", "V2__add_conversations.sql",
-                "V3__add_customers_tier.sql"), migrationNames,
+                "V3__operation_audit_log.sql", "V4__add_customers_tier.sql"), migrationNames,
                 "regeneration must not append a migration");
     }
 

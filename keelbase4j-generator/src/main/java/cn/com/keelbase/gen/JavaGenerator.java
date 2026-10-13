@@ -65,6 +65,13 @@ public class JavaGenerator {
         // after this one rather than colliding with it — the identity of the change migration and the
         // number the demos pin both depend on that order.
         project.keep(migrationDir.resolve("V2__add_conversations.sql"), conversationMigration());
+        // The operations chain (a second audit, of the business writes themselves). Version-pinned at V3
+        // and kept before the diff below, the same way V2 is and for the same reason: a later change then
+        // takes the number after this one rather than colliding with it.
+        //
+        // 操作链（第二条审计，记的是**业务写本身**）。版本钉在 V3，且在下面的 diff **之前** keep —— 与 V2
+        // 同一做法、同一个理由：后续的变更于是取它**之后**的号，而不是与它撞车。
+        project.keep(migrationDir.resolve("V3__operation_audit_log.sql"), operationAuditMigration());
         if (!fresh) {
             Map<String, List<String>> missing = missingColumns(spec, applied);
             if (!missing.isEmpty()) {
@@ -152,6 +159,21 @@ public class JavaGenerator {
         project.write(javaDir.resolve("web/WireErrorController.java"), wireErrorController(pkg));
         project.write(javaDir.resolve("web/WireExceptionHandler.java"), wireExceptionHandler(pkg));
         project.write(javaDir.resolve("web/AppInfoController.java"), appInfoController(pkg, spec));
+        // The operations chain: what was done to the business, as distinct from what the AI proposed.
+        // A second chain beside the AI one, and its own row shape — the console's operations page reads
+        // this one. Emitted whole (entity, repository, interceptor, registration, endpoint) because the
+        // generated application depends only on the protocol library and cannot borrow the runtime's.
+        //
+        // 操作链：**对业务做了什么**，与「AI 提议了什么」相对。与 AI 那条并排的第二条链，有它自己的行形状 ——
+        // 控制台的操作审计页读的是这一条。整份发射（实体 · 仓储 · 拦截器 · 注册 · 端点），因为生成物只依赖
+        // **协议库**、借不到运行时的。
+        project.write(javaDir.resolve("audit/OperationAuditLog.java"), operationAuditLog(pkg));
+        project.write(javaDir.resolve("audit/OperationAuditLogRepository.java"),
+                operationAuditLogRepository(pkg));
+        project.write(javaDir.resolve("web/OperationAuditInterceptor.java"), operationAuditInterceptor(pkg));
+        project.write(javaDir.resolve("web/OperationsAuditConfiguration.java"),
+                operationsAuditConfiguration(pkg));
+        project.write(javaDir.resolve("web/OperationAuditController.java"), operationAuditController(pkg));
         // One CRUD controller per entity, each enforcing the spec's policy rules. Everything else about
         // a second entity was already generated — its table, its repository, and its rule in the
         // authorization source — so leaving its REST surface out made half of the model reachable only
@@ -441,6 +463,22 @@ public class JavaGenerator {
         sb.append("compensate: the target is soft-deleted. `conversationId` is **null** — an approval arrives\n");
         sb.append("in a request of its own, so the record does not carry the conversation that proposed the\n");
         sb.append("write; the runtime answers null here too rather than inventing a link.\n\n");
+        sb.append("## The operations audit\n\n");
+        sb.append("A **second chain** beside the AI one, answering a different question: the AI chain records\n");
+        sb.append("what a tool call came to, and this records the business writes themselves — including the\n");
+        sb.append("ones no AI took part in. It is a table, so unlike the AI chain it survives a restart.\n\n");
+        sb.append("```\nGET /audit/operations/logs?page=1&limit=20   (administrators only)\n");
+        sb.append("->  { total, page, limit, items: [ { id, userId, action, method, path, targetId, ip,\n");
+        sb.append("      userAgent, statusCode, createdAt } ] }\n```\n\n");
+        sb.append("What is recorded is decided by what a request *is* — a write method on a business path — not\n");
+        sb.append("by who sent it. A request that carried no identity (a refused login attempt) is recorded with\n");
+        sb.append("nobody attached rather than dropped. The AI surface is excluded, because its calls have the\n");
+        sb.append("chain next door. The row is written after the handler has answered, so it can say how the\n");
+        sb.append("request ended, and failing to write it never fails the request.\n\n");
+        sb.append("What is deliberately **not** recorded: the request body (there is no PII declaration to\n");
+        sb.append("redact by, so a stored body would be a leak), the field-level diff, and the two hash columns\n");
+        sb.append("(a chained audit needs a second chain head and its own locking). The recorder is on by\n");
+        sb.append("default; turn it off with `keelbase.operations-audit.enabled=false`.\n\n");
         sb.append("## Streaming\n\n");
         sb.append("`POST /ai/chat/stream` answers `text/event-stream` — the channel the web console's assistant\n");
         sb.append("drawer uses. An administrator is sent to `/admin/ai/chat/stream`: same handler, gated by the\n");
@@ -487,10 +525,12 @@ public class JavaGenerator {
         sb.append("\n## Run\n\n```\nmvn spring-boot:run\n```\n");
         sb.append("\n## Operations\n\n");
         sb.append("**What survives a restart, and what does not — read this before a pilot.** The business\n");
-        sb.append("tables are durable: `customers`, `follow_ups` and `conversation_messages` live in the\n");
-        sb.append("database, and `flyway_schema_history` records which migrations built it. **The governance\n");
-        sb.append("record does not: the audit chain, the pending confirmations and the side-effect records —\n");
-        sb.append("which is where \"revoked\" is remembered — are held in memory**, so restarting the process\n");
+        sb.append("tables are durable: `customers`, `follow_ups`, `conversation_messages` and the operations\n");
+        sb.append("audit live in the database, and `flyway_schema_history` records which migrations built it.\n");
+        sb.append("**The AI governance record does not: the AI audit chain, the pending confirmations and the\n");
+        sb.append("side-effect records — which is where \"revoked\" is remembered — are held in memory** (the\n");
+        sb.append("operations chain has a section of its own below and is the exception among the records: its\n");
+        sb.append("rows are a table), so restarting the process\n");
         sb.append("loses them. A verification you ran before a restart cannot be repeated afterwards, a\n");
         sb.append("confirmation nobody answered goes with the process, and a revocation recorded before a\n");
         sb.append("restart is no longer listed. The KeelBase4J runtime — the embedding host, not this\n");
@@ -501,9 +541,9 @@ public class JavaGenerator {
         sb.append("own tables is the change to make before a deployment relies on it.\n\n");
         sb.append("### Where the state lives\n\n");
         sb.append("| state | store | survives a restart |\n|---|---|---|\n");
-        sb.append("| `customers` · `follow_ups` · `conversation_messages` | database | yes |\n");
+        sb.append("| `customers` · `follow_ups` · `conversation_messages` · `operation_audit_logs` | database | yes |\n");
         sb.append("| `flyway_schema_history` | database | yes |\n");
-        sb.append("| audit chain · pending confirmations · side effects and revocations | process memory | **no** |\n\n");
+        sb.append("| the **AI** audit chain · pending confirmations · side effects and revocations | process memory | **no** |\n\n");
         sb.append("By default the database is an H2 file under `./data/`. For anything but a demo, point it at\n");
         sb.append("PostgreSQL — the driver and the Flyway PostgreSQL module are already on the classpath, and the\n");
         sb.append("URL comes from Spring's usual keys, so no source change is needed:\n\n");
@@ -4493,5 +4533,491 @@ public class JavaGenerator {
             }
         }
         return sb.append('"').toString();
+    }
+
+    // ── The operations chain: a second audit, of the business writes themselves ──────────────────
+
+    /**
+     * The operations table. A second chain beside the AI one, and its own row shape — the console's
+     * operations page reads this one, its decision-trace page the other.
+     *
+     * 操作链的表。与 AI 那条并排的第二条链、有它自己的行形状 —— 控制台的操作审计页读这条，决策轨迹页读另一条。
+     */
+    private String operationAuditMigration() {
+        return """
+                -- The operations audit: what was done to the business, as opposed to what the AI proposed.
+                --
+                -- A second chain, and that it is a second one is the reason it exists: the AI audit records
+                -- what a tool call came to, and this records the business writes themselves — including the
+                -- ones no AI was involved in. The console's operations page reads this one.
+                --
+                -- Not recorded here, deliberately: the request body (there is no PII declaration to redact
+                -- by, so a stored body would be a leak), the field-level diff, the feature names a mapping
+                -- declares, and the two hash columns (a chained audit needs a second chain head and its own
+                -- locking, and doing half of that is worse than doing none).
+                --
+                -- 操作审计：**对业务做了什么**，与「AI 提议了什么」相对。
+                --
+                -- 这是**第二条链**，而它是第二条的理由正是它存在的理由：AI 审计记的是「一次工具调用最后怎么了」，
+                -- 这条记的是**业务写本身** —— 包括**没有 AI 参与**的那些。控制台的操作审计页读的是这一条。
+                --
+                -- 这里**刻意不记**：请求正文（没有 PII 声明可打码，存正文等于泄露）、字段级差异、映射声明的
+                -- 功能名、以及两个哈希列（链式审计需要第二个链头与它自己的加锁，做一半比不做更糟）。
+
+                CREATE TABLE operation_audit_logs (
+                    id          BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    user_id     VARCHAR(255),
+                    action      VARCHAR(32) NOT NULL,
+                    method      VARCHAR(16) NOT NULL,
+                    path        VARCHAR(512) NOT NULL,
+                    target_id   VARCHAR(255),
+                    status_code INTEGER,
+                    ip          VARCHAR(64),
+                    user_agent  VARCHAR(512),
+                    created_at  TIMESTAMP(6) WITH TIME ZONE NOT NULL
+                );
+                """;
+    }
+
+    /** One business operation: who did it, what they did it with, and how it ended. */
+    private String operationAuditLog(String pkg) {
+        return """
+                package %s.audit;
+
+                import jakarta.persistence.Column;
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.GeneratedValue;
+                import jakarta.persistence.GenerationType;
+                import jakarta.persistence.Id;
+                import jakarta.persistence.Table;
+                import java.time.Instant;
+
+                /**
+                 * One business operation: who did it, what they did it with, and how it ended.
+                 *
+                 * <p>Not hash-chained, and not because that was overlooked: the frozen
+                 * {@code operation-audit-log-row} marks {@code prevHash} and {@code hash} optional, and
+                 * chaining a second audit means a second chain head with its own locking. Half of that
+                 * would be worse than none, so this is the honest subset.
+                 *
+                 * 一次业务操作：谁做的、用什么做的、结果如何。
+                 *
+                 * <p>**不做哈希链**，而这**不是**疏忽：冻结的 {@code operation-audit-log-row} 把
+                 * {@code prevHash} 与 {@code hash} 标为**可选**，而给第二条审计加链意味着**第二个链头**和它
+                 * 自己的加锁。做一半比不做更糟，所以这里的列就是**诚实的子集**。
+                 */
+                @Entity
+                @Table(name = "operation_audit_logs")
+                public class OperationAuditLog {
+
+                    @Id
+                    @GeneratedValue(strategy = GenerationType.IDENTITY)
+                    private Long id;
+
+                    /** Null for a request that carried no identity, such as a refused login attempt. */
+                    @Column(name = "user_id")
+                    private String userId;
+
+                    /** The frozen vocabulary's own words: LOGIN, LOGOUT, UPLOAD, CREATE, UPDATE, DELETE. */
+                    @Column(nullable = false, length = 32)
+                    private String action;
+
+                    @Column(nullable = false, length = 16)
+                    private String method;
+
+                    @Column(nullable = false, length = 512)
+                    private String path;
+
+                    /** The row this operation named, read off the route's own template variables. */
+                    @Column(name = "target_id")
+                    private String targetId;
+
+                    @Column(name = "status_code")
+                    private Integer statusCode;
+
+                    /** The direct peer; behind a proxy this is the proxy unless it forwards the header. */
+                    @Column(length = 64)
+                    private String ip;
+
+                    @Column(name = "user_agent", length = 512)
+                    private String userAgent;
+
+                    @Column(name = "created_at", nullable = false)
+                    private Instant createdAt = Instant.now();
+
+                    protected OperationAuditLog() {
+                    }
+
+                    public OperationAuditLog(String userId, String action, String method, String path,
+                                             String targetId, Integer statusCode, String ip, String userAgent) {
+                        this.userId = userId;
+                        this.action = action;
+                        this.method = method;
+                        this.path = path;
+                        this.targetId = targetId;
+                        this.statusCode = statusCode;
+                        this.ip = ip;
+                        this.userAgent = userAgent;
+                    }
+
+                    public Long getId() {
+                        return id;
+                    }
+
+                    public String getUserId() {
+                        return userId;
+                    }
+
+                    public String getAction() {
+                        return action;
+                    }
+
+                    public String getMethod() {
+                        return method;
+                    }
+
+                    public String getPath() {
+                        return path;
+                    }
+
+                    public String getTargetId() {
+                        return targetId;
+                    }
+
+                    public Integer getStatusCode() {
+                        return statusCode;
+                    }
+
+                    public String getIp() {
+                        return ip;
+                    }
+
+                    public String getUserAgent() {
+                        return userAgent;
+                    }
+
+                    public Instant getCreatedAt() {
+                        return createdAt;
+                    }
+                }
+                """.formatted(pkg);
+    }
+
+    private String operationAuditLogRepository(String pkg) {
+        return """
+                package %s.audit;
+
+                import org.springframework.data.domain.Page;
+                import org.springframework.data.domain.Pageable;
+                import org.springframework.data.jpa.repository.JpaRepository;
+
+                public interface OperationAuditLogRepository extends JpaRepository<OperationAuditLog, Long> {
+
+                    /** Newest first — the order an operations page reads. */
+                    Page<OperationAuditLog> findAllByOrderByIdDesc(Pageable pageable);
+                }
+                """.formatted(pkg);
+    }
+
+    /**
+     * Records the business writes this application serves. What it records is decided by what a request
+     * <em>is</em>, not by who sent it: a write method on a business path. The AI surface is left out —
+     * its calls already have a chain of their own — and so is the one read-only POST this application
+     * exposes, named rather than matched by a rule broad enough to catch writes too.
+     *
+     * 记录本应用所服务的业务写。记什么由**这个请求是什么**决定，不由**谁发的**决定：业务路径上的写方法。
+     * AI 面被排除 —— 它的调用已经有自己的链 —— 以及本应用暴露的那个**只读 POST**，**逐个点名**、不定一条
+     * 宽到也会抓住写的规则。
+     */
+    private String operationAuditInterceptor(String pkg) {
+        return """
+                package %s.web;
+
+                import %s.audit.OperationAuditLog;
+                import %s.audit.OperationAuditLogRepository;
+                import %s.identity.IdentityEvidence;
+                import %s.identity.IdentityResolver;
+                import %s.identity.Principal;
+                import jakarta.servlet.http.HttpServletRequest;
+                import jakarta.servlet.http.HttpServletResponse;
+                import java.util.Locale;
+                import java.util.Map;
+                import java.util.Set;
+                import org.slf4j.Logger;
+                import org.slf4j.LoggerFactory;
+                import org.springframework.web.servlet.HandlerInterceptor;
+                import org.springframework.web.servlet.HandlerMapping;
+
+                /**
+                 * Records the business writes this application serves — the operations chain, as distinct
+                 * from the AI one.
+                 *
+                 * <p>The row is written after the handler has answered, so it can say how the request
+                 * ended; the identity has to be read before that, because a request's security context is
+                 * gone by then. Failing to write the row does not fail the request: the write already
+                 * happened, and refusing afterwards would not put the row back. A request that carried no
+                 * identity is still an operation — a refused login attempt — and is recorded with nobody
+                 * attached rather than dropped.
+                 *
+                 * 记录本应用所服务的业务写 —— 这是操作链，与 AI 那条不同。
+                 *
+                 * <p>那一行写在处理器**答完之后**，所以它说得出这次请求**怎么结束的**；而**身份必须在之前**读，
+                 * 因为到那时请求的安全上下文已经没了。**写不进这一行不会让请求失败**：写已经发生了，事后拒绝也
+                 * 放不回那一行。**没带身份**的请求**同样是一次操作** —— 被拒的登录尝试 —— 它被记下、只是
+                 * **不挂人**，而不是被丢掉。
+                 */
+                public class OperationAuditInterceptor implements HandlerInterceptor {
+
+                    private static final Logger log = LoggerFactory.getLogger(OperationAuditInterceptor.class);
+
+                    private static final Set<String> WRITE_METHODS = Set.of("POST", "PATCH", "PUT", "DELETE");
+
+                    /** Where preHandle leaves the caller for afterCompletion to pick up. */
+                    private static final String OPERATOR = "keelbase.operationAudit.operator";
+
+                    private final OperationAuditLogRepository logs;
+                    private final IdentityResolver identities;
+
+                    public OperationAuditInterceptor(OperationAuditLogRepository logs,
+                                                     IdentityResolver identities) {
+                        this.logs = logs;
+                        this.identities = identities;
+                    }
+
+                    @Override
+                    public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
+                                             Object handler) {
+                        request.setAttribute(OPERATOR, operator(request));
+                        return true;
+                    }
+
+                    @Override
+                    public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
+                                                Object handler, Exception failure) {
+                        String method = request.getMethod().toUpperCase(Locale.ROOT);
+                        String path = request.getRequestURI();
+                        if (!isOperation(method, path)) {
+                            return;
+                        }
+                        try {
+                            logs.save(new OperationAuditLog(
+                                    (String) request.getAttribute(OPERATOR),
+                                    action(method, path),
+                                    method,
+                                    path,
+                                    targetId(request),
+                                    response.getStatus(),
+                                    request.getRemoteAddr(),
+                                    request.getHeader("User-Agent")));
+                        } catch (RuntimeException notAudited) {
+                            log.warn("operation not audited: {} {}", method, path, notAudited);
+                        }
+                    }
+
+                    private static boolean isOperation(String method, String path) {
+                        if (!WRITE_METHODS.contains(method)) {
+                            return false;
+                        }
+                        if (path.contains("/ai/")) {
+                            return false;
+                        }
+                        // The one POST that only reads, named rather than matched by a rule: a rule broad
+                        // enough to catch it would catch writes too.
+                        //
+                        // 唯一一个**只读的 POST**，**逐个点名**、不定规则：宽到能抓住它的规则也会抓住写。
+                        return !path.endsWith("/auth/login-stats");
+                    }
+
+                    private static String action(String method, String path) {
+                        if (path.endsWith("/auth/login")) {
+                            return "LOGIN";
+                        }
+                        if (path.endsWith("/auth/logout")) {
+                            return "LOGOUT";
+                        }
+                        if (path.endsWith("/upload")) {
+                            return "UPLOAD";
+                        }
+                        return switch (method) {
+                            case "POST" -> "CREATE";
+                            case "PATCH", "PUT" -> "UPDATE";
+                            case "DELETE" -> "DELETE";
+                            default -> method;
+                        };
+                    }
+
+                    /** The row the route names, where it names one — off the handler's own templates. */
+                    private static String targetId(HttpServletRequest request) {
+                        Object variables = request.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
+                        if (variables instanceof Map<?, ?> templates && templates.get("id") != null) {
+                            return String.valueOf(templates.get("id"));
+                        }
+                        return null;
+                    }
+
+                    private String operator(HttpServletRequest request) {
+                        try {
+                            Principal caller = identities.resolve(IdentityEvidence.ofHeaders(
+                                    request.getHeader("Authorization"),
+                                    request.getHeader("X-User-Id"),
+                                    request.getHeader("X-User-Role"),
+                                    request.getHeader("X-Oidc-Sub")));
+                            return caller == null ? null : caller.userId();
+                        } catch (RuntimeException anonymous) {
+                            // No identity is still an operation, recorded with nobody attached rather than
+                            // dropped — the same boundary the runner-up chain draws.
+                            //
+                            // **没带身份**同样是一次操作，记下、只是**不挂人**，而不是丢掉 —— 与隔壁那条链
+                            // 划的同一条边界。
+                            return null;
+                        }
+                    }
+                }
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
+    }
+
+    /**
+     * Registers the operations audit in this application — on by default, switchable off with
+     * {@code keelbase.operations-audit.enabled=false}.
+     *
+     * <p><b>Why on by default.</b> The operations page is the reason it exists, and a page that fills in
+     * only once somebody remembers to flip a property stays empty. <b>Why it is switchable.</b> It is a
+     * request interceptor, so it captures the business writes of this application — and a deployment that
+     * already keeps an operations log of its own does not necessarily want a second one.
+     *
+     * **注册操作审计** —— 默认开，用 `keelbase.operations-audit.enabled=false` 关掉。
+     *
+     * <p><b>为什么默认开。</b> 操作审计页正是它存在的理由，而**要等人想起来翻开关**才会填的页，是一个
+     * **一直空着**的页。<b>为什么可关。</b> 它是一个请求拦截器，所以它捕获的是**本应用**的业务写 ——
+     * 而**自己已经有一份操作日志**的部署不一定要第二份。
+     */
+    private String operationsAuditConfiguration(String pkg) {
+        return """
+                package %s.web;
+
+                import %s.audit.OperationAuditLogRepository;
+                import %s.identity.IdentityResolver;
+                import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+                import org.springframework.context.annotation.Configuration;
+                import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+                import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+                @Configuration
+                @ConditionalOnProperty(name = "keelbase.operations-audit.enabled", havingValue = "true",
+                        matchIfMissing = true)
+                public class OperationsAuditConfiguration implements WebMvcConfigurer {
+
+                    private final OperationAuditInterceptor interceptor;
+
+                    public OperationsAuditConfiguration(OperationAuditLogRepository logs,
+                                                        IdentityResolver identities) {
+                        this.interceptor = new OperationAuditInterceptor(logs, identities);
+                    }
+
+                    @Override
+                    public void addInterceptors(InterceptorRegistry registry) {
+                        registry.addInterceptor(interceptor);
+                    }
+                }
+                """.formatted(pkg, pkg, pkg);
+    }
+
+    /**
+     * The operations page's endpoint: the business writes, newest first, administrators only.
+     *
+     * 操作审计页的端点：业务写、最新在前、仅管理员。
+     */
+    private String operationAuditController(String pkg) {
+        return """
+                package %s.web;
+
+                import %s.audit.OperationAuditLog;
+                import %s.audit.OperationAuditLogRepository;
+                import %s.identity.IdentityEvidence;
+                import %s.identity.IdentityResolver;
+                import %s.identity.Principal;
+                import java.util.LinkedHashMap;
+                import java.util.List;
+                import java.util.Map;
+                import org.springframework.data.domain.Page;
+                import org.springframework.data.domain.PageRequest;
+                import org.springframework.http.HttpStatus;
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RequestHeader;
+                import org.springframework.web.bind.annotation.RequestParam;
+                import org.springframework.web.bind.annotation.RestController;
+                import org.springframework.web.server.ResponseStatusException;
+
+                /**
+                 * The operations audit: what was done to the business, newest first — administrators only.
+                 *
+                 * <p>It reads a different chain from the decision trace: the rows here are business writes,
+                 * including the ones no AI took part in. The object's row in the runtime's
+                 * {@code docs/wire-object-endpoints.md} names what each chain carries and why several of
+                 * the frozen object's fields are absent rather than empty.
+                 *
+                 * 操作审计：对**业务**做了什么，最新的在前 —— 仅管理员。
+                 *
+                 * <p>它读的链与决策轨迹**不同**：这里的行是**业务写**，包括**没有 AI 参与**的那些。
+                 * 两条链各带什么、以及冻结对象的哪几个字段是**缺席**而不是空，见运行时
+                 * `docs/wire-object-endpoints.md` 里该对象那一行。
+                 */
+                @RestController
+                public class OperationAuditController {
+
+                    private static final int MAX_LIMIT = 100;
+
+                    private final OperationAuditLogRepository logs;
+                    private final IdentityResolver identities;
+
+                    public OperationAuditController(OperationAuditLogRepository logs, IdentityResolver identities) {
+                        this.logs = logs;
+                        this.identities = identities;
+                    }
+
+                    @GetMapping("/audit/operations/logs")
+                    public Map<String, Object> logs(
+                            @RequestParam(defaultValue = "1") int page,
+                            @RequestParam(defaultValue = "20") int limit,
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal caller =
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        if (!caller.isManager()) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "the operations audit is readable by an administrator");
+                        }
+                        int size = Math.max(1, Math.min(limit, MAX_LIMIT));
+                        int index = Math.max(1, page) - 1;
+                        Page<OperationAuditLog> found = logs.findAllByOrderByIdDesc(PageRequest.of(index, size));
+                        List<Map<String, Object>> items = found.getContent().stream()
+                                .map(OperationAuditController::view)
+                                .toList();
+                        Map<String, Object> body = new LinkedHashMap<>();
+                        body.put("total", found.getTotalElements());
+                        body.put("page", index + 1);
+                        body.put("limit", size);
+                        body.put("items", items);
+                        return body;
+                    }
+
+                    private static Map<String, Object> view(OperationAuditLog log) {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("id", log.getId());
+                        row.put("userId", log.getUserId());
+                        row.put("action", log.getAction());
+                        row.put("method", log.getMethod());
+                        row.put("path", log.getPath());
+                        row.put("targetId", log.getTargetId());
+                        row.put("ip", log.getIp());
+                        row.put("userAgent", log.getUserAgent());
+                        row.put("statusCode", log.getStatusCode());
+                        row.put("createdAt", log.getCreatedAt());
+                        return row;
+                    }
+                }
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);
     }
 }

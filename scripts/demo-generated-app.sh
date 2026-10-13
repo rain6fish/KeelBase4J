@@ -409,6 +409,22 @@ BOB_FU_LIST=$(curl -s "$BASE/follow_ups" -H "Authorization: Bearer $BOB")
 check "own scope narrows the second entity just the same" '"note":"bob-fu"' "$BOB_FU_LIST"
 check_absent "and keeps the other owner's rows out of it" '"note":"alice-fu"' "$BOB_FU_LIST"
 
+# ── the operations chain: what was done to the business ───────────────────────────────────────────
+# A second chain beside the AI one, and this is where it is read: the writes above are business
+# operations and appear here, the AI turns do not (their calls have the chain next door). Refused to a
+# plain caller, since it says what everyone did.
+#
+# 与 AI 那条并排的第二条链，这里就是读它的地方：上面那些写是**业务操作**、出现在这里；AI 的回合**不出现**
+# （它们的调用有隔壁那条链）。普通调用者被拒，因为它说的是**每个人**做了什么。
+OPS=$(curl -s "$BASE/audit/operations/logs" -H "Authorization: Bearer $CAROL")
+check "the operations chain answers" '"total":' "$OPS"
+check "a business write is on it" '"action":"CREATE","method":"POST","path":"/api/v1/customers"' "$OPS"
+check "and it records who did it" '"userId":"alice"' "$OPS"
+check "and how it ended" '"statusCode":200' "$OPS"
+check_absent "the AI turns are not business operations" '"path":"/api/v1/ai/' "$OPS"
+check "the operations chain is closed to a plain user" '403' \
+  "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/audit/operations/logs")"
+
 # ── one token, two deciders at once ───────────────────────────────────────────────────────────────
 # A token is one-shot (failure-semantics FP-2: "token 一次性，不二次执行"). Two approvals fired
 # together are the case that gives "one-shot" meaning: if the app reads the token, runs the tool and

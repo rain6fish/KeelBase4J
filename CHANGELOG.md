@@ -61,6 +61,18 @@ Each version is written in two blocks — English first, then Chinese — marked
   the audit hash chain — over `{action, userId, detail}` — still verifies, because the link is stored
   beside it.
 
+- **A generated application carries the operations chain too — a second audit, of the business writes
+  themselves.** The generated `GET /audit/operations/logs` answers the frozen `operation-audit-log-row`
+  (administrators only, `{total, page, limit, items}`, newest first), and it reads a chain the AI one is
+  not: its rows are the business writes, including the ones no AI took part in. A request interceptor
+  records a write method on a business path after the handler has answered — so the row can say how the
+  request ended — while reading the identity before that, because a request's security context is gone by
+  then; a request that carried no identity is recorded with nobody attached rather than dropped, and the
+  AI surface is left out because its calls have the chain next door. Failing to write a row never fails
+  the request. The rows are a table (`operation_audit_logs`, migration `V3`), so unlike the AI chain they
+  survive a restart — which the generated README's "where the state lives" table now says, and it names
+  what it lists as in-memory the **AI** audit chain, since that is what it is.
+
 **中文**
 
 ### 新增
@@ -72,6 +84,8 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **生成物的工具名录也答冻结的 `ai-tool-inventory` 了。** 生成器发出的 `GET /ai/tools` 原本答的是手搓的 `{name, riskLevel}`；现在按冻结对象**逐字段**作答，与运行时服务的是**同一个形状** —— 故读运行时的控制台**原样**读生成物。它的治理那一半向**生成物引擎自己用的那道闸**问来、从不复述：写工具列成闸会确认的那个（它的 `R3` 推出 `riskStrategy: "confirmation"`）、读工具列成自己就跑的那个。撤销会是什么，从**它写什么**读出 —— 写下一行的工具靠**本地**撤销、什么都不写的**没有可撤的** —— 而本应用**哪里都没声明**的两个维度（`parameters`、`permissions`）答**空**与 `null`、不是编一个。生成物的 `AiTool` 补上了它缺的 `description()`，因为对象要求这一项。
 
 - **一条会话的决策轨迹现在答得出它的治理那一半，不只是回合。** 一次调用所在的**那条会话**，就在**调用发生的地方**被记下 —— 记在审计行上、记在把提议从「提议时刻」带到「裁决时刻」的那条确认行上、也记在那次写产出的副作用行上 —— 于是 `GET /api/v1/ai/conversations/{id}/trace` 把回合与 `tool_call` / `confirmation` / `effect` 三种步**按发生先后**并成一条时间线，而不是只答回合、再说其余放不进去。三个**可空**列与一条**加性**迁移（`V11`）承载这条链；**没有会话**时写下的行（一次任务运行、一个 MCP 调用方）带 null、也不出现在任何追踪里 —— 而「没有会话」本来就该如此。已经写下的一切都不变，审计哈希链（取自 `{action, userId, detail}`）仍验得过，因为这条链**存在链旁边**。
+
+- **生成物也带上操作链了 —— 第二条审计，记的是业务写本身。** 生成物发出的 `GET /audit/operations/logs` 按冻结的 `operation-audit-log-row` 作答（仅管理员 · `{total, page, limit, items}` · 最新在前），而它读的这条链**不是** AI 那条：它的行是**业务写本身**，包括**没有 AI 参与**的那些。一个请求拦截器在**业务路径的写方法**上、于处理器**答完之后**记下一行 —— 所以那一行说得出这次请求**怎么结束的** —— 而**身份在之前**读，因为到那时请求的安全上下文已经没了；**没带身份**的请求被记下、只是**不挂人**，而不是丢掉；**AI 面被排除**，因为它的调用有隔壁那条链。**写不进这一行不会让请求失败**。这些行是一张**表**（`operation_audit_logs`、迁移 `V3`），故与 AI 链不同、**活得过重启** —— 生成物 README 的「状态住在哪里」表现在这么说，并把原先笼统写作「审计链·在内存」的那一格点明为 **AI** 审计链（它本来就是）。
 
 ## [0.1.7] - 2026-10-12
 
