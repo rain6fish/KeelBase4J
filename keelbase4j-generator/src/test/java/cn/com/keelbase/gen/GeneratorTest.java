@@ -442,8 +442,8 @@ class GeneratorTest {
                 "including that the default reply names itself as no model");
         assertTrue(readme.contains("routes on"), "and the words the fallback routes on");
         assertTrue(readme.contains("## Side effects"), "the README documents the effects surface");
-        assertTrue(readme.contains("`conversationId` is **null**"),
-                "including the field left null, and why it is null rather than made up");
+        assertTrue(readme.contains("`conversationId` names the conversation"),
+                "including where the effect's conversation id comes from, and when it is null");
         assertTrue(readme.contains("## Streaming"), "the README documents the streaming channel");
         assertTrue(readme.contains("Why it stays open"), "including why the stream is long-lived");
         assertTrue(readme.contains("in-process"), "and that the registry behind it is in-process");

@@ -152,6 +152,15 @@ public class JavaGenerator {
         project.write(javaDir.resolve("web/ChatStreamConfiguration.java"), chatStreamConfiguration(pkg));
         project.write(javaDir.resolve("web/AuthController.java"), authController(pkg));
         project.write(javaDir.resolve("web/GovernanceController.java"), governanceController(pkg, spec));
+        // The console's decision-trace page reads two faces: the caller's own conversations, and the
+        // trace of one of them — the turns plus the governance events those turns produced, merged.
+        // The governance half is answerable because the conversation id is recorded beside every row
+        // the engine writes (ADR: the same link the runtime's conversations/{id}/trace needs).
+        //
+        // 控制台决策轨迹页读两条面：调用方自己的会话，以及其中一条的追踪 —— 回合，加上那些回合产出的治理事件，
+        // 合并而成。治理那一半答得出来，是因为引擎写下的**每一行旁边**都记着会话 id（与运行时的
+        // conversations/{id}/trace 需要的是同一条链接）。
+        project.write(javaDir.resolve("web/ConversationController.java"), conversationController(pkg));
         // F4 + F5 of the frozen Full profile. Without them the artifact cannot serve the
         // runtime-neutral frontend at all: the frontend unwraps the envelope on every call, and it
         // reads the capability surface before it holds a token.
@@ -461,9 +470,10 @@ public class JavaGenerator {
         sb.append("`targetExists` / `targetSoftDeleted` / `targetTitle` describe the row the write created,\n");
         sb.append("looked up at read time (its note is the title the console shows). `revokeClass` is\n");
         sb.append("`local_compensate` because every write here is a local row and revoking one really does\n");
-        sb.append("compensate: the target is soft-deleted. `conversationId` is **null** — an approval arrives\n");
-        sb.append("in a request of its own, so the record does not carry the conversation that proposed the\n");
-        sb.append("write; the runtime answers null here too rather than inventing a link.\n\n");
+        sb.append("compensate: the target is soft-deleted. `conversationId` names the conversation that\n");
+        sb.append("proposed the write: it is carried from the proposal to the decision on the pending record,\n");
+        sb.append("so an approval arriving in a request of its own still knows one — null only when the\n");
+        sb.append("proposal named no conversation (a task run).\n\n");
         sb.append("## The operations audit\n\n");
         sb.append("A **second chain** beside the AI one, answering a different question: the AI chain records\n");
         sb.append("what a tool call came to, and this records the business writes themselves — including the\n");
@@ -930,10 +940,30 @@ public class JavaGenerator {
 
                 import java.util.List;
                 import org.springframework.data.jpa.repository.JpaRepository;
+                import org.springframework.data.jpa.repository.Query;
+                import org.springframework.data.repository.query.Param;
 
                 public interface ConversationMessageRepository extends JpaRepository<ConversationMessage, Long> {
 
+                    /** A conversation's turns, oldest first — uncapped, because a trace is of the whole of it. */
                     List<ConversationMessage> findByConversationIdOrderByIdAsc(String conversationId);
+
+                    /**
+                     * The conversations a caller has — their ids, and nothing else. There is no
+                     * conversation table, only its messages, so a conversation is whatever a set of
+                     * messages shares: the id is the whole record of its existence, and everything else
+                     * about it is derived. The same reason means there is nothing here to page — a
+                     * caller's own conversations are the bound.
+                     *
+                     * 某个调用方有哪些会话 —— 只有会话 id。**没有会话表**、只有它的消息，所以一个会话就是
+                     * 「一批消息共用的那个 id」：id 就是它存在的全部记录，其余一切都由消息推出。同一个原因也说明
+                     * 这里没有可分页的东西 —— **调用方自己的会话**就是界限。
+                     */
+                    @Query("select distinct m.conversationId from ConversationMessage m where m.userId = :userId")
+                    List<String> conversationIdsFor(@Param("userId") String userId);
+
+                    /** A conversation's opening turns, oldest first — the preview a list shows. */
+                    List<ConversationMessage> findTop2ByConversationIdOrderByIdAsc(String conversationId);
                 }
                 """.formatted(pkg);
     }
@@ -1149,14 +1179,27 @@ public class JavaGenerator {
                 @Component
                 public class ConfirmationStore {
 
-                    public record Pending(String token, String toolName, String argsJson, String userId, String riskLevel) {
+                    /**
+                     * A pending write. {@code conversationId} is carried from the proposal to the
+                     * decision so the effect the approval finally produces can name the conversation
+                     * that proposed it — the decision arrives in a request of its own and would
+                     * otherwise not know one. Null when the proposal came from no conversation.
+                     *
+                     * 一次待决的写。{@code conversationId} 从**提议时刻**被带到**裁决时刻**，好让批准最终产出的那个
+                     * 副作用说得清是**哪条会话**提议的 —— 裁决自己在一个请求里到达，否则它无从知道。提议不来自任何
+                     * 会话时为 null。
+                     */
+                    public record Pending(String token, String toolName, String argsJson, String userId,
+                                          String riskLevel, String conversationId) {
                     }
 
                     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
 
-                    public String create(String userId, String toolName, Map<String, Object> args, String riskLevel) {
+                    public String create(String userId, String toolName, Map<String, Object> args,
+                                         String riskLevel, String conversationId) {
                         String token = UUID.randomUUID().toString();
-                        pending.put(token, new Pending(token, toolName, CanonicalJson.json(args), userId, riskLevel));
+                        pending.put(token, new Pending(token, toolName, CanonicalJson.json(args), userId,
+                                riskLevel, conversationId));
                         return token;
                     }
 
@@ -1329,7 +1372,8 @@ public class JavaGenerator {
 
                     public record Effect(Long id, String userId, String toolName, String resultType,
                                          Long resultId, String revokeClass, String revokeStatus,
-                                         String argsHash, String afterSnapshot, Instant createdAt) {
+                                         String argsHash, String afterSnapshot, Instant createdAt,
+                                         String conversationId) {
                     }
 
                     private final AtomicLong seq = new AtomicLong();
@@ -1337,16 +1381,30 @@ public class JavaGenerator {
 
                     public synchronized Effect record(String userId, String toolName, String resultType,
                                                       Long resultId, Map<String, Object> args,
-                                                      String afterSnapshot) {
+                                                      String afterSnapshot, String conversationId) {
                         // Every write this application performs is on its own row, so the honest class is
                         // local compensation — and the revoke path does perform it: the controller
                         // soft-deletes the target. Never `governed_external` here: nothing outside this
                         // application is being compensated, and claiming a compensation channel that does
                         // not exist is how a console ends up offering a button that cannot work.
                         Effect e = new Effect(seq.incrementAndGet(), userId, toolName, resultType, resultId,
-                                "local_compensate", "executed", argsHash(args), afterSnapshot, Instant.now());
+                                "local_compensate", "executed", argsHash(args), afterSnapshot, Instant.now(),
+                                conversationId);
                         effects.add(e);
                         return e;
+                    }
+
+                    /**
+                     * The effects this conversation's writes produced, oldest first — the last half of a
+                     * trace. An effect from a call with no conversation (a task run) is left out.
+                     *
+                     * 这条会话的写产出的副作用，最早的在前 —— 一条追踪的最后一半。**没有会话**的调用产出的
+                     * 副作用不出现。
+                     */
+                    public synchronized List<Effect> byConversation(String conversationId) {
+                        return effects.stream()
+                                .filter(e -> conversationId.equals(e.conversationId()))
+                                .toList();
                     }
 
                     public synchronized Effect requireOwned(Long id, String userId, boolean manager) {
@@ -1364,7 +1422,7 @@ public class JavaGenerator {
                             if (e.id().equals(id)) {
                                 effects.set(i, new Effect(e.id(), e.userId(), e.toolName(), e.resultType(),
                                         e.resultId(), e.revokeClass(), "revoked", e.argsHash(),
-                                        e.afterSnapshot(), e.createdAt()));
+                                        e.afterSnapshot(), e.createdAt(), e.conversationId()));
                             }
                         }
                     }
@@ -1463,14 +1521,15 @@ public class JavaGenerator {
 
                     /**
                      * One row as it was written: what was recorded, who did it, when, whether it went the
-                     * way the caller asked, and the two hashes tying it to its predecessor.
+                     * way the caller asked, the two hashes tying it to its predecessor, and the
+                     * conversation that proposed it (null when none did).
                      *
-                     * 一行，按它被写下的样子：记了什么、谁做的、什么时候、这件事有没有按调用方所求发生，以及把它
-                     * 与前一行绑在一起的两个哈希。
+                     * 一行，按它被写下的样子：记了什么、谁做的、什么时候、这件事有没有按调用方所求发生，把它与
+                     * 前一行绑在一起的两个哈希，以及**提议它的那条会话**（没有会话时为 null）。
                      */
                     public record Row(int id, String action, String userId, String detail, Instant createdAt,
                                       boolean isError, String prevHash, String hash,
-                                      String outcome, String tool) {
+                                      String outcome, String tool, String conversationId) {
                     }
 
                     private final List<Row> rows = new ArrayList<>();
@@ -1501,11 +1560,24 @@ public class JavaGenerator {
                      * 一遍才敢信的形状**。
                      */
                     public synchronized void append(String action, String userId, String detail,
-                                                    boolean isError, String outcome, String tool) {
+                                                    boolean isError, String outcome, String tool,
+                                                    String conversationId) {
                         String prev = rows.isEmpty() ? null : rows.get(rows.size() - 1).hash();
                         String hash = AuditChain.hash(key, prev, payload(action, userId, detail));
                         rows.add(new Row(rows.size() + 1, action, userId, detail, Instant.now(), isError,
-                                prev, hash, outcome, tool));
+                                prev, hash, outcome, tool, conversationId));
+                    }
+
+                    /**
+                     * The rows that name this conversation, oldest first — the governance half of a
+                     * trace. A row written with no conversation (a task run) is genuinely not this
+                     * conversation's and is left out, which is what "no conversation" means.
+                     *
+                     * 点名了**这条会话**的行，最早的在前 —— 一条追踪的治理那一半。**没有会话**时写下的行
+                     * （一次任务运行）本来就不属于这条会话、故不出现，而这就是「没有会话」的意思。
+                     */
+                    public synchronized List<Row> rowsFor(String conversationId) {
+                        return rows.stream().filter(row -> conversationId.equals(row.conversationId())).toList();
                     }
 
                     /**
@@ -1584,7 +1656,19 @@ public class JavaGenerator {
                         this.watchers = watchers;
                     }
 
-                    public Map<String, Object> execute(String toolName, Map<String, Object> args, String userId) {
+                    /**
+                     * Gate and (if allowed) run a tool call, recording the conversation it was proposed
+                     * in beside every row it writes — so a trace can merge the governance half back into
+                     * the conversation that proposed it. {@code conversationId} is null for a call made
+                     * with no conversation (a task run); such a row is genuinely nobody's conversation's
+                     * and appears in no trace.
+                     *
+                     * 门控并在允许时跑一次工具调用，同时把提议它的**那条会话**记在它写下的每一行**旁边** ——
+                     * 于是追踪能把治理那一半并回提议它的那条会话。{@code conversationId} 在**没有会话**的调用
+                     * （一次任务运行）下为 null；那样的一行本来不属于任何会话，也不出现在任何追踪里。
+                     */
+                    public Map<String, Object> execute(String toolName, Map<String, Object> args, String userId,
+                                                       String conversationId) {
                         AiTool tool = registry.require(toolName);
                         String decision = gate.decide(tool);
                         if ("BLOCK".equals(decision)) {
@@ -1595,15 +1679,16 @@ public class JavaGenerator {
                             // 一行是不是错误，看的是这次调用**有没有按调用方所求发生** —— 运行时用的就是这条规则。
                             // 拦截是一个「没有」；**只是在等人**的提议不是。
                             audit.append("tool_call", userId, toolName + " blocked", true,
-                                    "blocked", toolName);
+                                    "blocked", toolName, conversationId);
                             return status("blocked");
                         }
                         if ("ALLOW".equals(decision)) {
-                            return run(tool, args, userId);
+                            return run(tool, args, userId, conversationId);
                         }
-                        String token = confirmations.create(userId, toolName, args, tool.riskLevel());
+                        String token = confirmations.create(userId, toolName, args, tool.riskLevel(),
+                                conversationId);
                         audit.append("tool_call", userId, toolName + " pending confirmation",
-                                false, "pending", toolName);
+                                false, "pending", toolName, conversationId);
                         Map<String, Object> out = status("pending_confirmation");
                         out.put("token", token);
                         return out;
@@ -1612,14 +1697,21 @@ public class JavaGenerator {
                     /**
                      * Approve and perform the write. <b>The claim comes first</b>: only the caller that
                      * takes the token out of pending reaches the tool, so a second approval arriving at
-                     * the same moment is refused rather than executing the write a second time.
+                     * the same moment is refused rather than executing the write a second time. The
+                     * conversation the proposal named rides along on the pending record, because the
+                     * approval is a request of its own and would otherwise not know one.
+                     *
+                     * 批准并执行这次写。<b>先取走声明</b>：只有把 token 从待决里取走的那个调用方够得到工具，
+                     * 故同一时刻到达的第二次批准会被拒、而不是把这次写执行两遍。提议点名的那条会话**跟着待决记录
+                     * 一起走**，因为批准是一个自己的请求、否则无从知道。
                      */
                     public Map<String, Object> approve(String token, String userId) {
                         ConfirmationStore.Pending pending = confirmations.claim(token, userId);
                         AiTool tool = registry.require(pending.toolName());
                         audit.append("tool_confirmation", userId, tool.name() + " approved",
-                                false, "approved", tool.name());
-                        Map<String, Object> outcome = run(tool, confirmations.args(pending), userId);
+                                false, "approved", tool.name(), pending.conversationId());
+                        Map<String, Object> outcome =
+                                run(tool, confirmations.args(pending), userId, pending.conversationId());
                         // Last, and after the write is done: whoever is watching the stream hears about the
                         // decision once it is a fact. Nothing is waiting when nobody opened a stream, and
                         // that is an ordinary outcome rather than a failure.
@@ -1636,7 +1728,7 @@ public class JavaGenerator {
                         // 否决就是调用方**没拿到所求**，故它是一行错误 —— 也是「有人说了不」的那一行，而正是
                         // 操作者会来找的那一行。
                         audit.append("tool_confirmation", userId, pending.toolName() + " declined", true,
-                                "declined", pending.toolName());
+                                "declined", pending.toolName(), pending.conversationId());
                         watchers.decided(token, decision("decline", pending.toolName(), null));
                         return Map.of("status", "declined");
                     }
@@ -1662,7 +1754,8 @@ public class JavaGenerator {
                         return told;
                     }
 
-                    private Map<String, Object> run(AiTool tool, Map<String, Object> args, String userId) {
+                    private Map<String, Object> run(AiTool tool, Map<String, Object> args, String userId,
+                                                    String conversationId) {
                         // The intent row (D36 ②): written before the tool runs, so "who tried" never
                         // goes missing even when the tool's own write lands and the bookkeeping after
                         // it does not. Its outcome is the line after it.
@@ -1670,7 +1763,7 @@ public class JavaGenerator {
                         // intent 行（D36 ②）：写在工具跑**之前**，好让「谁试过」**永不缺行** —— 即便工具
                         // 自己那一笔落了地、而它后面的记账没有。它的结局在**它后面那一行**。
                         audit.append("tool_call", userId, tool.name() + " attempted", false, "attempted",
-                                tool.name());
+                                tool.name(), conversationId);
                         Map<String, Object> result = tool.execute(args, userId);
                         Long effectId = null;
                         if (Boolean.TRUE.equals(result.get("success")) && result.get("resultId") instanceof Number n) {
@@ -1686,10 +1779,10 @@ public class JavaGenerator {
                             // 唯一时刻，再往后读到的就是这一行后来变成的样子了。冻结的 `traceItem` 把它读作
                             // `afterSnapshot`。
                             effectId = sideEffects.record(userId, tool.name(), tool.resultType(), resultId,
-                                    args, CanonicalJson.json(result)).id();
+                                    args, CanonicalJson.json(result), conversationId).id();
                         }
                         audit.append("tool_call", userId, tool.name() + " -> ok",
-                                false, "executed", tool.name());
+                                false, "executed", tool.name(), conversationId);
                         Map<String, Object> out = status("executed");
                         // The tool's answer is reported as `data`, the name the chat response uses —
                         // so the engine's own outcome and the wire shape are the same field set.
@@ -2862,7 +2955,7 @@ public class JavaGenerator {
                         // this — risk, confirmation and audit are applied by the engine, unconditionally.
                         Map<String, Object> outcome = plan == null
                                 ? null
-                                : engine.execute(plan.tool(), plan.args(), principal.userId());
+                                : engine.execute(plan.tool(), plan.args(), principal.userId(), id);
 
                         Reply reply = replier.reply(message, turns(id), outcome);
                         conversations.append(id, principal.userId(), ConversationMessage.ASSISTANT, reply.text());
@@ -4108,7 +4201,7 @@ public class JavaGenerator {
                         // 进去）不会留下「声称撤了」的行。
                         audit.append("effect_revoke", principal.userId(),
                                 effect.toolName() + " revoked (effect " + id + ")",
-                                false, "revoked", effect.toolName());
+                                false, "revoked", effect.toolName(), effect.conversationId());
                         // The console reads the outcome off `revokeStatus`, as the runtime's answer
                         // does, and that stays. `revoked` is added because the frozen `revokeResult`
                         // requires it — a consumer holding that object should not have to derive a
@@ -4127,10 +4220,13 @@ public class JavaGenerator {
                         Map<String, Object> view = new LinkedHashMap<>();
                         view.put("id", effect.id());
                         view.put("toolName", effect.toolName());
-                        // Null rather than invented: an approval arrives in a request of its own, and the
-                        // effect record does not carry the conversation that proposed the write. The
-                        // runtime's own surface answers null here for the same reason.
-                        view.put("conversationId", null);
+                        // The conversation that proposed the write. It is carried from the proposal to the
+                        // decision on the pending record, so an approval arriving in a request of its own
+                        // still knows one; null only when the proposal named no conversation (a task run).
+                        //
+                        // 提议这次写的那条会话。它从**提议时刻**经待决记录被带到**裁决时刻**，故一个自己到达
+                        // 的批准仍知道它；只有提议没有点名会话（一次任务运行）时才为 null。
+                        view.put("conversationId", effect.conversationId());
                         view.put("resultType", effect.resultType());
                         view.put("resultId", effect.resultId());
                         view.put("argsHash", effect.argsHash());
@@ -4582,6 +4678,293 @@ public class JavaGenerator {
             }
         }
         return sb.append('"').toString();
+    }
+
+    // ── The decision trace: a conversation's turns and the governance half beside them ───────────
+
+    /**
+     * A caller's own conversations, and the trace of one of them — the two faces the console's
+     * decision-trace page reads.
+     *
+     * <p><b>The trace holds both halves.</b> The turns are answered from the conversation; the
+     * governance half — the tool calls the turns proposed, the decisions a person took, and the effects
+     * those writes produced — is answered from the audit rows and the effect records that carry this
+     * conversation's id, and the two are merged into one timeline in the order things happened. A row
+     * written with no conversation is genuinely not this conversation's, so it does not appear.
+     *
+     * 某个调用方自己的会话，以及其中一条的追踪 —— 控制台决策轨迹页读的就是这两条面。
+     *
+     * <p><b>一条追踪两半都在。</b>回合从**会话自己**答出来；治理那一半 —— 这些回合提议过的工具调用、有人
+     * 作过的裁决、以及那些写产出的副作用 —— 从**带着这条会话 id** 的审计行与副作用记录答出来，两半按**事情
+     * 发生的先后**并成一条时间线。**没有会话**时写下的行本来不属于这条会话、故不出现。
+     */
+    private String conversationController(String pkg) {
+        return """
+                package %s.web;
+
+                import %s.ai.AuditChainStore;
+                import %s.ai.DeterministicReplier;
+                import %s.ai.SideEffectStore;
+                import %s.conversation.ConversationMessage;
+                import %s.conversation.ConversationMessageRepository;
+                import %s.identity.IdentityEvidence;
+                import %s.identity.IdentityResolver;
+                import %s.identity.Principal;
+                import java.time.Instant;
+                import java.util.ArrayList;
+                import java.util.Comparator;
+                import java.util.LinkedHashMap;
+                import java.util.List;
+                import java.util.Map;
+                import org.springframework.http.HttpStatus;
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.PathVariable;
+                import org.springframework.web.bind.annotation.RequestHeader;
+                import org.springframework.web.bind.annotation.RestController;
+                import org.springframework.web.server.ResponseStatusException;
+
+                /**
+                 * A caller's own conversations, and the trace of one of them.
+                 *
+                 * <p><b>A trace is the conversation's own story, and it holds both halves of it.</b> The
+                 * turns come from the conversation; the governance half — the tool calls, the decisions a
+                 * person took, and the effects the writes produced — comes from the audit and effect
+                 * records that carry this conversation's id, and the two are merged into one timeline in
+                 * the order things happened.
+                 *
+                 * <p><b>What a trace still does not carry.</b> A row written with no conversation (a task
+                 * run) is genuinely not this conversation's and does not appear, and neither does the
+                 * call's argument string — this application does not store one, and inventing it would
+                 * describe a call the row never held. `provider` and `model` come from the default
+                 * replier's own constants: they are recorded per reply, not per conversation, so a
+                 * deployment that replaced the replier should read them as the default.
+                 *
+                 * 某个调用方自己的会话，以及其中一条的追踪。
+                 *
+                 * <p><b>一条追踪是这条会话自己的故事，两半都在。</b>回合来自会话；治理那一半 —— 工具调用、
+                 * 有人作过的裁决、以及那些写产出的副作用 —— 来自**带着这条会话 id** 的审计与副作用记录，
+                 * 两半按**事情发生的先后**并成一条时间线。
+                 *
+                 * <p><b>一条追踪仍然不装的东西。</b>**没有会话**时写下的行（一次任务运行）本来就不属于这条
+                 * 会话、故不出现；也没有调用的参数串 —— 本应用不存它，而编一个等于**描述一次那一行从未持有过的
+                 * 调用**。`provider` 与 `model` 取自**默认 replier 自己的常量**：它们记在**每次回复**上、
+                 * 不是每条会话上，故**换过 replier 的部署**应把它们读作默认。
+                 */
+                @RestController
+                public class ConversationController {
+
+                    private final ConversationMessageRepository messages;
+                    private final AuditChainStore audit;
+                    private final SideEffectStore sideEffects;
+                    private final IdentityResolver identities;
+
+                    public ConversationController(ConversationMessageRepository messages, AuditChainStore audit,
+                                                  SideEffectStore sideEffects, IdentityResolver identities) {
+                        this.messages = messages;
+                        this.audit = audit;
+                        this.sideEffects = sideEffects;
+                        this.identities = identities;
+                    }
+
+                    @GetMapping("/ai/conversations")
+                    public List<Map<String, Object>> conversations(
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal caller =
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        List<Conversation> found = new ArrayList<>();
+                        for (String id : messages.conversationIdsFor(caller.userId())) {
+                            found.add(new Conversation(id, messages.findTop2ByConversationIdOrderByIdAsc(id)));
+                        }
+                        // Most recent activity first, the order the console lists them in. Sorted here
+                        // because a conversation is derived from its messages, so there is no row to
+                        // order by.
+                        //
+                        // 最近有活动的在前 —— 控制台列表就是这个序。排序放在这里，因为会话是**由消息推出来的**，
+                        // 没有一行可供排序。
+                        found.sort((a, b) -> b.lastActivity().compareTo(a.lastActivity()));
+                        List<Map<String, Object>> out = new ArrayList<>();
+                        for (Conversation conversation : found) {
+                            out.add(conversation.data());
+                        }
+                        return out;
+                    }
+
+                    @GetMapping("/ai/conversations/{id}/trace")
+                    public Map<String, Object> trace(
+                            @PathVariable String id,
+                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                            @RequestHeader(value = "X-User-Role", required = false) String role,
+                            @RequestHeader(value = "X-Oidc-Sub", required = false) String oidcSubject) {
+                        Principal caller =
+                                identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
+                        List<ConversationMessage> turns = messages.findByConversationIdOrderByIdAsc(id);
+                        if (turns.isEmpty()) {
+                            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown conversation: " + id);
+                        }
+                        if (!turns.get(0).getUserId().equals(caller.userId())) {
+                            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                    "conversation belongs to another user");
+                        }
+                        Map<String, Object> body = new LinkedHashMap<>();
+                        body.put("conversation", new Conversation(id, turns).data());
+                        body.put("steps", steps(id, turns));
+                        return body;
+                    }
+
+                    /**
+                     * The trace as one timeline: the turns, and the governance events those turns produced,
+                     * merged by when each happened. Merged rather than concatenated because a trace is a
+                     * story in order; each source carries its own timestamp, and a tie is broken by the
+                     * order the steps were gathered in, so the result is stable.
+                     *
+                     * 把追踪并成**一条时间线**：回合，与那些回合产出的治理事件，按各自发生的先后合并。合并、
+                     * 而不是拼接，因为一条追踪是**按序的故事**；每个来源自带时间戳，并列时按**收集的先后**
+                     * 打破，于是结果是稳定的。
+                     */
+                    private List<Map<String, Object>> steps(String conversationId,
+                                                            List<ConversationMessage> turns) {
+                        List<Timed> timeline = new ArrayList<>();
+                        for (int i = 0; i < turns.size(); i++) {
+                            ConversationMessage turn = turns.get(i);
+                            String type;
+                            if (ConversationMessage.USER.equals(turn.getRole())) {
+                                type = "input";
+                            } else if (ConversationMessage.ASSISTANT.equals(turn.getRole())
+                                    && turn.getContent() != null && !turn.getContent().isBlank()) {
+                                type = "assistant";
+                            } else {
+                                continue;
+                            }
+                            Map<String, Object> step = new LinkedHashMap<>();
+                            step.put("id", "msg-" + i);
+                            step.put("type", type);
+                            step.put("time", turn.getCreatedAt());
+                            step.put("content", turn.getContent());
+                            timeline.add(new Timed(turn.getCreatedAt(), timeline.size(), step));
+                        }
+                        for (AuditChainStore.Row row : audit.rowsFor(conversationId)) {
+                            Map<String, Object> step = auditStep(row);
+                            if (step != null) {
+                                timeline.add(new Timed(row.createdAt(), timeline.size(), step));
+                            }
+                        }
+                        for (SideEffectStore.Effect effect : sideEffects.byConversation(conversationId)) {
+                            timeline.add(new Timed(effect.createdAt(), timeline.size(), effectStep(effect)));
+                        }
+                        timeline.sort(Comparator.comparing(Timed::time).thenComparingInt(Timed::order));
+                        return timeline.stream().map(Timed::step).toList();
+                    }
+
+                    /**
+                     * One audit row as a step: a {@code tool_call} for a call, a {@code confirmation} for a
+                     * decision. A row that is neither is left out rather than shown as a step type it is
+                     * not. The call's outcome is carried as {@code success}, and a decision carries the
+                     * frozen {@code outcome} the row's action maps to.
+                     *
+                     * 一行审计作为一步：一次调用是 `tool_call`，一次裁决是 `confirmation`。两者都不是的行
+                     * **略过**，而不是显示成它并非的那个步类型。调用的结局以 {@code success} 承载，裁决则承载
+                     * 它那一行映射到的冻结 {@code outcome}。
+                     */
+                    private static Map<String, Object> auditStep(AuditChainStore.Row row) {
+                        String type;
+                        if ("tool_call".equals(row.action())) {
+                            type = "tool_call";
+                        } else if ("tool_confirmation".equals(row.action())) {
+                            type = "confirmation";
+                        } else {
+                            return null;
+                        }
+                        Map<String, Object> step = new LinkedHashMap<>();
+                        step.put("id", "audit-" + row.id());
+                        step.put("type", type);
+                        step.put("time", row.createdAt());
+                        if (row.tool() != null) {
+                            step.put("toolName", row.tool());
+                        }
+                        step.put("detail", row.detail());
+                        if ("tool_call".equals(type)) {
+                            step.put("success", !row.isError());
+                        } else {
+                            String outcome = confirmationOutcome(row.outcome());
+                            if (outcome != null) {
+                                step.put("outcome", outcome);
+                            }
+                        }
+                        return step;
+                    }
+
+                    /**
+                     * The frozen {@code confirmation} step's {@code outcome}, from this application's audit
+                     * outcome. The vocabulary is the object's own; an outcome that is none of those is left
+                     * off rather than forced into a word that would misdescribe it.
+                     *
+                     * 冻结 `confirmation` 步的 {@code outcome}，取自本应用的审计结局。词表是对象自己的；不属于
+                     * 其中的结局**不填**，而不是硬塞进一个会误述它的词。
+                     */
+                    private static String confirmationOutcome(String auditOutcome) {
+                        if ("approved".equals(auditOutcome)) {
+                            return "approve";
+                        }
+                        if ("declined".equals(auditOutcome)) {
+                            return "decline";
+                        }
+                        return null;
+                    }
+
+                    /** One effect as a step, in the frozen {@code traceEffect} shape the object declares. */
+                    private static Map<String, Object> effectStep(SideEffectStore.Effect effect) {
+                        Map<String, Object> traceEffect = new LinkedHashMap<>();
+                        traceEffect.put("effectId", effect.id());
+                        traceEffect.put("resultType", effect.resultType());
+                        traceEffect.put("resultId", effect.resultId());
+                        traceEffect.put("revocable", !"none".equals(effect.revokeClass()));
+                        traceEffect.put("after", effect.afterSnapshot());
+                        Map<String, Object> step = new LinkedHashMap<>();
+                        step.put("id", "effect-" + effect.id());
+                        step.put("type", "effect");
+                        step.put("time", effect.createdAt());
+                        step.put("effect", traceEffect);
+                        return step;
+                    }
+
+                    /** A step with the moment it happened and the order it was gathered in, for a stable merge. */
+                    private record Timed(Instant time, int order, Map<String, Object> step) {
+                    }
+
+                    /** A conversation and the turns that were looked up for it. */
+                    private record Conversation(String id, List<ConversationMessage> turns) {
+
+                        Instant lastActivity() {
+                            return turns.get(turns.size() - 1).getCreatedAt();
+                        }
+
+                        Map<String, Object> data() {
+                            Map<String, Object> data = new LinkedHashMap<>();
+                            data.put("id", id);
+                            data.put("userId", turns.get(0).getUserId());
+                            data.put("provider", DeterministicReplier.PROVIDER);
+                            data.put("model", DeterministicReplier.MODEL);
+                            data.put("summary", null);
+                            data.put("createdAt", turns.get(0).getCreatedAt());
+                            data.put("lastActivityAt", lastActivity());
+                            List<Map<String, Object>> shown = new ArrayList<>();
+                            for (ConversationMessage turn : turns) {
+                                Map<String, Object> message = new LinkedHashMap<>();
+                                message.put("role", turn.getRole());
+                                message.put("content", turn.getContent());
+                                message.put("timestamp", turn.getCreatedAt());
+                                shown.add(message);
+                            }
+                            data.put("messages", shown);
+                            return data;
+                        }
+                    }
+                }
+                """.formatted(pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg, pkg);
     }
 
     // ── The operations chain: a second audit, of the business writes themselves ──────────────────

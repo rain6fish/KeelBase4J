@@ -73,6 +73,17 @@ Each version is written in two blocks — English first, then Chinese — marked
   survive a restart — which the generated README's "where the state lives" table now says, and it names
   what it lists as in-memory the **AI** audit chain, since that is what it is.
 
+- **A generated application's decision trace answers its governance half too.** The generated
+  `GET /ai/conversations` lists the caller's own conversations, and
+  `GET /ai/conversations/{id}/trace` answers `{conversation, steps}` — the turns plus the governance
+  events those turns produced, merged into one timeline in the order they happened. The conversation id
+  is recorded beside every row the engine writes: on the audit row, on the pending record that carries
+  the proposal from proposal time to decision time, and on the effect the approval produces — so a write
+  approved in a request of its own still names the conversation that proposed it. A row written with no
+  conversation (a task run) carries null and appears in no trace, which is what "no conversation"
+  honestly is. The effect list's `conversationId` is no longer hard-coded null, and the generated
+  README no longer says it is.
+
 **中文**
 
 ### 新增
@@ -86,6 +97,8 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **一条会话的决策轨迹现在答得出它的治理那一半，不只是回合。** 一次调用所在的**那条会话**，就在**调用发生的地方**被记下 —— 记在审计行上、记在把提议从「提议时刻」带到「裁决时刻」的那条确认行上、也记在那次写产出的副作用行上 —— 于是 `GET /api/v1/ai/conversations/{id}/trace` 把回合与 `tool_call` / `confirmation` / `effect` 三种步**按发生先后**并成一条时间线，而不是只答回合、再说其余放不进去。三个**可空**列与一条**加性**迁移（`V11`）承载这条链；**没有会话**时写下的行（一次任务运行、一个 MCP 调用方）带 null、也不出现在任何追踪里 —— 而「没有会话」本来就该如此。已经写下的一切都不变，审计哈希链（取自 `{action, userId, detail}`）仍验得过，因为这条链**存在链旁边**。
 
 - **生成物也带上操作链了 —— 第二条审计，记的是业务写本身。** 生成物发出的 `GET /audit/operations/logs` 按冻结的 `operation-audit-log-row` 作答（仅管理员 · `{total, page, limit, items}` · 最新在前），而它读的这条链**不是** AI 那条：它的行是**业务写本身**，包括**没有 AI 参与**的那些。一个请求拦截器在**业务路径的写方法**上、于处理器**答完之后**记下一行 —— 所以那一行说得出这次请求**怎么结束的** —— 而**身份在之前**读，因为到那时请求的安全上下文已经没了；**没带身份**的请求被记下、只是**不挂人**，而不是丢掉；**AI 面被排除**，因为它的调用有隔壁那条链。**写不进这一行不会让请求失败**。这些行是一张**表**（`operation_audit_logs`、迁移 `V3`），故与 AI 链不同、**活得过重启** —— 生成物 README 的「状态住在哪里」表现在这么说，并把原先笼统写作「审计链·在内存」的那一格点明为 **AI** 审计链（它本来就是）。
+
+- **生成物的决策轨迹也答得出它的治理那一半了。** 生成物发出的 `GET /ai/conversations` 列出调用方自己的会话，`GET /ai/conversations/{id}/trace` 答 `{conversation, steps}` —— 回合，加上那些回合产出的治理事件，按**事情发生的先后**并成一条时间线。会话 id 记在**引擎写下的每一行旁边**：审计行上、把提议从「提议时刻」带到「裁决时刻」的待决记录上、以及批准产出的副作用上 —— 故一个**在自己的请求里**到达的批准，仍点得出提议它的那条会话。**没有会话**时写下的行（一次任务运行）带 null、也不出现在任何追踪里 —— 而「没有会话」本来就该如此。副作用清单的 `conversationId` 不再是写死的 null，生成物 README 也不再那么说。
 
 ## [0.1.7] - 2026-10-12
 

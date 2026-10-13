@@ -220,6 +220,40 @@ check "and refuses a caller who is not an administrator" '403' \
 check "and answers the administrator" '200' \
   "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $CAROL" "$BASE/audit/verify")"
 
+# ── the decision trace: the turns, and the governance half beside them ─────────────────────────────
+# A trace is the conversation's own story in order: the caller's message, the tool the turn proposed,
+# the reply, and — for a write — the decision a person took and the effect the approval produced. The
+# governance half is answerable because the conversation id is recorded beside every row the engine
+# writes, carried from the proposal to the decision on the pending record.
+#
+# 一条追踪是这条会话自己的故事、按序：调用方那句、这回合计要的工具、回复，而写还有 —— 有人作过的裁决与
+# 批准产出的副作用。治理那一半答得出来，是因为引擎写下的**每一行旁边**都记着会话 id，且它从提议经待决记录
+# 被带到裁决。
+CONV=$(printf '%s' "$READ" | sed -n 's/.*"conversationId":"\([^"]*\)".*/\1/p')
+TRACE=$(curl -s -H "Authorization: Bearer $ALICE" "$BASE/ai/conversations/$CONV/trace")
+check "the trace answers with its conversation and steps" '"steps":[' "$TRACE"
+check "the caller's message is an input step" '"type":"input"' "$TRACE"
+check "and the reply is an assistant step" '"type":"assistant"' "$TRACE"
+check "and the tool it proposed is a tool_call step" '"type":"tool_call","time"' "$TRACE"
+check "the conversation is listed among the caller's own" "\"id\":\"$CONV\"" \
+  "$(curl -s -H "Authorization: Bearer $ALICE" "$BASE/ai/conversations")"
+check "and another caller's trace is refused" '403' \
+  "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $BOB" "$BASE/ai/conversations/$CONV/trace")"
+check "and an unknown conversation is a 404" '404' \
+  "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/ai/conversations/nope/trace")"
+
+# The write's own conversation: the effect names it (the link the approval carried), and its trace holds
+# both governance steps — the decision and the effect — beside the turns.
+#
+# 写自己那条会话：副作用点出它的名字（批准带过来的那条链），而它的追踪在回合之外同时装着两步治理 ——
+# 裁决与副作用。
+EFFECTS=$(curl -s -H "Authorization: Bearer $ALICE" "$BASE/ai/tool-effects")
+check "an effect names the conversation that proposed it" '"conversationId":"' "$EFFECTS"
+WRITE_CONV=$(printf '%s' "$EFFECTS" | grep -o '"conversationId":"[^"]*"' | head -1 | cut -d'"' -f4)
+WRITE_TRACE=$(curl -s -H "Authorization: Bearer $ALICE" "$BASE/ai/conversations/$WRITE_CONV/trace")
+check "and its trace shows the decision a person took" '"type":"confirmation"' "$WRITE_TRACE"
+check "and the effect the approval produced" '"type":"effect"' "$WRITE_TRACE"
+
 # The rows are readable too, under the same gate — they answer with the rows themselves, which name who
 # acted. Asserted three ways, because "it answered" is not the same as "it answered the right subset, to
 # the right caller": the filter must narrow to the caller asked about, the row must carry the frozen
