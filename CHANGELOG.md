@@ -12,6 +12,26 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+**English**
+
+### Added
+
+- **A generated application now carries its own operations checklist, and says which half of its state a
+  restart destroys.** The README the generator emits gained an `## Operations` section — what survives
+  (the business tables and `flyway_schema_history`), what does not (the audit chain, the pending
+  confirmations and the side-effect records, which is where a revocation is remembered, are held in
+  memory), how to point the application at PostgreSQL, the secrets whose shipped values are spike
+  values, a `pg_dump` of the durable half, and an upgrade that is an additive migration with
+  `ddl-auto=validate` failing the boot on a mismatch. The volatile half is declared **demo-grade on
+  purpose** rather than left to read as an oversight: it is a deliberate simplification, and moving that
+  state into its own tables is the change a deployment that leans on it should make.
+
+**中文**
+
+### 新增
+
+- **生成物现在自带运维清单，并说清它的状态有哪一半活不过一次重启。** 生成器发出的 `README` 多了一节 `## Operations` —— 什么留得下（业务表与 `flyway_schema_history`）、什么留不下（**审计链**、待裁决的确认、以及副作用记录 —— **撤销就记在那里** —— **都在内存**）、怎么把它指向 PostgreSQL、哪些密钥的出厂值是 spike 值、对**持久那一半**做 `pg_dump`，以及「升级就是一条加性迁移、`ddl-auto=validate` 在不一致时让启动失败」。**活不过重启的那一半被声明为「刻意 demo 级」**，而不是留给读者当成疏漏：它是**刻意的简化**，而把这份状态搬进它自己的表，才是**真的依赖它的部署**该做的改动。
+
 ## [0.1.7] - 2026-10-12
 
 **English**
@@ -34,16 +54,6 @@ Each version is written in two blocks — English first, then Chinese — marked
   governance metadata: the risk level, the confirmation flag and the revoke class stay server-side,
   which is the planner's own rule applied to the second seam. Blank in, blank out — a deployment that
   declared nothing gets no block rather than an empty heading.
-
-- **A generated application now carries its own operations checklist, and says which half of its state a
-  restart destroys.** The README the generator emits gained an `## Operations` section — what survives
-  (the business tables and `flyway_schema_history`), what does not (the audit chain, the pending
-  confirmations and the side-effect records, which is where a revocation is remembered, are held in
-  memory), how to point the application at PostgreSQL, the secrets whose shipped values are spike
-  values, a `pg_dump` of the durable half, and an upgrade that is an additive migration with
-  `ddl-auto=validate` failing the boot on a mismatch. The volatile half is declared **demo-grade on
-  purpose** rather than left to read as an oversight: it is a deliberate simplification, and moving that
-  state into its own tables is the change a deployment that leans on it should make.
 
 > **⚠ Known, and deliberately not fixed in this version.** The chat stream does not conform to the
 > frozen `sse-event` schema in two places, both of which predate this change: `tool_start` omits the
@@ -90,8 +100,6 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **一个回合可以点名控制台里的一处，而两条端点都说出来。** 导航就是一个**普通工具** —— 读，故不占写声明、不记副作用、不要确认 —— 但它交回的**是一条路径**，而在此之前**没有任何路径能离开这个运行时**。`chat-response` 声明了 `navigateTo`、`sse-event` 声明了 `navigate` 事件；参照实现两者都填、都发，而本运行时一个都没做。现在 `/ai/chat` 在本回合点过名时答出那个字段，流则把事件发在 reply **之后** —— 那是控制台**已经**开始渲染本回合的位置。提取只有一处（`ChatTurnService.Turn.navigateTo()`），因为两条端点报的是**同一个回合**，第二次读就是第二个「两处会不一致」的地方。**契约无需改动** —— 两者都是冻结对象自己声明过的。
 
 - **模型版的 replier 现在知道这个部署是什么。** 它的 system prompt 里带上了 preset、特性开关、业务模块与工具目录，因为「这个系统有哪些模块」是**只有系统自己**答得上来的问题，而放任不管的模型**会去猜**。它不携带任何治理元数据：风险级、是否需确认、撤销档都留在服务端 —— 那是 planner 自己的规矩用在**第二条缝**上。空进空出：什么都没声明的部署得到的是**没有那一块**，不是一个空的抬头。
-
-- **生成物现在自带运维清单，并说清它的状态有哪一半活不过一次重启。** 生成器发出的 `README` 多了一节 `## Operations` —— 什么留得下（业务表与 `flyway_schema_history`）、什么留不下（**审计链**、待裁决的确认、以及副作用记录 —— **撤销就记在那里** —— **都在内存**）、怎么把它指向 PostgreSQL、哪些密钥的出厂值是 spike 值、对**持久那一半**做 `pg_dump`，以及「升级就是一条加性迁移、`ddl-auto=validate` 在不一致时让启动失败」。**活不过重启的那一半被声明为「刻意 demo 级」**，而不是留给读者当成疏漏：它是**刻意的简化**，而把这份状态搬进它自己的表，才是**真的依赖它的部署**该做的改动。
 
 > **⚠ 已知、且本版刻意不修。** 这条聊天流在冻结的 `sse-event` schema 上有两处不合规，且都早于本次改动：`tool_start` 漏了它载荷所要求的 `summary`，而 `confirmation_request` 发的 `mode: "confirmation"` 不在冻结枚举（`immediate` / `approval` / `run`）里。本仓**别处没有任何断言**把这条流拿去对 schema。`ConsoleNavigationTest` 现在把 `navigate` 事件钉在它上面，并把缺口**记在原地**，而不是把检查悄悄收窄。
 
