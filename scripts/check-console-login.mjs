@@ -16,7 +16,12 @@
 //
 //   CONSOLE_URL  the console's entry          (default http://localhost:18087/admin/)
 //   DEMO_PASS    the injected passphrase      (required — the script refuses to guess one)
-//   CONSOLE_USERS  user:role:expected-hash    (default alice:user:#/workbench,carol:admin:#/)
+//   CONSOLE_USERS  user:role:expected-hash    (default alice:user:#/workbench/ai,carol:admin:#/)
+//                                              — the user surface lands on the chat since 2026-10-12
+//                                              (`Web-Admin-Vue/src/router/guards.ts`: a `user` surface
+//                                              returns `/workbench/ai`). The old `#/workbench` expectation
+//                                              went stale when that landed and red-flagged a working
+//                                              console; measured 2026-10-13, then corrected here.
 //   CHROME       the browser binary           (default: probed at the usual places)
 //
 //   node scripts/check-console-login.mjs      # exit 0 = the console signs in; exit 1 = it does not
@@ -34,7 +39,10 @@
 //
 //   CONSOLE_URL  控制台入口（默认 http://localhost:18087/admin/）
 //   DEMO_PASS    注入的口令（**必填**——脚本拒绝去猜一个）
-//   CONSOLE_USERS  用户:角色:期望的 hash（默认 alice:user:#/workbench,carol:admin:#/）
+//   CONSOLE_USERS  用户:角色:期望的 hash（默认 alice:user:#/workbench/ai,carol:admin:#/）
+//                  —— 自 2026-10-12 起，user 面落在**聊天**（`Web-Admin-Vue/src/router/guards.ts`：
+//                  user 面返回 `/workbench/ai`）。旧的 `#/workbench` 期望在那一刻就过时了，却把一台
+//                  **好着的**控制台报成红的；2026-10-13 实测后在此订正。
 //   CHROME       浏览器可执行文件（默认：在常见位置探测）
 //
 //   node scripts/check-console-login.mjs      # 退出 0 = 控制台能登进去；退出 1 = 不能
@@ -45,7 +53,7 @@ import { join } from 'node:path'
 
 const CONSOLE_URL = process.env.CONSOLE_URL || 'http://localhost:18087/admin/'
 const PASS = process.env.DEMO_PASS
-const USERS = (process.env.CONSOLE_USERS || 'alice:user:#/workbench,carol:admin:#/').split(',')
+const USERS = (process.env.CONSOLE_USERS || 'alice:user:#/workbench/ai,carol:admin:#/').split(',')
 const DEBUG_PORT = Number(process.env.CDP_PORT || 9223)
 
 // Used only before the browser exists: `process.exit` skips `finally`, so anything raised *after* the
