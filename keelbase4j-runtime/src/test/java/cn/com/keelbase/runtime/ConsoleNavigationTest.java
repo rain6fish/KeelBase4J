@@ -155,24 +155,18 @@ class ConsoleNavigationTest {
 
         assertEquals(List.of("tool_start", "text", "navigate", "tool_end", "done"), types(events),
                 "the console expects these in this order; got " + events);
-        // The new event is held to the frozen set rather than to the shape this test happens to
-        // expect: a name the contract does not declare, or a key it does not declare, fails here.
+        // Every event is now held to the frozen set, not only the one this test is about. The check was
+        // drawn around `navigate` for a reason that has since been repaired: `tool_start` was leaving
+        // out the `summary` its payload requires, so the whole stream could not pass it (JV-61). What
+        // remains outside this check is `confirmation_request`'s `mode`, which the frozen enum does not
+        // contain — and no turn here produces that event, because a navigation tool is a read and a read
+        // raises no confirmation. A write turn is ChatStreamTest's to cover.
         //
-        // ⚠ Only this one, and the reason is a finding rather than a convenience: the whole stream
-        // does not pass the same check today. `tool_start` leaves out the `summary` its payload
-        // requires, and `confirmation_request` sends `mode: "confirmation"` where the frozen enum is
-        // immediate/approval/run. Both predate this change and neither is this change's to fix
-        // quietly, so the check is drawn around the event this test is about and the gap is recorded
-        // here. Nothing else in the runtime asserts the stream against the frozen schema at all.
-        //
-        // 新事件拿**冻结的事件集**来量，而不是量这个测试恰好期望的形状：契约**没声明**的事件名、或**没声明**
-        // 的键，都会在这里失败。
-        //
-        // ⚠ 只量这一个，而理由是**一条发现**、不是方便：**整条流今天过不了同一个检查**。`tool_start` 漏了
-        // 它载荷所要求的 `summary`，而 `confirmation_request` 发的 `mode: "confirmation"` 不在冻结枚举
-        // （immediate/approval/run）里。两处都早于本次改动，也都**不是本次改动该悄悄顺手改的**，故检查就画在
-        // 本测试关心的那个事件周围，而缺口记在这里。运行时里**别处根本没有**把这条流拿去对冻结 schema 的断言。
-        WireSchemas.assertConformsTo(payload(events, "navigate"), "sse-event");
+        // 现在**每个**事件都拿冻结集来量，不只是本测试关心的那一个。它此前只画在 `navigate` 周围，理由是
+        // **后来被修掉**的那个：`tool_start` 漏了它载荷所要求的 `summary`，故整条流过不了（`JV-61`）。
+        // 仍在这个检查之外的只剩 `confirmation_request` 的 `mode`（冻结枚举里没有它）—— 而本测试的任何回合都
+        // 产不出那个事件：导航工具是**读**，而读不起确认。写回合归 `ChatStreamTest` 覆盖。
+        events.forEach(event -> WireSchemas.assertConformsTo(event, "sse-event"));
         assertEquals("/users", payload(events, "navigate").get("route"),
                 "and the event carries the route itself: " + events);
     }

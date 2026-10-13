@@ -177,6 +177,17 @@ public class ChatStreamController {
         AiTool tool = tools.require(turn.plan().tool());
         Map<String, Object> start = new LinkedHashMap<>();
         start.put("name", tool.name());
+        // The frozen `toolStart` requires `summary`, and this runtime was not sending it at all — a
+        // required field of a frozen object, absent for as long as the event has existed. The reference
+        // renders a sentence about *this call* for a write and a name-keyed one for a read; this runtime
+        // has no presentation layer, so it uses the tool's own description — a name-keyed sentence — for
+        // both, and says so here rather than inventing a way to arrange the arguments into prose.
+        //
+        // 冻结的 `toolStart` **要求** `summary`，而本运行时**根本没发过它** —— 一个冻结对象的**必填字段**，
+        // 在该事件存在期间一直缺着。参照实现对**写**渲染一句关于**这次调用**的话、对**读**渲染一句**按名字**的话；
+        // 本运行时没有那一层「呈现」，故两者都用**工具自己的描述**（一句按名字的话），并在这里说出来，而不是
+        // 去发明一种「把参数排成散文」的写法。
+        start.put("summary", tool.description());
         start.put("arguments", turn.plan().args());
         start.put("isWrite", tool.resultType() != null);
         // The risk level does belong on this channel: it goes to the user's own console, not to a
