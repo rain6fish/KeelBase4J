@@ -21,6 +21,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -121,6 +125,29 @@ class WireShapeConformanceTest {
     private Object getData(String path, String user) {
         return dataOf(rest.exchange(URI.create(path), HttpMethod.GET,
                 new HttpEntity<>(asCaller(user)), String.class));
+    }
+
+    /**
+     * A business write to make, since this runtime's own sample module only reads: its writes travel as
+     * AI tool calls, and those are the AI chain's business rather than the operations one.
+     */
+    @TestConfiguration
+    static class Probe {
+
+        /** Registered by the component scan, not by a bean method — both at once is a double mapping. */
+        @RestController
+        static class ProbeController {
+
+            @PostMapping("/probe/things")
+            Map<String, Object> create() {
+                return Map.of("created", true);
+            }
+
+            @PostMapping("/probe/things/{id}/touch")
+            Map<String, Object> touch(@PathVariable String id) {
+                return Map.of("touched", id);
+            }
+        }
     }
 
     /** One turn by this caller, answering the conversation it opened. */
@@ -305,5 +332,51 @@ class WireShapeConformanceTest {
         assertEquals(404, missing.getStatusCode().value(),
                 "an unknown id is a 404, not a conversation invented on the spot — this runtime hands "
                         + "out its own ids, and the chat path is where a new one is made: " + missing);
+    }
+
+    @Test
+    void aBusinessWriteLeavesAnOperationsRowAndAnAiTurnDoesNot() {
+        rest.postForEntity("/probe/things", new HttpEntity<>(Map.of(), asCaller("alice")), String.class);
+        rest.postForEntity("/probe/things/42/touch", new HttpEntity<>(Map.of(), asCaller("alice")), String.class);
+        rest.postForEntity("/ai/chat", new HttpEntity<>(
+                Map.of("message", "你好"), asCaller("alice")), String.class);
+
+        List<?> items = (List<?>) Vectors.map(getData("/audit/operations/logs", "carol")).get("items");
+
+        assertFalse(items.isEmpty(), "the write above left a row");
+        for (Object item : items) {
+            WireSchemas.assertConformsTo(item, "operation-audit-log-row");
+        }
+        Map<?, ?> created = items.stream().map(o -> Vectors.map(o))
+                .filter(row -> String.valueOf(row.get("path")).endsWith("/probe/things"))
+                .findFirst().orElseThrow(() -> new AssertionError("the probe's write is not in the log: " + items));
+        assertEquals("CREATE", created.get("action"), "a POST creates: " + created);
+        assertEquals("POST", created.get("method"), "and the row says how it arrived: " + created);
+        assertEquals("alice", created.get("userId"),
+                "and who did it — read before the security context is gone: " + created);
+        assertEquals(200, ((Number) created.get("statusCode")).intValue(),
+                "and how it ended, since the row is written after the answer: " + created);
+
+        Map<?, ?> touched = items.stream().map(o -> Vectors.map(o))
+                .filter(row -> String.valueOf(row.get("path")).endsWith("/probe/things/42/touch"))
+                .findFirst().orElseThrow(() -> new AssertionError("no row for the nested route: " + items));
+        assertEquals("42", touched.get("targetId"),
+                "the row names what the route named, off the handler's own variables: " + touched);
+        // The AI surface keeps its own chain: a turn is a decision trace, not a business operation, and
+        // this is where that decision is held rather than left to whoever reads the code next.
+        //
+        // AI 面有自己的链：一个回合是**决策轨迹**、不是**业务操作**；这个决定钉在这里，而不是留给下一个读代码的人。
+        assertTrue(items.stream().map(o -> Vectors.map(o))
+                        .noneMatch(row -> String.valueOf(row.get("path")).contains("/ai/")),
+                "an AI turn must not appear as an operation: " + items);
+    }
+
+    @Test
+    void theOperationsAuditIsRefusedToAPlainCaller() {
+        ResponseEntity<String> response = rest.exchange(URI.create("/audit/operations/logs"), HttpMethod.GET,
+                new HttpEntity<>(asCaller("alice")), String.class);
+
+        assertEquals(403, response.getStatusCode().value(),
+                "the operations chain is the administrator's, as the AI one is: " + response);
     }
 }

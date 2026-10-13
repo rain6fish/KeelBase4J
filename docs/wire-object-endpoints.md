@@ -22,6 +22,7 @@ replaying the same corpus is what surfaced the need for this: see `docs/ARCHITEC
 | `ai-tool-inventory` | `GET /api/v1/ai/tools` | one item per registered tool — **administrators only**. The governance half is **asked of the engine's own gate** rather than restated, so a tool cannot be described one way and gated another. Three fields answer their defaults because nothing here declares them — see below |
 | `conversation-data` | `GET /api/v1/ai/conversations` · `GET /api/v1/ai/conversations/{id}/trace` (its `conversation`) | the caller's **own** conversations — user-scoped rather than administrator-only. A list item carries its opening two turns; a trace's carries the whole conversation |
 | `trace-step` | `GET /api/v1/ai/conversations/{id}/trace` (`steps`) | the conversation's turns as `input` / `assistant` steps, plus **one `notice`** — see below for why that notice is the honest form rather than an omission |
+| `operation-audit-log-row` | `GET /api/v1/audit/operations/logs` | the **operations** chain — business writes, administrators only, newest first, envelopes as `{total, page, limit, items}`. A **second, separate** chain from the AI audit beside it: nothing joins the two, and neither is derived from the other. What the row deliberately does not carry is named below rather than left blank |
 
 **Three of `ai-tool-inventory`'s fields have no source in this runtime, and they answer their defaults
 rather than a guess.** The reference fills `enabled`, `allowedRoles` and `permissions` from a
@@ -51,6 +52,33 @@ cannot go quiet; retiring it means recording the link, which is its own change.
 那是该对象**为这类声明**保留的一个步类型。另一种选择是一个空列表，而在一个**本该**显示工具调用的页上，空列表读起来
 是「什么都没发生」、不是「什么都没记」。有测试把这条 notice 钉住、不许它悄声消失；要撤掉它，就得**把那条链记下来**，
 那是另一件改动。
+
+**The operations row carries what this runtime sources, and names what it does not.** The reference
+stores a request body (redacted field by field against a PII declaration), a field-level before/after
+diff, the feature names a mapping declares, and two hash columns. This runtime has no PII declaration to
+redact by, nothing that produces a diff, no feature map, and — for the hashes — no second chain head, so
+each of those is **absent rather than invented**; `V9__operation_audit_log.sql` states the same list where
+the table is created. What the rows do carry is all sourced: the action in the frozen vocabulary
+(`LOGIN` / `LOGOUT` / `UPLOAD` / `CREATE` / `UPDATE` / `DELETE`), the method and path, the caller read
+*before* the request's security context is gone, the route's `id` where it declares one, the status, the
+direct peer, and the user agent.
+
+**The recorder is on by default**, and `keelbase.operations-audit.enabled=false` turns it off. It is a
+request interceptor, so it captures the writes of whatever application embeds this runtime — which is
+what makes a console page work in a host at all — and the switch is there for a host that already keeps
+an operations log of its own. The AI surface is deliberately outside it: its calls have the chain next
+door, and a turn, a confirmation and a revoke are read as a decision trace, not as business operations.
+
+**操作审计那一行装的是本运行时取得到的，并点明它没有的。** 参照实现会存请求正文（按 PII 声明**逐字段**打码）、
+字段级前后差异、映射声明的功能名，以及两个哈希列。本运行时**没有 PII 声明**可依、**没有产出差异的东西**、**没有功能
+映射**，而哈希那两列**没有第二个链头** —— 所以每一样都是**缺着、而不是编的**；`V9__operation_audit_log.sql` 在建表
+处写着同一份清单。它**确实**装的是：冻结词表里的 `action`（`LOGIN` / `LOGOUT` / `UPLOAD` / `CREATE` / `UPDATE` /
+`DELETE`）、方法与路径、**在请求的安全上下文消失之前**读到的调用者、路由声明了的那个 `id`、状态、直接对端、以及
+user agent。
+
+**记录器默认开着**，`keelbase.operations-audit.enabled=false` 关掉它。它是一个**请求拦截器**，所以它捕获的是
+**嵌入本运行时的那个应用**的写 —— 这正是控制台的页在宿主里跑得起来的原因 —— 而那个开关是给**自己已经有一份操作日志**
+的宿主留的。**AI 面刻意在它之外**：那些调用有隔壁那条链，而一个回合、一次确认、一次撤销读的是**决策轨迹**、不是业务操作。
 
 **One answer is this runtime's own object rather than the frozen one** — it is a mapping, not a
 divergence, and it is declared in `docs/ARCHITECTURE.md` §3.2.1: the approve response is an

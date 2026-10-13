@@ -4,3 +4,4 @@ cn.com.keelbase.runtime.autoconfigure.KeelBaseRuntimeAutoConfiguration
 cn.com.keelbase.runtime.autoconfigure.KeelBaseMigrationsAutoConfiguration
 cn.com.keelbase.runtime.autoconfigure.KeelBaseIdentityAutoConfiguration
 cn.com.keelbase.runtime.autoconfigure.KeelBaseAuthorizationAutoConfiguration
+cn.com.keelbase.runtime.autoconfigure.KeelBaseOperationsAuditAutoConfiguration
