@@ -8,6 +8,7 @@ import cn.com.keelbase.runtime.tool.ToolRegistry;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,7 +101,7 @@ public class GovernancePolicyStore {
             throw refused("`audit.granularity` must be one of " + GRANULARITIES + ", not `"
                     + audit.get("granularity") + "`");
         }
-        String json = CanonicalJson.json(Map.of("tools", tools, "audit", audit));
+        String json = CanonicalJson.json(ordered(tools, audit));
         GovernancePolicyRow row = policies.findAll().stream().findFirst()
                 .orElseGet(() -> new GovernancePolicyRow(json));
         row.setPolicyJson(json);
@@ -204,9 +205,57 @@ public class GovernancePolicyStore {
     }
 
     private static String defaultJson() {
-        return CanonicalJson.json(Map.of(
-                "tools", Map.of(),
-                "audit", Map.of("granularity", DEFAULT_GRANULARITY)));
+        return CanonicalJson.json(ordered(Map.of(), Map.of("granularity", DEFAULT_GRANULARITY)));
+    }
+
+    /**
+     * The policy as the bytes a revision is taken over: every key ordered, so the same content always
+     * serialises the same way and "same content, same revision" holds across processes — not merely
+     * within one.
+     *
+     * <p>It is not cosmetic. {@code CanonicalJson.json} emits keys in <em>insertion</em> order, and
+     * {@code Map.of}'s iteration order is unspecified while a submitted override's key order is the
+     * caller's business — so hashing whatever a submission happened to spell would give one policy two
+     * revisions, which is precisely what a content fingerprint promises not to do. The reference
+     * normalises the same way (its {@code normalizePolicy} sorts tool names, sorts {@code allowedRoles}
+     * and writes the keys in a fixed order) before it stringifies.
+     *
+     * 策略按其**取 revision 所依据的字节**成形：每个键有序，故同一内容总是序列化成同一串、且「同内容同号」
+     * **跨进程**成立 —— 不只是在同一个进程里成立。
+     *
+     * <p>不是装饰。`CanonicalJson.json` 按**插入序**发键，而 `Map.of` 的迭代序未定义、一次提交里的覆盖键序又是
+     * 调用方的事 —— 于是对「这次提交碰巧怎么写的」取哈希，会让同一份策略得到两个 revision，而那正是一枚**内容
+     * 指纹**承诺不会发生的事。参照实现同样先归一（它的 `normalizePolicy` 排工具名、排 `allowedRoles`、按固定
+     * 顺序写键）再串化。
+     */
+    private static Map<String, Object> ordered(Map<String, Object> tools, Map<String, Object> audit) {
+        Map<String, Object> sortedTools = new LinkedHashMap<>();
+        tools.keySet().stream().sorted().forEach(name -> {
+            Map<String, Object> override = requireMap(tools.get(name), "the override for `" + name + "`");
+            Map<String, Object> orderedOverride = new LinkedHashMap<>();
+            for (String key : List.of("enabled", "requiresConfirmation", "mode", "allowedRoles")) {
+                if (override.containsKey(key)) {
+                    orderedOverride.put(key, "allowedRoles".equals(key)
+                            ? sortedRoles(override.get(key))
+                            : override.get(key));
+                }
+            }
+            sortedTools.put(name, orderedOverride);
+        });
+        Map<String, Object> orderedAudit = new LinkedHashMap<>();
+        orderedAudit.put("granularity", audit.get("granularity"));
+        Map<String, Object> policy = new LinkedHashMap<>();
+        policy.put("tools", sortedTools);
+        policy.put("audit", orderedAudit);
+        return policy;
+    }
+
+    /** A role list in a fixed order, so two submissions of the same set fingerprint the same. */
+    private static List<String> sortedRoles(Object roles) {
+        List<String> sorted = new ArrayList<>();
+        ((List<?>) roles).forEach(role -> sorted.add(String.valueOf(role)));
+        sorted.sort(null);
+        return sorted;
     }
 
     private static String revision(String json) {

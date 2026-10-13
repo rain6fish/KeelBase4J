@@ -143,6 +143,31 @@ class GovernancePolicyTest {
         assertNotEquals(written.get("revision"), changed, "a change is a new fingerprint");
     }
 
+    @Test
+    void theRevisionIsTakenOverOrderedContent() {
+        // The same policy written with its keys in a different order is the same policy, and a content
+        // fingerprint has to say so. Hashing whatever a submission happened to spell would not: the
+        // tool map and a submitted override carry whatever order the caller wrote, so an unordered hash
+        // gives one policy two revisions. (The store canonicalises before hashing for this reason.)
+        //
+        // 同一份策略换个键序写出来，还是同一份策略 —— 而一枚**内容指纹**必须这么说。对「这次提交碰巧怎么写的」
+        // 取哈希则不然：工具表与一次提交里的覆盖都带着调用方写的那个序，故无序哈希会给同一份策略两个 revision。
+        // （存储因此**先归一、后取哈希**。）
+        String first = revisionOf(putPolicy("carol", Map.of(
+                "tools", Map.of(
+                        "create_followup", Map.of("allowedRoles", List.of("admin", "user"), "mode", "confirm"),
+                        "analyze_customer_risk", Map.of("enabled", true)),
+                "audit", Map.of("granularity", "all"))));
+
+        String second = revisionOf(putPolicy("carol", Map.of(
+                "tools", Map.of(
+                        "analyze_customer_risk", Map.of("enabled", true),
+                        "create_followup", Map.of("mode", "confirm", "allowedRoles", List.of("user", "admin"))),
+                "audit", Map.of("granularity", "all"))));
+
+        assertEquals(first, second, "the same policy in a different order is the same revision");
+    }
+
     // ---- the enforcement ----
 
     @Test
