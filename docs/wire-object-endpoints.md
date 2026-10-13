@@ -20,6 +20,8 @@ replaying the same corpus is what surfaced the need for this: see `docs/ARCHITEC
 | `capabilities` | `GET /api/v1/app/capabilities` | |
 | `app-provenance` | `GET /api/v1/app/provenance` | |
 | `ai-tool-inventory` | `GET /api/v1/ai/tools` | one item per registered tool — **administrators only**. The governance half is **asked of the engine's own gate** rather than restated, so a tool cannot be described one way and gated another. Three fields answer their defaults because nothing here declares them — see below |
+| `conversation-data` | `GET /api/v1/ai/conversations` · `GET /api/v1/ai/conversations/{id}/trace` (its `conversation`) | the caller's **own** conversations — user-scoped rather than administrator-only. A list item carries its opening two turns; a trace's carries the whole conversation |
+| `trace-step` | `GET /api/v1/ai/conversations/{id}/trace` (`steps`) | the conversation's turns as `input` / `assistant` steps, plus **one `notice`** — see below for why that notice is the honest form rather than an omission |
 
 **Three of `ai-tool-inventory`'s fields have no source in this runtime, and they answer their defaults
 rather than a guess.** The reference fills `enabled`, `allowedRoles` and `permissions` from a
@@ -32,6 +34,23 @@ those fields' real sources is what a governance-policy endpoint would be for.
 （一个本运行时没有的逐工具覆盖存储）去填 `enabled`、`allowedRoles` 与 `permissions`。所以这里：已注册的工具就是
 `enabled`、角色列表为空、权限为 `null` —— 那就是「什么都没声明」在本运行时的样子；**编造取值**等于把一份**没人设过**
 的策略显示到控制台上。要让这三个字段有真来源，正是**策略端点**要干的事。
+
+**A trace here holds the conversation's turns, and says so about the rest.** The reference's decision
+trace also carries the tool calls, the confirmation decisions and their side effects. This runtime
+cannot place them: its audit rows and its side-effect rows carry **no conversation id**, so nothing links
+a call to the conversation that proposed it, and the same is true of a confirmation row. The trace
+therefore answers the turns as `input` / `assistant` steps and adds **one `notice`** saying the
+governance half is unlinked here — a step type the object declares for exactly this kind of statement.
+The alternative was an empty list, and an empty list on a page that is *supposed* to show tool calls
+reads as "nothing happened" rather than as "nothing is recorded". A test holds the notice in place so it
+cannot go quiet; retiring it means recording the link, which is its own change.
+
+**这里的追踪装的是会话的回合，并对其余部分把话说清。** 参照实现的决策轨迹还带工具调用、确认裁决与它们的副作用。
+本运行时放不进去：它的**审计行与副作用行都不带会话 id**，于是**没有任何东西**把一次调用拴回提议它的那条会话 ——
+确认行也一样。所以追踪把回合答成 `input` / `assistant` 步，并**加一条 `notice`** 说明治理那一半在这里没有链 ——
+那是该对象**为这类声明**保留的一个步类型。另一种选择是一个空列表，而在一个**本该**显示工具调用的页上，空列表读起来
+是「什么都没发生」、不是「什么都没记」。有测试把这条 notice 钉住、不许它悄声消失；要撤掉它，就得**把那条链记下来**，
+那是另一件改动。
 
 **One answer is this runtime's own object rather than the frozen one** — it is a mapping, not a
 divergence, and it is declared in `docs/ARCHITECTURE.md` §3.2.1: the approve response is an

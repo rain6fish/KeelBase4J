@@ -123,6 +123,14 @@ class WireShapeConformanceTest {
                 new HttpEntity<>(asCaller(user)), String.class));
     }
 
+    /** One turn by this caller, answering the conversation it opened. */
+    private String aConversationOf(String user) {
+        ResponseEntity<String> response = rest.postForEntity("/ai/chat", new HttpEntity<>(
+                Map.of("message", "给客户建一条跟进记录", "customerId", aCustomerOf(user)),
+                asCaller(user)), String.class);
+        return String.valueOf(Vectors.map(dataOf(response)).get("conversationId"));
+    }
+
     @Test
     void everyConfirmationTheCallerIsShownMatchesTheFrozenItem() {
         // One proposed write, so the list has something in it; then the list itself, which is the
@@ -245,5 +253,57 @@ class WireShapeConformanceTest {
         assertEquals(403, response.getStatusCode().value(),
                 "the inventory says what governance is doing to each tool, so it is an "
                         + "administrator's list: " + response);
+    }
+
+    @Test
+    void everyConversationTheCallerIsShownMatchesTheFrozenData() {
+        // One turn, so there is a conversation to read back; the list and the trace are both the
+        // console's own calls.
+        String conversationId = aConversationOf("alice");
+
+        List<?> conversations = (List<?>) getData("/ai/conversations", "alice");
+
+        assertFalse(conversations.isEmpty(), "the turn above opened a conversation");
+        for (Object conversation : conversations) {
+            WireSchemas.assertConformsTo(conversation, "conversation-data");
+        }
+
+        Map<String, Object> trace = Vectors.map(getData("/ai/conversations/" + conversationId + "/trace", "alice"));
+        WireSchemas.assertConformsTo(trace.get("conversation"), "conversation-data");
+        List<?> steps = (List<?>) trace.get("steps");
+        assertFalse(steps.isEmpty(), "a conversation with a turn in it has a step to show");
+        for (Object step : steps) {
+            WireSchemas.assertConformsTo(step, "trace-step");
+        }
+        assertEquals("input", Vectors.map(steps.get(0)).get("type"),
+                "the first step is the caller's own message: " + steps);
+        // The governance half has nothing to link it here, and the notice is what says so. Pinned,
+        // because the alternative — an empty list — reads as a quiet conversation, and a page that
+        // cannot show tool calls must not be mistakable for one with none.
+        //
+        // 治理那一半在这里没有东西可拴，而那条 notice 就是说明这件事的。钉住它，因为**另一种样子**——一个空列表
+        // ——读起来像是一场安静的对话，而**显示不出工具调用的页**不该被误认成**没有工具调用的页**。
+        boolean told = steps.stream().map(o -> Vectors.map(o))
+                .anyMatch(step -> "notice".equals(step.get("type"))
+                        && String.valueOf(step.get("content")).contains("no conversation link"));
+        assertTrue(told, "the trace must say the governance half is unlinked here: " + steps);
+    }
+
+    @Test
+    void aConversationOfAnotherCallerIsNotReadableAsATrace() {
+        String conversationId = aConversationOf("alice");
+
+        ResponseEntity<String> foreign = rest.exchange(
+                URI.create("/ai/conversations/" + conversationId + "/trace"), HttpMethod.GET,
+                new HttpEntity<>(asCaller("bob")), String.class);
+        assertEquals(403, foreign.getStatusCode().value(),
+                "another caller's conversation is refused, not shown: " + foreign);
+
+        ResponseEntity<String> missing = rest.exchange(
+                URI.create("/ai/conversations/no-such-conversation/trace"), HttpMethod.GET,
+                new HttpEntity<>(asCaller("alice")), String.class);
+        assertEquals(404, missing.getStatusCode().value(),
+                "an unknown id is a 404, not a conversation invented on the spot — this runtime hands "
+                        + "out its own ids, and the chat path is where a new one is made: " + missing);
     }
 }
