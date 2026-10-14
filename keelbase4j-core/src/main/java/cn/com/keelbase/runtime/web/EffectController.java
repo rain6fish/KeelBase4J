@@ -33,11 +33,24 @@ import org.springframework.web.bind.annotation.RestController;
  * other, which is the whole thing the unified frontend is supposed to avoid.
  *
  * <p><b>What the items deliberately do not carry.</b> The console's model has fields this runtime has
- * no concept of — conversation ids, before/after snapshots, compensation groups, parent effects, and
- * the change summary derived from those snapshots. They are omitted rather than invented: {@code
- * conversationId} is sent as null because this runtime has no conversations, and the rest are simply
- * absent. A console column that reads one of them will be empty here, and that is the honest state
- * rather than a filled-in guess.
+ * no concept of — before/after snapshots, compensation groups, parent effects, and the change summary
+ * derived from those snapshots. They are omitted rather than invented, and a console column that reads
+ * one of them is empty here: that is the honest state rather than a filled-in guess.
+ *
+ * <p><b>{@code conversationId} is carried, and the reader's own scope is what makes that safe.</b> The
+ * frozen object declares it, the runtime has always stored it, and {@code GET
+ * /ai/tool-effects?conversationId=…} narrows a page to one turn. A caller asking for somebody else's
+ * conversation gets an empty answer, never their rows. The field used to be sent as null on the
+ * reasoning that this runtime has no conversations — which stopped being true when the runtime grew a
+ * conversation store, and the reader that does have one (the trace) has read the column all along.
+ *
+ * <p>本列表**刻意不装**的：控制台那个模型有、而本运行时没有概念的字段 —— 前后快照、补偿组、父副作用，以及由那些
+ * 快照推出的变更摘要。它们**缺席而不是编出来**，读它们的控制台列在这里是空的：那是诚实的状态，不是一个填进去的猜测。
+ *
+ * <p><b>`conversationId` 是**带着**的，而让这件事安全的正是读者自己的范围。</b>冻结对象声明了它、本运行时**一直**
+ * 在存它，而 `GET /ai/tool-effects?conversationId=…` 能把一页收窄到**一轮**。一个点名**别人**会话的调用方拿到的是
+ * **空**、从不是他们的行。这个字段从前按「本运行时没有会话」的理由送 null —— 那句话在运行时长出会话存储时就不再成立，
+ * 而**真的**有会话的那个读者（trace）一直在读这一列。
  */
 @RestController
 public class EffectController {
@@ -63,17 +76,35 @@ public class EffectController {
 
     @GetMapping("/ai/tool-effects")
     public Map<String, Object> list(@RequestParam(required = false) String userId,
+                                    @RequestParam(required = false) String conversationId,
                                     @RequestParam(defaultValue = "1") int page,
                                     @RequestParam(defaultValue = "20") int limit) {
         Principal principal = principals.current();
         int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
         Pageable pageable = PageRequest.of(Math.max(page, 1) - 1, size);
 
+        // A blank `conversationId` means "no filter asked for", not "the effects of the conversation
+        // whose id is the empty string" — a call made outside a conversation stores null in that
+        // column, so the two would otherwise mean different things behind one query parameter.
+        // 空的 `conversationId` 是「没有要求筛选」，不是「id 为空字符串的那条会话的副作用」——**会话之外**的调用
+        // 在该列存的是 null，两者否则会在同一个查询参数后面表示不同的东西。
+        String conversation = conversationId == null || conversationId.isBlank() ? null : conversationId;
+
         Page<SideEffect> found;
         if (!principal.isManager()) {
             // A non-manager sees their own effects whatever they ask for — the filter is not theirs
-            // to lift.
-            found = repository.findByUserIdOrderByIdDesc(principal.userId(), pageable);
+            // to lift — and naming somebody else's conversation answers with nothing, which is how a
+            // conversation that is not theirs answers everywhere else too.
+            // 非管理员无论请求什么看到的都是自己那些行 —— 那个筛选不是他们能抬掉的；而点名**别人**的会话，答案就是
+            // **空** —— 与「不是他的会话」在别处一律如此作答相符。
+            found = conversation == null
+                    ? repository.findByUserIdOrderByIdDesc(principal.userId(), pageable)
+                    : repository.findByUserIdAndConversationIdOrderByIdDesc(
+                            principal.userId(), conversation, pageable);
+        } else if (userId != null && conversation != null) {
+            found = repository.findByUserIdAndConversationIdOrderByIdDesc(userId, conversation, pageable);
+        } else if (conversation != null) {
+            found = repository.findByConversationIdOrderByIdDesc(conversation, pageable);
         } else if (userId != null) {
             found = repository.findByUserIdOrderByIdDesc(userId, pageable);
         } else {
@@ -109,7 +140,24 @@ public class EffectController {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", e.getId());
         m.put("toolName", e.getToolName());
-        m.put("conversationId", null);
+        // Read, not pinned to null. The frozen `effect` object declares this field as `string|null`,
+        // and this runtime has always stored it; what was missing was a reader. `ConversationController`
+        // has read the column this way for its trace steps all along, so the list was the one place
+        // that claimed the runtime had no conversations.
+        //
+        // **Two vocabularies live in this column** and that is worth knowing before consuming it: a
+        // call on the runtime's own chat path carries a conversation id, while a call made by a host
+        // through its own agent session carries *that session's* id. Both are strings; the trace
+        // endpoint answers 404 for the second kind, because it has no conversation of that id.
+        //
+        // **读真值，不再钉在 null 上。** 冻结对象 `effect` 把这个字段声明为 `string|null`，而本运行时**一直**在存它；
+        // 缺的只是一个**读它的人**。`ConversationController` 为它的 trace 步骤读这一列读到现在，故那条列表是**唯一**
+        // 声称「本运行时没有会话」的地方。
+        //
+        // **这一列里住着两套词表**，用它之前值得知道：运行时自己那条 chat 路上的调用带的是**会话 id**，而一个宿主经
+        // 自己的 agent 会话发出的调用带的是**那条会话的** id。两者都是字符串；trace 端点对第二种答 404，因为它没有
+        // 那个 id 的会话。
+        m.put("conversationId", e.getConversationId());
         m.put("resultType", e.getResultType());
         m.put("resultId", e.getResultId());
         m.put("argsHash", e.getArgsHash());
