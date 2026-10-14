@@ -30,11 +30,13 @@ This repository only **consumes** both.
 ```bash
 bash scripts/release-gate.sh        # 一条命令跑全部确定性验证（本机约 9 分钟），末尾一行 PASS/FAIL 汇总
                                     # 覆盖：mvn verify · 快照漂移(按 pin) · 双语注释 · 三个生成物 demo · release 发布集合
-                                    # LLM_ENV=1 时再加两个适配器 demo（需模型 key）
+                                    # LLM_ENV=1 时再加两个适配器 demo（需模型 key）；PG_ENV=1 时再加 PostgreSQL 那条（需 Docker）
 mvn test                            # 协议一致性 + 生成器 + 运行时 + 适配器
 bash scripts/demo-generated-app.sh  # 生成 → 构建 → 独立运行 → 信任闭环
+bash scripts/demo-generated-app-pg.sh  # 同一个生成物起在 PostgreSQL 上（迁移 · validate · 往返读回；需 Docker）
 bash scripts/demo-changeability.sh  # 变更 → 再生成 → 手改存活 → 新规则生效
 bash scripts/demo-migration.sh      # 变更 → 加性迁移 → 存量数据跟着走
+bash scripts/demo-flagship-generated.sh  # JV-24 旗舰演示：种子数据 + 行级范围 + 容器（--ui 需主仓 Web-Admin-Vue 检出）
 bash scripts/demo-golden-path.sh    # 前端自己的模块打本运行时（需主仓 Web-Admin-Vue 检出）
 bash scripts/demo-springai.sh       # 真模型上接缝（需 DEEPSEEK_API_KEY；无 key 时会明确报错退出）
 bash scripts/demo-springai-task.sh  # 真模型驱动框架自己的多步循环，走 POST /ai/task（同需 DEEPSEEK_API_KEY）
