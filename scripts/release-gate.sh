@@ -8,17 +8,21 @@
 #   2. the vendored snapshot still matches the two sources it is refreshed from — the contract at the
 #      version this repository answers for, and the main repository's scenario packs;
 #   3. the generated application is real, independent, runnable source: generate → build → run → walk the
-#      trust loop against it, and the same again for a change and for a migration;
+#      trust loop against it, and the same again for a change and for a migration — and, behind
+#      `PG_ENV=1`, that the same artifact runs on PostgreSQL instead of the file-backed H2 it ships with;
 #   4. every javadoc block reads English and then Chinese;
 #   5. the publish set still builds the way a release builds it — sources and javadoc included — and is
 #      still exactly four modules.
 #
-# Two things are deliberately out of the default run, each for a reason rather than for time:
+# Three things are deliberately out of the default run, each for a reason rather than for time:
 #   * `demo-golden-path.sh` needs the main repository's Web-Admin-Vue checkout. A gate that depends on a
 #     neighbouring repository's working tree would fail on a machine that legitimately does not have one,
 #     and a gate that fails for a reason unrelated to this repository is a gate people learn to ignore.
 #   * the adapter demos (`demo-springai*.sh`) need a model key. They sit behind `LLM_ENV=1`, the way the
 #     main repository's gate treats its own LLM dimension — annotated when off, executed when on.
+#   * the PostgreSQL demo (`demo-generated-app-pg.sh`) needs Docker and a spare port to stand a
+#     `postgres:17` up. It sits behind `PG_ENV=1` for the same reason the adapter demos sit behind
+#     `LLM_ENV`: a gate that fails because a machine has no Docker is a gate people learn to ignore.
 #
 # The contract pin is *read* from `.github/workflows/ci.yml` rather than written here a third time: a
 # hand-copied version rots the moment the workflows move, and this repository has already paid for that
@@ -39,15 +43,19 @@
 # 被证明的是 CLAUDE.md 里那几条硬规则，外加一次发布必须构建得出来的东西：
 #   1. 冻结契约的向量仍被**本实现**复现（`mvn verify`）；
 #   2. vendored 快照仍与它的两个来源一致 —— 本仓背书那个版本的契约，以及主仓的场景包；
-#   3. 生成物是真实、可独立运行的源码：生成 → 构建 → 独立运行 → 对它走信任闭环，变更与迁移各再来一遍；
+#   3. 生成物是真实、可独立运行的源码：生成 → 构建 → 独立运行 → 对它走信任闭环，变更与迁移各再来一遍 ——
+#      以及（在 `PG_ENV=1` 之后）**同一个产物起在 PostgreSQL** 上，而不是它自带的文件版 H2；
 #   4. 每个 javadoc 块英文在前、中文在后；
 #   5. 发布集合仍按发布的方式构建得出来（含 sources 与 javadoc），且仍恰为四个模块。
 #
-# 有两件事**有意**不在默认跑，理由各有其理、不是省时间：
+# 有三件事**有意**不在默认跑，理由各有其理、不是省时间：
 #   * `demo-golden-path.sh` 需要主仓的 Web-Admin-Vue 检出。门禁若依赖相邻仓库的工作树，就会在本就没有它
 #     的机器上失败 —— 而一个因与本仓无关的原因变红的门禁，是会被人们学会忽略的那种门禁。
 #   * 适配器 demo（`demo-springai*.sh`）需要模型 key。它们放在 `LLM_ENV=1` 之后，与主仓门禁对待自己那条
 #     LLM 维度同款：关时标注、开时执行。
+#   * PostgreSQL demo（`demo-generated-app-pg.sh`）需要 Docker 与一个空端口，好起一个 `postgres:17`。它放在
+#     `PG_ENV=1` 之后，理由与适配器 demo 放在 `LLM_ENV` 之后相同：一个因为机器上没有 Docker 就变红的门禁，
+#     是会被人们学会忽略的那种门禁。
 #
 # 契约的 pin 是**读**自 `.github/workflows/ci.yml`，不在这里写第三份：手抄的版本会在工作流变动的那一刻烂掉，
 # 而本仓已经为这条教训付过一次账。`release.yml` 也读，两者不一致即判失败。
@@ -202,6 +210,14 @@ if [ "${LLM_ENV:-}" = "1" ]; then
   run_demo "Run/Adversarial(真模型驱动框架自己的多步循环)" ./scripts/demo-springai-task.sh
 else
   echo "→ [Run/Adversarial] LLM 部分标注（LLM_ENV=1 时跑 demo-springai.sh + demo-springai-task.sh）"
+fi
+
+# ── Generated / PostgreSQL：B 档「能试点」那条线（需 PG_ENV=1，且本机有 Docker）────────────────
+if [ "${PG_ENV:-}" = "1" ]; then
+  echo "→ [Generated] 试点：同一个生成物起在 PostgreSQL 上（迁移 · validate · 往返读回）"
+  run_demo "Generated(生成物真跑 PostgreSQL：迁移 + validate + 往返读回)" ./scripts/demo-generated-app-pg.sh
+else
+  echo "→ [Generated] PostgreSQL 部分标注（PG_ENV=1 时跑 demo-generated-app-pg.sh —— 需 Docker 起一个 postgres:17）"
 fi
 
 echo ""
