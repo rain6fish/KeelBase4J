@@ -3004,16 +3004,16 @@ public class JavaGenerator {
                     /**
                      * Run one turn.
                      *
-                     * @param customerId the caller's own id for the subject, or {@code null} — the
+                     * @param targetId   the caller's own id for the subject, or {@code null} — the
                      *                   conversation's own naming is read when it is absent
                      */
-                    public Turn run(String message, Object customerId, String conversationId,
+                    public Turn run(String message, Object targetId, String conversationId,
                                     Principal principal) {
                         String id = conversations.openFor(conversationId, principal.userId());
                         conversations.append(id, principal.userId(), ConversationMessage.USER, message);
 
                         Map<String, Object> context = new LinkedHashMap<>();
-                        context.put("customerId", customerId != null ? customerId : mentionedCustomer(id));
+                        context.put("targetId", targetId != null ? targetId : mentionedCustomer(id));
 
                         Proposal plan = planner.plan(message, context).orElse(null);
                         // The planner proposes; the engine decides. Nothing the planner returns can skip
@@ -3186,7 +3186,7 @@ public class JavaGenerator {
                             String message = body.get("message") == null ? "" : String.valueOf(body.get("message"));
                             ChatTurnService.Turn turn = turns.run(
                                     message,
-                                    body.get("customerId"),
+                                    body.get("targetId") != null ? body.get("targetId") : body.get("customerId"),
                                     body.get("conversationId") == null
                                             ? null : String.valueOf(body.get("conversationId")),
                                     principal);
@@ -3480,7 +3480,7 @@ public class JavaGenerator {
                         // else's by naming it (see ConversationStore).
                         ChatTurnService.Turn turn = turns.run(
                                 message,
-                                body.get("customerId"),
+                                body.get("targetId") != null ? body.get("targetId") : body.get("customerId"),
                                 body.get("conversationId") == null
                                         ? null : String.valueOf(body.get("conversationId")),
                                 principal);
