@@ -71,9 +71,22 @@ stop_app() {
 echo "== 4/4 run and exercise the trust loop =="
 stop_app
 # Run from inside the generated project: its database is file-backed and belongs to the project.
-# The wait a stream holds for a decision is shortened here: the demo walks the expiry path too, and the
-# contract's own window (60s) would make that check slow rather than wrong.
-( cd "$ROOT/$GEN_DIR" && exec java -jar "$JAR" --server.port="$PORT" --keelbase.chat.stream-wait-ms=3000 ) > "$ROOT/$GEN_DIR/app.log" 2>&1 &
+# The wait a stream holds for a decision is shortened here from the contract's own window (60s): the demo
+# walks the expiry path too, and 60s would make that check slow rather than wrong. It is 10s, not the 3s it
+# once was. At 3s the demo had to approve *inside* the window while its own path to an approval — scrape
+# the token, then approve — took ~2s, so the shortening raced the demo against itself: green one run and
+# red the next, as machine load decided the margin. 10s is slow but not wrong, and gives the approval room.
+# (Per-scenario windows were weighed — a short one for the expiry path, a long one here — but the property
+# is read once at startup, so splitting them would mean a second JVM; the expiry path costs ~10s instead
+# of 3s, which a ~9-minute gate absorbs.)
+#
+# 在生成项目**内部**运行：它的数据库是文件型、属于该项目。**流**为一次裁决所持有的等待在这里被缩短、不再是
+# 契约自己的窗口（60 s）：demo 也走**到期**那条路，60 s 只会让那条检查**慢**、而不是错。现在是 **10 s**、
+# 不再是此前的 3 s。3 s 时 demo 必须在窗口**之内**批准，而它自己走到一次批准的路 —— 抠出 token、再批准 ——
+# 要 ~2 s；于是那次缩短变成了 demo **与它自己**赛跑：一回绿、一回红，由机器负载决定那个余量。10 s 是**慢，
+# 但不错**，也让批准有了余地。（权衡过**按场景各设各的窗口** —— 到期那条用短的、这里用长的 —— 但该属性在
+# 启动时只读一次，拆开就得多起一个 JVM；到期那条的代价从 3 s 变成 ~10 s，约 9 分钟的门禁吸收得下。）
+( cd "$ROOT/$GEN_DIR" && exec java -jar "$JAR" --server.port="$PORT" --keelbase.chat.stream-wait-ms=10000 ) > "$ROOT/$GEN_DIR/app.log" 2>&1 &
 APP_PID=$!
 trap stop_app EXIT
 
@@ -407,16 +420,29 @@ for _ in $(seq 1 40); do
   STOKEN=$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$STREAM_LOG" | head -1)
   [ -n "$STOKEN" ] && break
 done
-check "the stream reports the tool it started" '"tool_start"' "$(cat "$STREAM_LOG")"
-check "and asks for the confirmation the write waits on" '"confirmation_request"' "$(cat "$STREAM_LOG")"
-# No client sends a customer id — the console names the customer in the message text. The turn reads that
-# reference out of the transcript, or the write lands attached to nobody.
-check "the write is attached to the customer the message named" '"customerId":1' "$(cat "$STREAM_LOG")"
 [ -n "$STOKEN" ] || { echo "  FAIL the stream never handed over a confirmation token"; fail=1; }
-curl -s -o /dev/null -X POST "$BASE/ai/confirmations/$STOKEN" -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $CAROL" -d '{"decision":"approve"}'
+# Approve the moment the token appears, before anything else: the decision has to reach the stream while it
+# is still waiting. The three assertions that used to run here read the log, and the log is already on disk
+# and only grows, so they run after the stream closes instead (below). Run first, they were ~1s of
+# `cat`/`grep` process spawns spent while the window ran down — the demo racing itself. The response body is
+# now kept and asserted rather than discarded: a refused approval (403/404/409) used to leave no trace here
+# at all, hidden behind the stream's own assertions. That is the failure this makes impossible.
+#
+# token 一出现就批准、先于任何别的事：裁决必须在**流还在等**的时候到达它。此前跑在这里的三条断言读的是日志，
+# 而日志已经落盘、只会变长，所以它们改到流关闭之后再跑（见下）。先跑的话，那是 ~1 s 的 `cat`/`grep` 进程启动、
+# 花在窗口一分分收窄的时候 —— demo **与自己赛跑**。响应体现在**留着并断言**、不再丢弃：一次被拒的批准
+# （403/404/409）此前在这里**不留下任何痕迹**、藏在流自己的断言后面。这正是现在让它不可能再发生的失败。
+APPROVE_BODY="$(curl -s -X POST "$BASE/ai/confirmations/$STOKEN" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $CAROL" -d '{"decision":"approve"}')"
+check "the approval executed, and its own response says so" '"status":"executed"' "$APPROVE_BODY"
+check "and it recorded the effect the write produced" '"effectId":' "$APPROVE_BODY"
 wait $STREAM_PID 2>/dev/null || true
 STREAM=$(cat "$STREAM_LOG")
+check "the stream reports the tool it started" '"tool_start"' "$STREAM"
+check "and asks for the confirmation the write waits on" '"confirmation_request"' "$STREAM"
+# No client sends a customer id — the console names the customer in the message text. The turn reads that
+# reference out of the transcript, or the write lands attached to nobody.
+check "the write is attached to the customer the message named" '"customerId":1' "$STREAM"
 check "the decision arrives on the stream that was still open" '"confirmation_decision"' "$STREAM"
 check "and says the write it approved ran" '"success":true' "$STREAM"
 check "the stream then closes with the conversation" '"done"' "$STREAM"
