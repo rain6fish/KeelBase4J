@@ -100,12 +100,18 @@ public class ChatTurnService {
         this.engine = engine;
     }
 
-    public Turn run(String message, Long customerId, String conversationId, Principal principal) {
+    public Turn run(String message, Long targetId, String conversationId, Principal principal) {
         String id = conversations.openFor(conversationId, principal);
         conversations.append(id, principal, ConversationMessage.USER, message);
 
         Map<String, Object> context = new LinkedHashMap<>();
-        context.put("customerId", customerId != null ? customerId : mentionedCustomer(id));
+        // The generic slot first; when the caller named nothing, the conversation's own transcript is
+        // asked instead. That fallback is the sample module's own notion, and a route that has none
+        // simply sees this key absent — which is the point of the slot being generic.
+        //
+        // 通用槽位优先；调用方什么都没点名时，改去问这条会话自己的记录。那个回落是**样例模块自己的**概念，而
+        // 没有这种概念的路由看到的只是这个键不存在 —— 这正是这个槽位通用化的意义。
+        context.put("targetId", targetId != null ? targetId : mentionedCustomer(id));
 
         IntentPlan plan = planner.plan(message, context).orElse(null);
         ExecutionOutcome outcome = plan == null

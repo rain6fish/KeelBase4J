@@ -57,6 +57,14 @@
       <artifactId>spring-boot-starter-restclient</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- The record's own annotations come from jackson-annotations, which arrives with the core; a
+         test that binds JSON to it needs the binder too, and nothing else here does. Test scope, so
+         it neither reaches the runtime nor any consumer of it. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>test</scope>
+    </dependency>
 
     <!-- The conformance loader (Vectors) is shared with the protocol module's own tests, so the
          runtime reproduces the frozen vectors through exactly one implementation. Test scope:

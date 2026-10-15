@@ -51,9 +51,11 @@ class ToolCallPlannerTest {
         // default had not stepped aside — proving nothing.
         @Bean
         ToolCallPlanner modelDrivenPlanner() {
+            // The context's key is the generic slot; the argument it fills is this sample tool's own.
+            // 上下文那个键是**通用槽位**；它填的那个参数名是这个样例工具自己的。
             return (message, context) -> Optional.of(new IntentPlan(
                     "create_followup",
-                    Map.of("customerId", context.get("customerId"), "note", "proposed by the planner")));
+                    Map.of("customerId", context.get("targetId"), "note", "proposed by the planner")));
         }
     }
 

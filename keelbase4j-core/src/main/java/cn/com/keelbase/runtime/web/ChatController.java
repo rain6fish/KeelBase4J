@@ -72,7 +72,7 @@ public class ChatController {
     public Map<String, Object> chat(@RequestBody ChatRequest request) {
         Principal principal = principals.current();
         ChatTurnService.Turn turn = turns.run(
-                request.message(), request.customerId(), request.conversationId(), principal);
+                request.message(), request.targetId(), request.conversationId(), principal);
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("conversationId", turn.conversationId());

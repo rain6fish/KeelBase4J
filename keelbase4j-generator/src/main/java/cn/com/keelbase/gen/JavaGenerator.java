@@ -458,7 +458,7 @@ public class JavaGenerator {
         sb.append("`POST /ai/chat` takes a **message** and answers the conversation shape the reference\n");
         sb.append("implementation and the KeelBase4J runtime both answer — the same fields, so a client written\n");
         sb.append("against either works unchanged:\n\n");
-        sb.append("```\nPOST /ai/chat  { message, conversationId?, customerId? }\n");
+        sb.append("```\nPOST /ai/chat  { message, conversationId?, targetId? }\n");
         sb.append("->  { conversationId, reply, provider, model, toolCalls? }\n");
         sb.append("```\n\n");
         sb.append("That is the frozen `chat-response` and nothing more. A tool call's result is not a field\n");
@@ -2096,8 +2096,8 @@ public class JavaGenerator {
             }
             branches.append("        if (").append(condition).append(") {\n");
             branches.append("            Map<String, Object> args = new LinkedHashMap<>();\n");
-            branches.append("            if (context.get(\"customerId\") instanceof Number customerId) {\n");
-            branches.append("                args.put(\"customerId\", customerId.longValue());\n");
+            branches.append("            if (context.get(\"targetId\") instanceof Number targetId) {\n");
+            branches.append("                args.put(\"customerId\", targetId.longValue());\n");
             branches.append("            }\n");
             if (tool.requiresConfirmation()) {
                 // The write tool's body reads a `note`; the caller's own words are what it records.

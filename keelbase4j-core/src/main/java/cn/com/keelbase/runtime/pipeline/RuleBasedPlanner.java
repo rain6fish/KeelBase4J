@@ -32,7 +32,11 @@ public class RuleBasedPlanner implements ToolCallPlanner {
         // one this conversation is about (see ChatTurnService.mentionedCustomer). Without it there is
         // nothing to propose: saying so is the honest answer, where handing a tool a null id fails at
         // the tool and reaches the caller as a server error they cannot act on.
-        if (!(context.get("customerId") instanceof Number customer)) {
+        //
+        // The context key is the generic slot; the argument name below is this sample tool's own.
+        //
+        // 上下文那个键是**通用槽位**；下面那个**参数名**是这个样例工具自己的。
+        if (!(context.get("targetId") instanceof Number customer)) {
             return Optional.empty();
         }
 

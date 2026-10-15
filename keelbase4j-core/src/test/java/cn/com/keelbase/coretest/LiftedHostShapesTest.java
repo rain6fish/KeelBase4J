@@ -79,8 +79,12 @@ class LiftedHostShapesTest {
                 "and it is handed the turn's message, which the runtime's context does not carry");
 
         // The runtime's rules are the floor, not a competitor: a phrase only they know still routes,
-        // and they are asked with the context as it was — not with the message added to it.
-        IntentPlan byRules = planner.plan("分析客户风险", Map.of("customerId", 7L)).orElseThrow();
+        // and they are asked with the context as it was — not with the message added to it. The key is
+        // the generic slot; the argument the rule fills is that sample tool's own name.
+        //
+        // 运行时那些规则是**地板**、不是对手：只有它们认得的短语照样能路由，而它们拿到的是**原样**的上下文
+        // —— 没有被塞进那句消息。键是**通用槽位**；规则填的那个参数名是那个样例工具自己的。
+        IntentPlan byRules = planner.plan("分析客户风险", Map.of("targetId", 7L)).orElseThrow();
         assertEquals("analyze_customer_risk", byRules.tool());
         assertEquals(7L, byRules.args().get("customerId"));
 

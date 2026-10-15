@@ -95,7 +95,7 @@ public class ChatStreamController {
         SseEmitter emitter = new SseEmitter(waitMillis + TIMEOUT_SLACK_MILLIS);
         try {
             ChatTurnService.Turn turn = turns.run(
-                    request.message(), request.customerId(), request.conversationId(), principal);
+                    request.message(), request.targetId(), request.conversationId(), principal);
 
             if (turn.plan() != null) {
                 send(emitter, "tool_start", Map.of("toolStart", toolStart(turn)));
