@@ -162,6 +162,27 @@ public class SideEffectService {
     public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
                              String argsJson, String revokeClass, String afterSnapshot,
                              String conversationId) {
+        return record(principal, toolName, resultType, resultId, argsJson, revokeClass, null,
+                afterSnapshot, conversationId);
+    }
+
+    /**
+     * The same, plus the row as it was before this call changed it — the frozen {@code traceItem}'s
+     * {@code beforeSnapshot}, which the tool supplies because the runtime cannot read a host table it
+     * was never told about.
+     *
+     * <p>An overload, for the reason the one above it is an overload: this class lives in a published
+     * artifact. A create passes null — there was no row — and the shorter call above does exactly that.
+     *
+     * 同上，另加这一行在被这次调用改**之前**的样子 —— 冻结 `traceItem` 的 `beforeSnapshot`，由**工具**提供，
+     * 因为运行时读不到一张**从未被告知过**的宿主表。
+     *
+     * <p>做成**重载**，理由与上面那个相同：这个类住在一个**已发布**的 artifact 里。**新建**传 null —— 那时没有行
+     * —— 上面那个短调用做的正是这件事。
+     */
+    public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
+                             String argsJson, String revokeClass, String beforeSnapshot,
+                             String afterSnapshot, String conversationId) {
         String key = idempotencyKey(principal.userId(), toolName, argsJson);
         Optional<SideEffect> existing = repository.findByIdempotencyKey(key);
         if (existing.isPresent()) {
@@ -170,7 +191,7 @@ public class SideEffectService {
         try {
             return repository.saveAndFlush(new SideEffect(
                     key, principal.userId(), toolName, resultType, resultId, revokeClass,
-                    argsHash(argsJson), afterSnapshot, conversationId));
+                    argsHash(argsJson), beforeSnapshot, afterSnapshot, conversationId));
         } catch (DataIntegrityViolationException race) {
             // A concurrent call with the same key won. The effect exists, so this call is a skip, not
             // a failure — return the winner's row. If the re-read finds nothing the violation was

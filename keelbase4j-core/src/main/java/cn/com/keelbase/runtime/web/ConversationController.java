@@ -226,13 +226,27 @@ public class ConversationController {
         return null;
     }
 
-    /** One effect as a step, in the frozen {@code traceEffect} shape the object declares. */
+    /**
+     * One effect as a step, in the frozen {@code traceEffect} shape the object declares.
+     *
+     * <p>{@code before} is the row as it was, for a write that updated rather than created; null for a
+     * create, which is the fact rather than an omission. A trace that showed only {@code after} could
+     * say what a row became and never what it had been — which is the half an investigation asks about
+     * first when a row is not what it was.
+     *
+     * 一个 effect 作为一个步，按对象声明的冻结 `traceEffect` 形状。
+     *
+     * <p>{@code before} 是那一行**原先**的样子（给**改行**而非新建的写）；**新建**时为 null，那是**事实**、
+     * 不是省略。一条只显示 `after` 的轨迹说得出「这一行变成了什么」，却从不说它**本来**是什么 —— 而当一行不再是
+     * 它原来的样子时，调查先问的恰恰是这一半。
+     */
     private static Map<String, Object> effectStep(SideEffect effect) {
         Map<String, Object> traceEffect = new LinkedHashMap<>();
         traceEffect.put("effectId", effect.getId());
         traceEffect.put("resultType", effect.getResultType());
         traceEffect.put("resultId", effect.getResultId());
         traceEffect.put("revocable", !"none".equals(effect.getRevokeClass()));
+        traceEffect.put("before", effect.getBeforeSnapshot());
         traceEffect.put("after", effect.getAfterSnapshot());
         Map<String, Object> step = new LinkedHashMap<>();
         step.put("id", "effect-" + effect.getId());

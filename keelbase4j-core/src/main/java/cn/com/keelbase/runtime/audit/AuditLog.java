@@ -83,6 +83,26 @@ public class AuditLog {
     @Column(name = "conversation_id", length = 64)
     private String conversationId;
 
+    /**
+     * What allowed or refused this row, as the frozen {@code ai-audit-log-row} declares it — a snapshot
+     * of the checks that passed for a call the gate allowed, or the reasons a refused one was refused.
+     * Null for a declined confirmation: nothing was denied there, and a row that looked refused would be
+     * read as one. Not part of the hashed payload (see {@code V13__audit_row_authorization}).
+     *
+     * <p><b>The column is not named after the field</b>, and the reason is that {@code AUTHORIZATION} is
+     * a reserved word in SQL: H2 refuses it as a column name, so the physical column is
+     * {@code authorization_basis} while the wire field keeps the contract's own name.
+     *
+     * 一行**凭什么**被允许、或被拒绝，按冻结 `ai-audit-log-row` 声明的那样 —— 闸门放行的调用记一份「通过的
+     * 那些检查」的快照，被拒的记下被拒的**依据**。被拒绝的**确认**为 null：那里并没有任何东西被拒，而一行看起来
+     * 像被拒的，就会被读成被拒。**不进哈希载荷**（见 `V13__audit_row_authorization`）。
+     *
+     * <p><b>列名不取字段名</b>，理由是 {@code AUTHORIZATION} 是 SQL 的保留字：H2 拒它当列名，故物理列是
+     * {@code authorization_basis}，而线上字段保留契约自己的名字。
+     */
+    @Column(name = "authorization_basis")
+    private String authorization;
+
     protected AuditLog() {
     }
 
@@ -110,6 +130,20 @@ public class AuditLog {
 
     public AuditLog(String action, String userId, String detail, String prevHash, String hash,
                     boolean error, String outcome, String tool, String conversationId) {
+        this(action, userId, detail, prevHash, hash, error, outcome, tool, conversationId, null);
+    }
+
+    /**
+     * The same, plus what allowed or refused this row — the basis a reader asks for just after the row
+     * itself. An overload for the reason the shorter calls are: a published artifact carries their
+     * signatures, and a signature that gains a parameter breaks a caller with none to pass.
+     *
+     * 同上，另加一行**凭什么**被允许、或被拒绝 —— 读者读完这一行之后紧接着会问的那个依据。做成重载，理由与那些
+     * 更短的调用相同：**已发布**的 artifact 带着它们的签名，而签名多一个参数会让手上没有这个值的调用方编译不过。
+     */
+    public AuditLog(String action, String userId, String detail, String prevHash, String hash,
+                    boolean error, String outcome, String tool, String conversationId,
+                    String authorization) {
         this.action = action;
         this.userId = userId;
         this.detail = detail;
@@ -119,6 +153,7 @@ public class AuditLog {
         this.outcome = outcome;
         this.tool = tool;
         this.conversationId = conversationId;
+        this.authorization = authorization;
     }
 
     public Long getId() {
@@ -159,6 +194,10 @@ public class AuditLog {
 
     public String getConversationId() {
         return conversationId;
+    }
+
+    public String getAuthorization() {
+        return authorization;
     }
 
     public Instant getCreatedAt() {

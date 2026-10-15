@@ -1,0 +1,20 @@
+-- The row as it was before a write changed it — the frozen `traceItem`'s `beforeSnapshot`.
+--
+-- V5 left this column out on purpose, and said why: nothing in this runtime overwrote an existing row,
+-- so there was no "before" to record, and a column for a case that cannot happen should be added when
+-- it can. A tool that updates one has since arrived (the host's `update_crm_customer`), and the write's
+-- own result now carries the row as it was. So the column and its capture point land together, which is
+-- exactly what V5 said should happen.
+--
+-- Beside any chain rather than inside one: this table has no hashed payload to fold it into. It is
+-- nullable, and null is the honest answer for a create — there was no row before.
+--
+-- 一行在被某次写改**之前**的样子 —— 冻结 `traceItem` 的 `beforeSnapshot`。
+--
+-- V5 刻意没加这一列，并说了理由：本运行时没有任何东西改写既有行，故没有「之前」可记；为一件**不可能发生**的
+-- 事加一列，应当等它**能**发生时再加。此后来了一个会改写的工具（宿主的 `update_crm_customer`），而这次写自己的
+-- 结果如今带着那一行**原先**的样子。于是这一列与它的采集点**一同**落地 —— 正是 V5 说该发生的事。
+--
+-- 存在链**旁边**、不在链**里面**：本表没有可折入的哈希载荷。它可空，而 null 对一次**新建**是诚实的答案 ——
+-- 那时没有行。
+ALTER TABLE side_effects ADD COLUMN before_snapshot TEXT;

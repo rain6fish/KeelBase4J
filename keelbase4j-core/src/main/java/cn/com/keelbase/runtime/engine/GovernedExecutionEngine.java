@@ -130,8 +130,15 @@ public class GovernedExecutionEngine {
                         .filter(check -> !check.ok())
                         .map(cn.com.keelbase.protocol.AuthorizationReasons.Check::name)
                         .findFirst().orElse(cn.com.keelbase.protocol.GovernanceBinding.DENY_RISK_POLICY);
+                // The cause word goes into the sentence a person reads; the reasons go onto the row,
+                // which is where a reader asks "why was this refused" and could previously only be
+                // answered by a word. Same frozen shape the caller is handed back.
+                //
+                // 成因词进**人读的那句话**；依据进**行上** —— 读者问「凭什么拒它」的地方，而那里此前只有一个词
+                // 可答。用的是**与交回调用方同一份**冻结形状。
                 audit.append("tool_call", principal.userId(), toolName + " blocked (" + cause + ")", true,
-                        "blocked", toolName, conversationId);
+                        "blocked", toolName, conversationId,
+                        CanonicalJson.json(reasons.toWire()));
                 return new ExecutionOutcome("blocked", reasons.toWire(), null, null,
                         "blocked by " + cause);
             }
@@ -159,7 +166,14 @@ public class GovernedExecutionEngine {
                 return new ExecutionOutcome("pending_confirmation", null, req.getToken(), null, null);
             }
             default:
-                return run(tool, args, principal, conversationId);
+                // Allowed: the row that records the outcome carries the same frozen reasons the gate
+                // decided on, so "why was this allowed" is answered from the row rather than inferred
+                // from the absence of a refusal.
+                //
+                // 放行：记结果的那一行带着闸门**据以裁决的同一份**冻结依据，于是「凭什么放它」由行回答，
+                // 而不是靠「没有拒绝」去推断。
+                return run(tool, args, principal, conversationId,
+                        CanonicalJson.json(governance.reasons(tool, principal).toWire()));
         }
     }
 
@@ -406,7 +420,13 @@ public class GovernedExecutionEngine {
         req.setExecutionClaimedAt(claimedAt);
         ExecutionOutcome outcome;
         try {
-            outcome = run(tool, parseArgs(req.getArgsJson()), initiator, req.getConversationId());
+            // No authorization snapshot on this path: the gate's verdict was "ask a person", and what
+            // let the write run was that person's answer — which the confirmation rows already record.
+            // Storing the gate's reasons here would name the wrong basis.
+            //
+            // 这条路上不带授权依据快照：闸门当时的裁决是「请人来问」，而让这次写跑起来的是**那个人的回答** ——
+            // 确认行早已记下它。把闸门的依据存进来等于点错了名。
+            outcome = run(tool, parseArgs(req.getArgsJson()), initiator, req.getConversationId(), null);
         } catch (RuntimeException failed) {
             // The tool threw instead of answering. The attempt is recorded as failed and keeps its
             // claim on purpose: clearing it would say the attempt never happened, and a claim with no
@@ -527,7 +547,7 @@ public class GovernedExecutionEngine {
      * <p>这里写下的行**不可能被回滚**：引擎调用外面没有事务，审计服务自己的事务独立提交。
      */
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal,
-                                 String conversationId) {
+                                 String conversationId, String authorization) {
         String argsJson = CanonicalJson.json(args);
         ToolResult result;
         boolean claimed = false;
@@ -609,7 +629,7 @@ public class GovernedExecutionEngine {
             // 工具**产出了什么**，就在这一刻捕获 —— 这是它**仍然是这次决策产出的那个样子**的唯一时刻，
             // 再往后读到的就是这一行后来变成的样子了。冻结的 `traceItem` 把它读作 `afterSnapshot`。
             SideEffect effect = sideEffects.record(principal, tool.name(), tool.resultType(), resultId,
-                    argsJson, tool.revokeClass(),
+                    argsJson, tool.revokeClass(), result.beforeSnapshot(),
                     result.data() == null ? null : CanonicalJson.json(result.data()), conversationId);
             effectId = effect.getId();
         }
@@ -619,7 +639,7 @@ public class GovernedExecutionEngine {
         audit.append("tool_call", principal.userId(),
                 tool.name() + " -> " + (result.success() ? "ok" : "fail: " + result.error()),
                 !result.success(),
-                result.success() ? "executed" : "failed", tool.name(), conversationId);
+                result.success() ? "executed" : "failed", tool.name(), conversationId, authorization);
         return result.success()
                 ? ExecutionOutcome.executed(result.data(), effectId)
                 : new ExecutionOutcome("error", null, null, null, result.error());

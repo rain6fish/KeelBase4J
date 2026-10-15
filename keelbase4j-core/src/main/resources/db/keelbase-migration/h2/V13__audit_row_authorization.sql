@@ -1,0 +1,31 @@
+-- What allowed or refused this row — the frozen `ai-audit-log-row`'s `authorization`.
+--
+-- The gate already decided this; what it did not do was keep the decision, so the only trace of it was
+-- a cause word inside `detail`. An allowed call now records a snapshot of what allowed it (the tool,
+-- the risk level, the strategy, the checks that passed); a refused one records the reasons it was
+-- refused. A declined confirmation records neither — nothing was denied there, and a row that looked
+-- refused would be read as one, which is the mistake the reference implementation's own note warns of.
+--
+-- ⚠ The column is `authorization_basis` rather than the wire field's `authorization`, and the reason is
+-- that `AUTHORIZATION` is a **reserved word in SQL** — H2 rejects it outright as a column name, and
+-- spelling it per dialect (quoting it in two of the three, not the third) would buy a divergence for
+-- nothing. The wire field keeps its name; only the physical column differs, and the entity maps one to
+-- the other.
+--
+-- Beside the chain, not inside it: folding it into the hashed payload `{action, userId, detail}` would
+-- report every deployment's existing history as a broken chain — the reason V6, V7 and V11 give for the
+-- columns they added.
+--
+-- 一行**凭什么**被允许、或被拒绝 —— 冻结 `ai-audit-log-row` 的 `authorization`。
+--
+-- 闸门早就判了这件事；它没做的是**把它留下来**，于是唯一的痕迹只是 `detail` 里一个成因词。被放行的调用现在记
+-- 一份「什么放行了它」的快照（工具、风险级、策略、通过的那些检查）；被拒的记下被拒的**依据**。被拒绝的**确认**
+-- 两样都不记 —— 那里并没有任何东西被拒，而一行看起来像被拒的，就会被读成被拒；这正是参考实现自己那条注所警告的错。
+--
+-- ⚠ 列名叫 `authorization_basis` 而不是线上字段那个 `authorization`，理由是 **`AUTHORIZATION` 是 SQL 的保留字**
+-- —— H2 直接拒它当列名，而按方言各拼一次（三种方言里两个加引号、第三个不加）等于白买一处分叉。线上字段保留原名；
+-- 只有物理列不同，由实体把两者对上。
+--
+-- 存在链**旁边**、不在链**里面**：把它折进哈希载荷 `{action, userId, detail}` 会让每个部署**既有的历史**都被
+-- 报成断链 —— V6、V7、V11 为它们加的那些列给的就是这个理由。
+ALTER TABLE ai_audit_logs ADD COLUMN authorization_basis TEXT;

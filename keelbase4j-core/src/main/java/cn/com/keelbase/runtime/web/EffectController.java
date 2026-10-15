@@ -192,8 +192,8 @@ public class EffectController {
         //
         //   `afterSnapshot` — what the tool produced, stored when the write ran, because the row as it
         //   stands today is not the row the decision produced.
-        //   `beforeSnapshot` — null, and that is the fact rather than a placeholder: nothing here
-        //   overwrites an existing row, so there is no before to record.
+        //   `beforeSnapshot` — the row as it was before the write changed it, when the tool supplied
+        //   one, and null otherwise — a create has no before, and that is the fact rather than a gap.
         //   `compensationGroup` / `parentEffectId` — declared nullable, and null: this runtime has
         //   neither a compensation group nor a parent/child relation between effects, and inventing
         //   one would be a claim with nothing behind it.
@@ -201,10 +201,11 @@ public class EffectController {
         // 冻结 `traceItem` 余下的三样，按本运行时**有的**答：
         //
         //   `afterSnapshot` —— 工具产出了什么，**在写跑成时存下**：今天这一行的样子，不是这次决策产出的样子。
-        //   `beforeSnapshot` —— null，而这是**事实**而非占位：本运行时不改写既有行，所以没有「之前」可记。
+        //   `beforeSnapshot` —— 这一行被这次写改**之前**的样子（工具交了才有的），否则 null —— **新建**没有「之前」，
+        //   而那是**事实**、不是缺口。
         //   `compensationGroup` / `parentEffectId` —— 声明可空、而这里就是 null：本运行时既没有补偿组，
         //   也没有 effect 之间的父子关系，编一个出来只是**没有任何东西支撑的主张**。
-        m.put("beforeSnapshot", null);
+        m.put("beforeSnapshot", e.getBeforeSnapshot());
         m.put("afterSnapshot", e.getAfterSnapshot());
         m.put("compensationGroup", null);
         m.put("parentEffectId", null);

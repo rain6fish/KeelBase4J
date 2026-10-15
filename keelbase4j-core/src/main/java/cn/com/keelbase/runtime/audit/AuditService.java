@@ -117,6 +117,22 @@ public class AuditService {
     @Transactional
     public AuditLog append(String action, String userId, String detail, boolean isError,
                            String outcome, String tool, String conversationId) {
+        return append(action, userId, detail, isError, outcome, tool, conversationId, null);
+    }
+
+    /**
+     * The same, plus what allowed or refused this row — the basis a reader asks for just after the row
+     * itself, and the one thing a cause word inside {@code detail} could only gesture at. An overload
+     * for the reason the shorter calls are: a published artifact carries their signatures, and a
+     * signature that gains a parameter breaks a caller with none to pass.
+     *
+     * 同上，另加一行**凭什么**被允许、或被拒绝 —— 读者读完这一行之后紧接会问的那个依据，也是 `detail` 里一个
+     * 成因词只够**指一指**的那样东西。做成重载，理由与那些更短的调用相同：**已发布**的 artifact 带着它们的签名，
+     * 而签名多一个参数会让手上没有这个值的调用方编译不过。
+     */
+    @Transactional
+    public AuditLog append(String action, String userId, String detail, boolean isError,
+                           String outcome, String tool, String conversationId, String authorization) {
         // The governance policy's audit granularity is applied here, on the one path every row travels:
         // `off` writes nothing at all, which is the one value that changes the chain. `write` and `all`
         // come to the same set here because this runtime records only tool-scoped rows — it has no
@@ -145,7 +161,7 @@ public class AuditService {
         payload.put("detail", detail);
         String hash = AuditChain.hash(chainKey, prevHash, payload);
         return repository.save(new AuditLog(action, userId, detail, prevHash, hash, isError, outcome,
-                tool, conversationId));
+                tool, conversationId, authorization));
     }
 
     /** Walk the chain and recompute every hash. */
@@ -304,6 +320,7 @@ public class AuditService {
         m.put("createdAt", log.getCreatedAt().toString());
         m.put("outcome", log.getOutcome());
         m.put("tool", log.getTool());
+        m.put("authorization", log.getAuthorization());
         return m;
     }
 
