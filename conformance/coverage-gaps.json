@@ -1,0 +1,162 @@
+{
+  "gaps": [
+    {
+      "id": "chain-tail-deletion",
+      "severity": "high",
+      "affects": "this_package",
+      "verdictImpact": "unknown",
+      "appliesWhen": [
+        {
+          "fact": "packageHasExternalAnchor",
+          "equals": false
+        }
+      ],
+      "statement": "A valid hash chain proves the recorded rows are internally consistent; it does not prove that no row was removed from the tail.",
+      "origin": "ACT-8 / hs11-audit-chain.spec §边界"
+    },
+    {
+      "id": "audit-granularity-off",
+      "severity": "high",
+      "affects": "whole_deployment",
+      "verdictImpact": "unknown",
+      "appliesWhen": [
+        {
+          "fact": "auditGranularity",
+          "equals": "off"
+        }
+      ],
+      "statement": "Audit granularity is off, so no AI audit rows are written at all; an absence of AI actions here is not evidence that none occurred.",
+      "origin": "HS-9 governance-policy.audit.granularity"
+    },
+    {
+      "id": "audit-granularity-write-drops-conversation-rows",
+      "severity": "medium",
+      "affects": "whole_deployment",
+      "verdictImpact": "partial",
+      "appliesWhen": [
+        {
+          "fact": "auditGranularity",
+          "equals": "write"
+        }
+      ],
+      "statement": "Audit granularity is write, so conversation-level rows are not written; only tool-scoped actions appear here.",
+      "origin": "HS-9 governance-policy.audit.granularity"
+    },
+    {
+      "id": "effect-change-not-captured",
+      "severity": "medium",
+      "affects": "this_package",
+      "verdictImpact": "partial",
+      "appliesWhen": [
+        {
+          "fact": "packageHasEffectWithoutSnapshot",
+          "equals": true
+        }
+      ],
+      "statement": "An effect here has no before/after snapshot, so what it changed can neither be shown nor compared; its identity is not fully establishable.",
+      "origin": "REV-6"
+    },
+    {
+      "id": "chat-content-by-reference",
+      "severity": "low",
+      "affects": "this_package",
+      "verdictImpact": "partial",
+      "appliesWhen": [
+        {
+          "fact": "packageHasChatRow",
+          "equals": true
+        }
+      ],
+      "statement": "Chat rows reference the conversation rather than embedding its text; the message content requires a separate, explicitly authorized request.",
+      "origin": "AU-4 (by design)"
+    },
+    {
+      "id": "revoke-dispute-never-auto-cleared",
+      "severity": "medium",
+      "affects": "this_package",
+      "verdictImpact": "partial",
+      "appliesWhen": [
+        {
+          "fact": "packageHasOpenDispute",
+          "equals": true
+        }
+      ],
+      "statement": "An open revoke dispute is cleared only when an administrator acknowledges it; it is never cleared automatically, and re-opens if the set of missing declarations changes.",
+      "origin": "ARC-6"
+    },
+    {
+      "id": "revoke-can-stall-indefinitely",
+      "severity": "medium",
+      "affects": "this_package",
+      "verdictImpact": "partial",
+      "appliesWhen": [
+        {
+          "fact": "packageHasStalledRevoke",
+          "equals": true
+        }
+      ],
+      "statement": "A revoke can remain in compensating indefinitely; staleness is surfaced as a read-only flag and never changes the stored status by itself.",
+      "origin": "REV-11"
+    },
+    {
+      "id": "chain-verification-cached-without-deployment-identity",
+      "severity": "medium",
+      "affects": "whole_deployment",
+      "verdictImpact": "partial",
+      "appliesWhen": [
+        {
+          "fact": "sharedCacheAcrossDeployments",
+          "equals": true
+        }
+      ],
+      "statement": "Chain verification is cached for 60 seconds under a key that does not identify the deployment, so a shared cache can return another deployment verdict.",
+      "origin": "AW-5"
+    },
+    {
+      "id": "risk-level-not-expressible-for-non-discrete-actions",
+      "severity": "high",
+      "affects": "whole_deployment",
+      "verdictImpact": "unknown",
+      "appliesWhen": [
+        {
+          "fact": "nonDiscreteActionSurfacesExposed",
+          "equals": true
+        }
+      ],
+      "statement": "Risk is assigned per declared tool; an action surface that is not a discrete named tool cannot carry a risk level and would not appear here.",
+      "origin": "治理链断点一（RISK-A）"
+    },
+    {
+      "id": "host-write-not-in-same-transaction",
+      "severity": "medium",
+      "affects": "this_package",
+      "verdictImpact": "partial",
+      "appliesWhen": [
+        {
+          "fact": "runtime",
+          "equals": "java"
+        },
+        {
+          "fact": "hostOwnsBusinessWrite",
+          "equals": true
+        }
+      ],
+      "statement": "Where the runtime is embedded in a host that owns the business write, that write and its audit row are not written in one transaction; a crash between them leaves an executed write unaudited.",
+      "origin": "D28④（KeelBase4J）"
+    },
+    {
+      "id": "host-ai-path-not-governed",
+      "severity": "high",
+      "affects": "this_package",
+      "verdictImpact": "unknown",
+      "appliesWhen": [
+        {
+          "fact": "hostOwnAiPath",
+          "equals": true
+        }
+      ],
+      "statement": "The host runs an AI path of its own that does not pass through the governance engine, so its tool calls are outside this package.",
+      "origin": "D42 / D44（KeelBase4YuDao）"
+    }
+  ]
+}
