@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "confirmation-request-v4.schema.json",
+  "title": "AI Confirmation Request Data — v4",
+  "description": "SSE confirmation_request's data.confirmation payload (ConfirmationRequestData). v4 changes `summary` — in both places, top level and run.items[].summary — from `string` to the object the server has always actually emitted: `{ key, fallback, params? }` (PresentationText). `key` and `fallback` are required; `params` is optional and maps names to string values; no other field is accepted (`additionalProperties:false`). v1/v2/v3 declared a string and are frozen history in schemas/v1..v3 — those files are unchanged, and the v3 samples still validate against v3. Under this schema the v3-shaped payloads must be rejected; the two negativeSamples in the registry hold that claim to the gate. v2's `impact` and v3's `revokeClass` are carried forward unchanged. Source: src/ai/interfaces/tool.interface.ts (PresentationText), src/ai/tools/tool-presentation.service.ts (writeSummary / writeSummaryOrGeneric), src/ai/interfaces/llm-provider.interface.ts (ConfirmationRequestData / ConfirmationRunItem).\n\nSSE confirmation_request 的 data.confirmation 载荷（ConfirmationRequestData）。v4 把 `summary` —— **两处**：顶层与 run.items[].summary —— 从 `string` 改为服务端**一直实际在下发**的对象：`{ key, fallback, params? }`（PresentationText）。`key` 与 `fallback` 必填；`params` 可选，键到字符串值的映射；不接受其他字段（`additionalProperties:false`）。v1/v2/v3 声明的是字符串，已冻结在 schemas/v1..v3 —— 那些文件一字未改，v3 的样例仍按 v3 校验。按本 schema，v3 形态的载荷必须被拒；registry 里的两条 negativeSamples 把这个主张交给闸门去证。v2 的 `impact` 与 v3 的 `revokeClass` 原样保留。来源：src/ai/interfaces/tool.interface.ts（PresentationText）、src/ai/tools/tool-presentation.service.ts（writeSummary / writeSummaryOrGeneric）、src/ai/interfaces/llm-provider.interface.ts（ConfirmationRequestData / ConfirmationRunItem）。",
+  "type": "object",
+  "required": ["token"],
+  "additionalProperties": false,
+  "properties": {
+    "token": { "type": "string", "minLength": 8 },
+    "toolName": { "type": "string" },
+    "summary": { "$ref": "#/definitions/presentationText" },
+    "arguments": { "type": "object" },
+    "authorization": { "$ref": "authorization.schema.json" },
+    "mode": { "enum": ["immediate", "approval", "run"] },
+    "impact": { "$ref": "#/definitions/impact" },
+    "revokeClass": { "$ref": "#/definitions/revokeClass" },
+    "run": {
+      "type": "object",
+      "required": ["runId", "riskLevel", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "runId": { "type": "string", "minLength": 1 },
+        "riskLevel": { "$ref": "risk-level-ref.schema.json" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["toolName", "summary", "riskLevel"],
+            "additionalProperties": false,
+            "properties": {
+              "toolName": { "type": "string" },
+              "summary": { "$ref": "#/definitions/presentationText" },
+              "riskLevel": { "$ref": "risk-level-ref.schema.json" },
+              "revokeClass": { "$ref": "#/definitions/revokeClass" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "presentationText": {
+      "description": "One line of human-readable text addressed to whichever renderer will show it: the server says what to say (`key` + `params`) and carries an English `fallback`. A renderer resolves the key in its own dictionary and interpolates `params`; one with no entry interpolates the fallback. Placeholders in `fallback` are `{name}`, matching the keys of `params`.\n\n交给要显示它的那一端的一行人读文案：服务端只说**说什么**（`key` + `params`）并带一份英文 `fallback`；各端拿 key 去自己的字典解析、按 `params` 插值，没有条目的端就插值兜底。`fallback` 里的占位符写成 `{name}`，与 `params` 的键同名。",
+      "type": "object",
+      "required": ["key", "fallback"],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "description": "Semantic i18n key, e.g. `ai.present.write.createEvent`. / 语义 i18n key，如 `ai.present.write.createEvent`。",
+          "type": "string"
+        },
+        "fallback": {
+          "description": "English fallback, shown when the renderer has no entry for `key`. / 英文兜底，渲染端没有该 key 的条目时显示。",
+          "type": "string"
+        },
+        "params": {
+          "description": "Interpolation parameters; omitted when the text has none. / 插值参数；无参数的文案省略本字段。",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "impact": {
+      "description": "Impact preview (an estimate, not a promise): number of write actions and the object types they touch, grouped. Only write actions with a resolvable side-effect target are counted — ones that cannot be resolved (review_approval_request / create_module dry runs) produce no revocable side effect and are excluded. `actions` always equals the sum of the counts in `targets`.\n\n影响预览（估计值，非承诺）：写动作数与对象类型分组。只统计可解析副作用对象的写动作——无法解析者（review_approval_request / create_module 干跑）本就不产生可撤副作用，不计入。actions 恒等于 targets 各 count 之和。",
+      "type": "object",
+      "required": ["actions", "targets"],
+      "additionalProperties": false,
+      "properties": {
+        "actions": { "type": "integer", "minimum": 1 },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["resultType", "count"],
+            "additionalProperties": false,
+            "properties": {
+              "resultType": { "type": "string", "minLength": 1 },
+              "count": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "revokeClass": {
+      "description": "KB-6 revocability class (single source: src/ai/interfaces/tool.interface.ts resolveRevokeClass, explicit declaration wins). none = not revocable / external unknown (a client must not call it \"revocable\"); local_compensate = local soft-delete compensation (recoverable through the RG-3 trash); governed_external = governed external compensation (after revoking, the state is \"compensation requested / outcome unknown\" — never display revoked); transactional = the target exposes a rollback endpoint (reserved). Absent means omitted: old payloads render no revoke row, and no default is filled in.\n\nKB-6 撤销能力档（单源：src/ai/interfaces/tool.interface.ts resolveRevokeClass，显式声明优先）。none = 不可撤/外部未知（前端不得称「可撤销」）；local_compensate = 本地软删补偿（可经 RG-3 回收站恢复）；governed_external = 受治理外部补偿（撤销后为「已请求补偿/结果未知」，禁显示 revoked）；transactional = 目标暴露可回滚接口（枚举预留）。缺省即省略：老载荷不渲染撤销行，不补默认值。",
+      "enum": ["none", "local_compensate", "governed_external", "transactional"]
+    }
+  }
+}

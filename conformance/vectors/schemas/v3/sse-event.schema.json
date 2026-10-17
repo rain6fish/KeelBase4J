@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "sse-event-v3.schema.json",
+  "title": "AI Chat SSE Event (POST /ai/chat/stream) — v3",
+  "description": "SSE streaming frame: `event: <type>`; `data` is the whole chunk object (top-level `type` plus the nested payload). v3 keeps the event-name enum unchanged and moves only the nested payload reference that the v4 confirmation object changed: `confirmation_request.confirmation` → `confirmation-request-v4` (whose `summary`, at top level and per run item, is now the `{key, fallback, params?}` object instead of a string). The `confirmation_decision` reference stays at `v2/confirmation-decision`; the `tool_start` / `tool_end` branches are unchanged from v2. This is the same repair v2 made: an envelope that pins an older payload version rejects the payload the runtime actually sends. `$id` stays bare (no `v3/` prefix) because this schema uses the same cross-file relative refs as v1/v2 (`risk-level-ref` / `authorization`); a slashed `$id` would resolve them into a directory that does not exist. Source: src/ai/interfaces/llm-provider.interface.ts, src/ai/ai.controller.ts. Frozen v1/v2 history: schemas/v1/sse-event.schema.json, schemas/v2/sse-event.schema.json.\n\nSSE 流式帧：event: <type>；data 为整个 chunk 对象（含 type 顶层 + 嵌套载荷）。v3 事件名枚举不变，只跟随 v4 确认对象改掉那一处嵌套载荷引用：`confirmation_request.confirmation` → `confirmation-request-v4`（其 `summary` 在顶层与 run 逐条中都已由字符串变为 `{key, fallback, params?}` 对象）。`confirmation_decision` 仍指 `v2/confirmation-decision`；`tool_start` / `tool_end` 分支相对 v2 未动。这与 v2 修的是同一件事：信封钉住旧版载荷，就会拒掉运行时真正发出的载荷。`$id` 仍用裸名（不带 `v3/` 前缀），因为本 schema 沿用 v1/v2 的跨文件相对引用（`risk-level-ref` / `authorization`）；带斜杠的 `$id` 会把它们解析到不存在的目录下。来源：src/ai/interfaces/llm-provider.interface.ts、src/ai/ai.controller.ts。v1/v2 冻结历史见 schemas/v1/sse-event.schema.json、schemas/v2/sse-event.schema.json。",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["type", "content"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "text" }, "content": { "type": "string" } }
+    },
+    {
+      "type": "object",
+      "required": ["type", "content"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "reasoning" }, "content": { "type": "string" } }
+    },
+    {
+      "type": "object",
+      "required": ["type", "toolCall"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "tool_call" },
+        "toolCall": {
+          "type": "object",
+          "required": ["id", "name", "arguments"],
+          "additionalProperties": true,
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "arguments": { "type": "string" },
+            "index": { "type": "number" }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type", "conversationId"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "done" }, "conversationId": { "type": "string" } }
+    },
+    {
+      "type": "object",
+      "required": ["type", "error"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "error" }, "error": { "type": "string" } }
+    },
+    {
+      "type": "object",
+      "required": ["type", "route"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "navigate" }, "route": { "type": "string" } }
+    },
+    {
+      "type": "object",
+      "required": ["type", "confirmation"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "confirmation_request" }, "confirmation": { "$ref": "confirmation-request-v4.schema.json" } }
+    },
+    {
+      "type": "object",
+      "required": ["type", "confirmationDecision"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "confirmation_decision" }, "confirmationDecision": { "$ref": "v2/confirmation-decision.schema.json" } }
+    },
+    {
+      "type": "object",
+      "required": ["type", "toolStart"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "tool_start" },
+        "toolStart": {
+          "type": "object",
+          "required": ["name", "summary"],
+          "additionalProperties": true,
+          "properties": {
+            "name": { "type": "string" },
+            "summary": { "type": "string" },
+            "arguments": { "type": "object" },
+            "isWrite": { "type": "boolean" },
+            "riskLevel": { "$ref": "risk-level-ref.schema.json" },
+            "authorization": { "$ref": "authorization.schema.json" }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type", "toolEnd"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "tool_end" },
+        "toolEnd": {
+          "type": "object",
+          "required": ["name", "success"],
+          "additionalProperties": true,
+          "properties": {
+            "name": { "type": "string" },
+            "success": { "type": "boolean" },
+            "summary": { "type": "string" },
+            "error": { "type": "string" },
+            "authorizationDenied": {
+              "type": "object",
+              "required": ["reason", "checks"],
+              "properties": {
+                "reason": { "type": "string" },
+                "checks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["name", "ok"],
+                    "properties": {
+                      "name": { "type": "string" },
+                      "ok": { "type": "boolean" },
+                      "note": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

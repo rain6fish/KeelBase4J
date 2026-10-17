@@ -32,24 +32,28 @@
     },
     {
       "id": "sse-event",
-      "version": "v2",
+      "version": "v3",
       "schema": "sse-event.schema.json",
-      "title": "AI Chat SSE 帧（v2：事件名枚举不变，嵌套载荷 $ref 跟到当前版——confirmation-request→v3 / confirmation-decision→v2）",
+      "title": "AI Chat SSE 帧（v3：事件名枚举不变，嵌套载荷 $ref 跟到当前版——confirmation-request→v4 / confirmation-decision→v2）",
       "source": "src/ai/interfaces/llm-provider.interface.ts; src/ai/ai.controller.ts",
       "samples": [
-        "schemas/v2/samples/sse-event.json",
-        "schemas/v2/samples/sse-event-single.json"
+        "schemas/v3/samples/sse-event.json",
+        "schemas/v3/samples/sse-event-single.json"
       ]
     },
     {
       "id": "confirmation-request",
-      "version": "v3",
+      "version": "v4",
       "schema": "confirmation-request.schema.json",
-      "title": "ConfirmationRequestData（含 KB-5 run 聚合 + §22.17 ④ 影响预览：v2 impact + v3 revokeClass 撤销口径）",
-      "source": "src/ai/interfaces/llm-provider.interface.ts:63-103; src/ai/tool-effects/write-impact.ts; src/ai/interfaces/tool.interface.ts（RevokeClass / resolveRevokeClass）",
+      "title": "ConfirmationRequestData（v4：summary 两处改为服务端一直实际下发的 PresentationText 对象 {key, fallback, params?}；v2 impact + v3 revokeClass 保留）",
+      "source": "src/ai/interfaces/tool.interface.ts（PresentationText）; src/ai/tools/tool-presentation.service.ts（writeSummary / writeSummaryOrGeneric）; src/ai/interfaces/llm-provider.interface.ts:63-103; src/ai/tool-effects/write-impact.ts",
       "samples": [
-        "schemas/v3/samples/confirmation-request.json",
-        "schemas/v3/samples/confirmation-request-run.json"
+        "schemas/v4/samples/confirmation-request.json",
+        "schemas/v4/samples/confirmation-request-run.json"
+      ],
+      "negativeSamples": [
+        "schemas/v4/samples/confirmation-request-invalid-string-summary.json",
+        "schemas/v4/samples/confirmation-request-run-invalid-string-summary.json"
       ]
     },
     {

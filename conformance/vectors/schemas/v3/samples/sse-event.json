@@ -1,0 +1,40 @@
+{
+  "type": "confirmation_request",
+  "confirmation": {
+    "token": "run-4f8a2c9e",
+    "mode": "run",
+    "impact": {
+      "actions": 2,
+      "targets": [
+        { "resultType": "event", "count": 1 },
+        { "resultType": "todo", "count": 1 }
+      ]
+    },
+    "run": {
+      "runId": "run-4f8a2c9e",
+      "riskLevel": "R3",
+      "items": [
+        {
+          "toolName": "create_event",
+          "summary": {
+            "key": "ai.present.write.createEvent",
+            "fallback": "Create event: 产品评审 (2026-10-18 10:00 – 2026-10-18 11:00)",
+            "params": { "title": "产品评审", "startTime": "2026-10-18 10:00", "endTime": "2026-10-18 11:00" }
+          },
+          "riskLevel": "R3",
+          "revokeClass": "local_compensate"
+        },
+        {
+          "toolName": "create_todo",
+          "summary": {
+            "key": "ai.present.write.createTodo",
+            "fallback": "Create todo: 为「产品评审」创建跟进待办",
+            "params": { "title": "为「产品评审」创建跟进待办" }
+          },
+          "riskLevel": "R3",
+          "revokeClass": "local_compensate"
+        }
+      ]
+    }
+  }
+}
