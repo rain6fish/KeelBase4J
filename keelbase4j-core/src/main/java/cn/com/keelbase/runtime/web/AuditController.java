@@ -2,8 +2,10 @@
 package cn.com.keelbase.runtime.web;
 
 import cn.com.keelbase.runtime.audit.AuditService;
+import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
+import cn.com.keelbase.runtime.authz.OwnershipGuard;
+import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
-import cn.com.keelbase.runtime.identity.Principal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -19,21 +21,27 @@ import org.springframework.web.server.ResponseStatusException;
 /**
  * The AI audit chain, read back: does it hold, and which rows are on it.
  *
- * <p><b>Administrators only, and that is a change.</b> The verify route used to answer any
- * authenticated caller, which was survivable while it returned a verdict and nothing else. It now
+ * <p><b>Administrators or an audit reader — never every caller.</b> The verify route used to answer
+ * any authenticated caller, which was survivable while it returned a verdict and nothing else. It now
  * also returns the chain — the rows it walked, with who acted and what they did — and a chain
  * readable by everyone is not an audit trail, it is a roster. The object's own implementation gates
  * the same route the same way, and the corpus replays it as an administrator, so this is the
  * deployment catching up to what the surface was always meant to be rather than a policy invented
  * here. The same reasoning settles the second route below, which returns rows by design.
  *
+ * <p>Since JV-63 the gate is the capability seam rather than an inline {@code isManager()}: read-only
+ * audit readers are a deployment's decision, expressed as a rule, not a change to this class.
+ *
  * <p>问的是 AI 审计链的读回：链站不站得住，以及链上是哪些行。
  *
- * <p><b>只给管理员，而这是一处改动。</b>校验那条路由过去**任何带 token 的调用方**都能问 —— 在它只回一个
- * **结论**时那样尚可。它现在**还把链也回出来**：它走过的那些行、谁动的手、做了什么 —— 而一条**人人可读**的链
- * 不是审计轨，是**花名册**。这个对象**自己的实现**用同样的方式守着同一条路由，语料也以**管理员**身份重放它，
- * 所以这里是一个部署**追平这条面本来就该有的样子**，而不是在本地发明一条策略。同一条理由也定了下面那条
- * **本来就按设计回行**的路由。
+ * <p><b>给管理员或审计读者 —— 绝不是每个调用方。</b>校验那条路由过去**任何带 token 的调用方**都能问 ——
+ * 在它只回一个**结论**时那样尚可。它现在**还把链也回出来**：它走过的那些行、谁动的手、做了什么 —— 而一条
+ * **人人可读**的链不是审计轨，是**花名册**。这个对象**自己的实现**用同样的方式守着同一条路由，语料也以
+ * **管理员**身份重放它，所以这里是一个部署**追平这条面本来就该有的样子**，而不是在本地发明一条策略。同一条
+ * 理由也定了下面那条**本来就按设计回行**的路由。
+ *
+ * <p>JV-63 起，这道闸是**能力缝**、不是内联的 `isManager()`：只读审计读者是部署方用一条规则表达的**决定**，
+ * 不再是改这个类。
  */
 @RestController
 public class AuditController {
@@ -58,15 +66,17 @@ public class AuditController {
 
     private final AuditService audit;
     private final CurrentPrincipal principals;
+    private final OwnershipGuard guard;
 
-    public AuditController(AuditService audit, CurrentPrincipal principals) {
+    public AuditController(AuditService audit, CurrentPrincipal principals, OwnershipGuard guard) {
         this.audit = audit;
         this.principals = principals;
+        this.guard = guard;
     }
 
     @GetMapping("/audit/verify")
     public AuditService.Verification verify() {
-        requireAdministrator();
+        requireAuditRead();
         return audit.verify();
     }
 
@@ -97,7 +107,7 @@ public class AuditController {
             @RequestParam(required = false) String denied,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "0") int offset) {
-        requireAdministrator();
+        requireAuditRead();
 
         if (agentId != null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -123,16 +133,22 @@ public class AuditController {
     }
 
     /**
-     * The chain is a roster to everyone who may act on it, and a roster is not readable by all.
+     * The chain is a roster, and a roster is read by whoever a deployment grants the capability to.
      *
-     * 这条链对**每一个能动它的人**都是一份花名册，而花名册**不是人人都能读的**。
+     * <p>It used to be a hardcoded {@code isManager()} check, which meant a deployment could not name
+     * a read-only audit reader without editing this class (JV-63). The rule source decides now: the
+     * tier-A default still grants {@code read} on this subject to administrators only, and a tier-B
+     * source may grant it to an identity whose every grant is {@code read} anyway.
+     *
+     * 这条链是一份花名册，而花名册由**部署方授予了这项能力的人**来读。
+     *
+     * <p>它从前是一处写死的 `isManager()` 判断，意思是部署方若不改这个类，就点不出一个只读的审计读者
+     * （JV-63）。现在由规则源决定：档 A 默认仍只把该 subject 的 `read` 授予管理员，而档 B 可以把它授予
+     * 一个**全部授予都只有 `read`** 的身份。
      */
-    private void requireAdministrator() {
-        Principal caller = principals.current();
-        if (!caller.isManager()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "the audit chain is readable by an administrator");
-        }
+    private void requireAuditRead() {
+        guard.requireAction(principals.current(), GovernanceReadSubjects.AUDIT_LOG,
+                PermissionAuthorizer.ACTION_READ);
     }
 
     /**

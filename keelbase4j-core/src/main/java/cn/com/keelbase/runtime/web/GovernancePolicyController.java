@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.web;
 
+import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
+import cn.com.keelbase.runtime.authz.OwnershipGuard;
+import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.governance.GovernancePolicyStore;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
-import cn.com.keelbase.runtime.identity.Principal;
 import java.util.Map;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 /**
  * The governance policy: what this deployment has declared about its tools, and where a console
- * changes it — administrators only.
+ * changes it — readable by administrators or an audit reader, writable by administrators only.
  *
  * <p>This is the console's policy page, and it answers the frozen {@code governance-policy} object
  * with nothing added: the per-tool overrides and the audit granularity are the whole of it, plus the
@@ -30,7 +30,8 @@ import org.springframework.web.server.ResponseStatusException;
  * register, a mode outside the frozen three, or a role outside this deployment's vocabulary comes back
  * as a {@code 400} with the reason rather than being stored and quietly ignored.
  *
- * <p>**治理策略**：本部署就它的工具声明了什么，以及控制台在哪里改它 —— 仅管理员。
+ * <p>**治理策略**：本部署就它的工具声明了什么，以及控制台在哪里改它 —— 读面给管理员或审计读者，
+ * 写面仅管理员。
  *
  * <p>这是控制台的策略页，它答冻结的 `governance-policy` 对象、一点没多加：逐工具的覆盖与审计粒度就是它的全部，
  * 外加对象自带的两个「关于策略本身」的键（`updatedAt`、`revision`）—— 这两个是本运行时**填上的**、不是接受的。
@@ -47,30 +48,33 @@ public class GovernancePolicyController {
 
     private final GovernancePolicyStore policy;
     private final CurrentPrincipal principals;
+    private final OwnershipGuard guard;
 
-    public GovernancePolicyController(GovernancePolicyStore policy, CurrentPrincipal principals) {
+    public GovernancePolicyController(GovernancePolicyStore policy, CurrentPrincipal principals,
+                                      OwnershipGuard guard) {
         this.policy = policy;
         this.principals = principals;
+        this.guard = guard;
     }
 
     @GetMapping("/ai/governance/policy")
     public Map<String, Object> read() {
-        requireAdministrator();
+        guard.requireAction(principals.current(), GovernanceReadSubjects.GOVERNANCE_POLICY,
+                PermissionAuthorizer.ACTION_READ);
         return policy.current();
     }
 
     @PutMapping("/ai/governance/policy")
     public Map<String, Object> write(@RequestBody Map<String, Object> body) {
-        requireAdministrator();
+        // The read face was widened to an audit reader; the write is deliberately not (JV-63 B4): an
+        // audit reader is granted `read` and nothing else, so it is refused without any second check.
+        // `update` rather than the word `manage` because `manage` is expanded into the concrete actions
+        // by the rule source — asking for the literal word would refuse the administrator too.
+        //
+        // 读面放宽到了审计读者，**写面刻意没有**（JV-63 B4）：审计读者只被授予 `read`、别的一无所有，
+        // 故它会被拒，不需要第二道判断。这里问 `update` 而不是 `manage` 这个词，是因为 `manage` 由规则源
+        // 展开成具体动作 —— 问那个字面词会把管理员也一起拒掉。
+        guard.requireAction(principals.current(), GovernanceReadSubjects.GOVERNANCE_POLICY, "update");
         return policy.set(body);
-    }
-
-    /** The policy says what governance is doing to every tool, so it is an administrator's surface. */
-    private void requireAdministrator() {
-        Principal caller = principals.current();
-        if (!caller.isManager()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "the governance policy is readable and writable by an administrator");
-        }
     }
 }

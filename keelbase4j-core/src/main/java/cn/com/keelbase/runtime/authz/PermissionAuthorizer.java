@@ -101,8 +101,9 @@ public class PermissionAuthorizer {
 
     /** The frozen {@code permission-capability-list}: what this identity may do, and on what basis. */
     public PermissionCapabilityList describe(Principal principal) {
+        List<AuthorizationRules.Rule> granted = rules.rulesFor(principal);
         Map<String, PermissionCapabilityList.Resource> bySubject = new LinkedHashMap<>();
-        for (AuthorizationRules.Rule rule : rules.rulesFor(principal)) {
+        for (AuthorizationRules.Rule rule : granted) {
             if (PermissionCapabilityList.SUBJECT_ALL.equals(rule.subject())) {
                 bySubject.put(rule.subject(), new PermissionCapabilityList.Resource(
                         rule.subject(), PermissionCapabilityList.SCOPE_ALL,
@@ -131,9 +132,51 @@ public class PermissionAuthorizer {
 
         List<PermissionCapabilityList.Resource> resources = new ArrayList<>(bySubject.values());
         resources.sort(Comparator.comparing(PermissionCapabilityList.Resource::subject));
-        return new PermissionCapabilityList(principal.role(),
-                principal.isManager() ? PermissionCapabilityList.BASIS_ADMIN : PermissionCapabilityList.BASIS_USER,
-                resources);
+        return new PermissionCapabilityList(principal.role(), basisOf(principal, granted), resources);
+    }
+
+    /**
+     * Why this identity holds what it holds, in the words the capability list carries.
+     *
+     * <p>The two tier-A strings answer for an administrator and a normal user. A deployment that
+     * grants a read-only identity the governance read faces produces a third kind (JV-63), and
+     * answering "a normal user who may manage their own resources" for it would be false in the
+     * direction that matters — a console would offer writes the identity cannot make.
+     *
+     * <p>「审计读者」按**构造**判定，而不是按角色名：角色词表只有 {@code user}/{@code admin}，审计读者并不
+     * 是其中一档。判据是它**每一条**授予都只含 {@code read}，且至少一条落在治理读面上。
+     *
+     * <p>这个身份凭什么持有它持有的东西，用能力清单自己的话作答。
+     *
+     * <p>档 A 那两条字符串分别答管理员与普通用户。一个被授予治理读面的只读身份会产出**第三种**（JV-63），
+     * 而拿「可管理本人拥有资源的普通用户」去答它，会错在**要紧的方向**上——控制台会给出这个身份根本做不了的写操作。
+     */
+    private static String basisOf(Principal principal, List<AuthorizationRules.Rule> granted) {
+        if (principal.isManager()) {
+            return PermissionCapabilityList.BASIS_ADMIN;
+        }
+        return isAuditReader(granted) ? PermissionCapabilityList.BASIS_AUDITOR : PermissionCapabilityList.BASIS_USER;
+    }
+
+    /**
+     * Every grant is {@code read}, and at least one is on a governance read face — which is what an
+     * audit reader is by construction (JV-63 B8(a)): it holds no write capability at all, so it
+     * cannot approve or execute by construction rather than by a separate guard.
+     *
+     * <p>每一条授予都是 {@code read}，且至少一条落在治理读面上 —— 这正是审计读者**按构造**的定义
+     * （JV-63 B8(a)）：它一项写能力都没有，所以「不能审批、不能执行」是构造出来的，而不是靠另一道守卫。
+     */
+    private static boolean isAuditReader(List<AuthorizationRules.Rule> granted) {
+        boolean onAGovernanceReadFace = false;
+        for (AuthorizationRules.Rule rule : granted) {
+            for (String action : PermissionCapabilityList.normalizeActions(rule.action())) {
+                if (!ACTION_READ.equals(action)) {
+                    return false;
+                }
+            }
+            onAGovernanceReadFace |= GovernanceReadSubjects.ALL.contains(rule.subject());
+        }
+        return onAGovernanceReadFace;
     }
 
     private static boolean grants(AuthorizationRules.Rule rule, String subject) {

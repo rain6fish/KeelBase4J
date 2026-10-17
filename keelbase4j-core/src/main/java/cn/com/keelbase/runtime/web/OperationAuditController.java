@@ -3,21 +3,22 @@ package cn.com.keelbase.runtime.web;
 
 import cn.com.keelbase.runtime.audit.OperationAuditLog;
 import cn.com.keelbase.runtime.audit.OperationAuditLogRepository;
+import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
+import cn.com.keelbase.runtime.authz.OwnershipGuard;
+import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
-import cn.com.keelbase.runtime.identity.Principal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 /**
- * The operations audit: what was done to the business, newest first — administrators only.
+ * The operations audit: what was done to the business, newest first — administrators or an audit
+ * reader.
  *
  * <p>This is the console's operations page, and it reads a different chain from the decision trace
  * beside it: the rows here are business writes, including the ones no AI took part in, while the AI
@@ -30,7 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
  * than left for a reader to wonder about. Nothing is padded with a placeholder: a null the object does
  * not declare is not written at all.
  *
- * <p>**操作审计**：对**业务**做了什么，最新的在前 —— 仅管理员。
+ * <p>**操作审计**：对**业务**做了什么，最新的在前 —— 给管理员或审计读者。
  *
  * <p>这是控制台的操作审计页，它读的链与旁边那条决策轨迹**不同**：这里的行是**业务写**，包括**没有 AI 参与**的那些；
  * 而 AI 审计记的是「一次工具调用最后怎么了」。两条**刻意分开**、**没有任何东西把它们连起来** —— 各自携带什么，见
@@ -47,20 +48,20 @@ public class OperationAuditController {
 
     private final OperationAuditLogRepository logs;
     private final CurrentPrincipal principals;
+    private final OwnershipGuard guard;
 
-    public OperationAuditController(OperationAuditLogRepository logs, CurrentPrincipal principals) {
+    public OperationAuditController(OperationAuditLogRepository logs, CurrentPrincipal principals,
+                                    OwnershipGuard guard) {
         this.logs = logs;
         this.principals = principals;
+        this.guard = guard;
     }
 
     @GetMapping("/audit/operations/logs")
     public Map<String, Object> logs(@RequestParam(defaultValue = "1") int page,
                                     @RequestParam(defaultValue = "20") int limit) {
-        Principal caller = principals.current();
-        if (!caller.isManager()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "the operations audit is readable by an administrator");
-        }
+        guard.requireAction(principals.current(), GovernanceReadSubjects.OPERATION_AUDIT,
+                PermissionAuthorizer.ACTION_READ);
         int size = Math.max(1, Math.min(limit, MAX_LIMIT));
         int index = Math.max(1, page) - 1;
         Page<OperationAuditLog> found = logs.findAllByOrderByIdDesc(PageRequest.of(index, size));

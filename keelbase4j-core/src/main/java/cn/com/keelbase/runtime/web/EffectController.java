@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.web;
 
+import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
+import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.domain.FollowUp;
 import cn.com.keelbase.runtime.domain.FollowUpRepository;
 import cn.com.keelbase.runtime.effect.SideEffect;
@@ -65,13 +67,16 @@ public class EffectController {
     private final SideEffectService sideEffects;
     private final SideEffectRepository repository;
     private final FollowUpRepository followUps;
+    private final PermissionAuthorizer authorizer;
 
     public EffectController(CurrentPrincipal principals, SideEffectService sideEffects,
-                            SideEffectRepository repository, FollowUpRepository followUps) {
+                            SideEffectRepository repository, FollowUpRepository followUps,
+                            PermissionAuthorizer authorizer) {
         this.principals = principals;
         this.sideEffects = sideEffects;
         this.repository = repository;
         this.followUps = followUps;
+        this.authorizer = authorizer;
     }
 
     @GetMapping("/ai/tool-effects")
@@ -90,13 +95,26 @@ public class EffectController {
         // 在该列存的是 null，两者否则会在同一个查询参数后面表示不同的东西。
         String conversation = conversationId == null || conversationId.isBlank() ? null : conversationId;
 
+        // A manager sees the whole ledger; so does an audit reader — an identity whose every grant is
+        // `read` and that was granted `read` on this subject (JV-63 B5). The projection is exactly the
+        // one a manager already sees: no field is added for the reader, and the field whitelist itself
+        // (whether `userId` / `beforeSnapshot` should be narrower for a read-only reader) is still
+        // awaiting a decision, so this change neither widens nor narrows what is exposed.
+        //
+        // 管理员看整本账；审计读者也看整本账 —— 那个身份的每一条授予都只有 `read`，且在该 subject 上被授予了
+        // `read`（JV-63 B5）。**投影就是管理员今天看到的那一份**：不为读者新增任何字段，而字段白名单本身
+        // （`userId` / `beforeSnapshot` 对只读读者是否该更窄）**仍待裁**，故本次改动既不扩大也不缩小暴露面。
+        boolean globalRead = principal.isManager()
+                || authorizer.decide(principal, PermissionAuthorizer.ACTION_READ,
+                        GovernanceReadSubjects.TOOL_EFFECT).allowed();
+
         Page<SideEffect> found;
-        if (!principal.isManager()) {
-            // A non-manager sees their own effects whatever they ask for — the filter is not theirs
-            // to lift — and naming somebody else's conversation answers with nothing, which is how a
-            // conversation that is not theirs answers everywhere else too.
-            // 非管理员无论请求什么看到的都是自己那些行 —— 那个筛选不是他们能抬掉的；而点名**别人**的会话，答案就是
-            // **空** —— 与「不是他的会话」在别处一律如此作答相符。
+        if (!globalRead) {
+            // A caller without the global read sees their own effects whatever they ask for — the
+            // filter is not theirs to lift — and naming somebody else's conversation answers with
+            // nothing, which is how a conversation that is not theirs answers everywhere else too.
+            // 没有全局读权的调用方无论请求什么看到的都是自己那些行 —— 那个筛选不是他们能抬掉的；而点名**别人**的
+            // 会话，答案就是**空** —— 与「不是他的会话」在别处一律如此作答相符。
             found = conversation == null
                     ? repository.findByUserIdOrderByIdDesc(principal.userId(), pageable)
                     : repository.findByUserIdAndConversationIdOrderByIdDesc(

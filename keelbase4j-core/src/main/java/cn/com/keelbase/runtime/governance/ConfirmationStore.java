@@ -7,6 +7,8 @@ import cn.com.keelbase.runtime.identity.Principal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -138,6 +140,22 @@ public class ConfirmationStore {
                 .filter(row -> !windowHasClosed(row, cutoff))
                 .limit(MAX_ITEMS)
                 .toList();
+    }
+
+    /**
+     * Every record, newest first, paged — the read-only queue an audit reader may be granted (JV-63).
+     *
+     * <p>Unlike {@link #mine}, nothing is narrowed to the caller and no window is applied: this is the
+     * whole queue as it stands, including approval rows and rows whose sweep has not run yet. Reading
+     * it moves nothing; deciding and executing stay on their own entries.
+     *
+     * <p>全部记录，最新的在前、分页 —— 可以授予审计读者的只读队列（JV-63）。
+     *
+     * <p>与 {@link #mine} 不同，这里不按调用方收窄、也不施加窗口：这就是队列的**全部现状**，包括审批行
+     * 与尚未被清扫的行。**读它不移动任何东西**；裁决与执行仍在各自的入口上。
+     */
+    public Page<ConfirmationRequest> all(Pageable pageable) {
+        return repository.findAllByOrderByCreatedAtDesc(pageable);
     }
 
     /**

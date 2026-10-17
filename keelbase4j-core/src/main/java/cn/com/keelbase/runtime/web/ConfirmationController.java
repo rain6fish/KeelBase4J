@@ -2,15 +2,29 @@
 package cn.com.keelbase.runtime.web;
 
 import cn.com.keelbase.protocol.ConfirmationLifecycle;
+import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
+import cn.com.keelbase.runtime.authz.OwnershipGuard;
+import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
+import cn.com.keelbase.runtime.governance.ConfirmationRequest;
+import cn.com.keelbase.runtime.governance.ConfirmationStore;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
 import cn.com.keelbase.runtime.identity.Principal;
+import cn.com.keelbase.runtime.tool.ToolRegistry;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -33,12 +47,60 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 public class ConfirmationController {
 
+    /** The console pages on this list, so a reader cannot ask for the whole table by asking nicely. */
+    private static final int MAX_LIMIT = 100;
+
     private final CurrentPrincipal principals;
     private final GovernedExecutionEngine engine;
+    private final ConfirmationStore confirmations;
+    private final ToolRegistry tools;
+    private final OwnershipGuard guard;
 
-    public ConfirmationController(CurrentPrincipal principals, GovernedExecutionEngine engine) {
+    public ConfirmationController(CurrentPrincipal principals, GovernedExecutionEngine engine,
+                                  ConfirmationStore confirmations, ToolRegistry tools,
+                                  OwnershipGuard guard) {
         this.principals = principals;
         this.engine = engine;
+        this.confirmations = confirmations;
+        this.tools = tools;
+        this.guard = guard;
+    }
+
+    /**
+     * The whole confirmation queue, read-only — the face JV-63 adds for an audit reader.
+     *
+     * <p>It answers the same wire projection as {@code /ai/my/confirmations} (one projection, so the
+     * two can never disagree about what a confirmation looks like), but over every caller's rows and
+     * without the caller's own window filtering: a reader inspecting the queue wants it as it stands.
+     * Reading moves nothing. Approving and executing are separate entries that keep their own guards,
+     * and an audit reader holds no write capability, so those answer 403 by construction (B8(a)).
+     *
+     * <p>全部确认队列，**只读** —— JV-63 为审计读者新增的那一面。
+     *
+     * <p>它答与 `/ai/my/confirmations` **同一份** wire 投影（只有一份，故两者不可能对「一条确认长什么样」
+     * 各执一词），但覆盖**所有调用方**的行、且不施加调用方自己的窗口：一个检视队列的读者，要的就是它的**现状**。
+     * **读它不移动任何东西**。审批与执行是各自保留守卫的独立入口，而审计读者一项写能力都没有，故那些入口按构造
+     * 答 403（B8(a)）。
+     */
+    @GetMapping("/ai/confirmations")
+    public Map<String, Object> list(@RequestParam(defaultValue = "1") int page,
+                                    @RequestParam(defaultValue = "20") int limit) {
+        guard.requireAction(principals.current(), GovernanceReadSubjects.CONFIRMATION,
+                PermissionAuthorizer.ACTION_READ);
+        int size = Math.max(1, Math.min(limit, MAX_LIMIT));
+        int index = Math.max(1, page) - 1;
+        Instant now = Instant.now();
+        long offlineTtlMillis = ConfirmationLifecycle.DEFAULT_OFFLINE_TTL_MILLIS;
+        Page<ConfirmationRequest> found = confirmations.all(PageRequest.of(index, size));
+        List<Map<String, Object>> items = found.getContent().stream()
+                .map(row -> ConfirmationItemView.item(row, now, offlineTtlMillis, tools))
+                .toList();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("total", found.getTotalElements());
+        body.put("page", index + 1);
+        body.put("limit", size);
+        body.put("items", items);
+        return body;
     }
 
     @PostMapping("/ai/confirmations/{token}")

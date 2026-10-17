@@ -2,6 +2,9 @@
 package cn.com.keelbase.runtime.web;
 
 import cn.com.keelbase.protocol.RiskLevel;
+import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
+import cn.com.keelbase.runtime.authz.OwnershipGuard;
+import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.governance.GateDecision;
 import cn.com.keelbase.runtime.governance.GovernancePolicyStore;
 import cn.com.keelbase.runtime.governance.GovernanceService;
@@ -14,15 +17,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 /**
  * The tool inventory: what this runtime can be asked to do, and what governance says about each tool.
  *
- * <p>An administrator's list, answering the frozen {@code ai-tool-inventory} for every registered tool.
+ * <p>The administrators' and audit readers' list, answering the frozen {@code ai-tool-inventory} for
+ * every registered tool.
  * The governance half is not restated here — it is <em>asked</em>: {@code gateMode}, and the two flags
  * derived from it, all come from the same {@link GovernanceService#decide} call the engine itself makes,
  * so a tool cannot be described one way and gated another.
@@ -38,7 +40,7 @@ import org.springframework.web.server.ResponseStatusException;
  *
  * <p>**工具清单**：这个运行时可以被要求做什么，以及治理对每个工具怎么说。
  *
- * <p>这是给管理员的列表，对**每一个已注册工具**作答冻结的 {@code ai-tool-inventory}。治理那一半在这里**不复述**
+ * <p>这是给管理员与审计读者的列表，对**每一个已注册工具**作答冻结的 {@code ai-tool-inventory}。治理那一半在这里**不复述**
  * —— 它是**去问来的**：{@code gateMode} 与由它派生的两个标志，都来自引擎自己用的那次
  * {@link GovernanceService#decide} 调用，于是一个工具**不可能**被描述成一种样子、却被按另一种样子把关。
  *
@@ -56,22 +58,23 @@ public class ToolInventoryController {
     private final GovernanceService governance;
     private final GovernancePolicyStore policy;
     private final CurrentPrincipal principals;
+    private final OwnershipGuard guard;
 
     public ToolInventoryController(ToolRegistry tools, GovernanceService governance,
-                                   GovernancePolicyStore policy, CurrentPrincipal principals) {
+                                   GovernancePolicyStore policy, CurrentPrincipal principals,
+                                   OwnershipGuard guard) {
         this.tools = tools;
         this.governance = governance;
         this.policy = policy;
         this.principals = principals;
+        this.guard = guard;
     }
 
     @GetMapping("/ai/tools")
     public List<Map<String, Object>> inventory() {
         Principal caller = principals.current();
-        if (!caller.isManager()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "the tool inventory is readable by an administrator");
-        }
+        guard.requireAction(caller, GovernanceReadSubjects.TOOL_INVENTORY,
+                PermissionAuthorizer.ACTION_READ);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (AiTool tool : tools.all()) {
             rows.add(row(tool, caller));

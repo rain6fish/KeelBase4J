@@ -39,6 +39,18 @@ public record PermissionCapabilityList(String role, String basis, List<Resource>
     public static final String BASIS_ADMIN = "管理员角色：可管理全部资源";
     public static final String BASIS_USER = "普通用户：可管理本人拥有的资源（行级所有权条件）";
 
+    /**
+     * An audit reader: every grant is {@code read}, and at least one of them is on a governance read
+     * face. The tier-A basis would have called this identity "a normal user who may manage their own
+     * resources", which is the opposite of what it may do — {@code basis} is a free string in the
+     * contract, so saying the true thing costs no contract change (JV-63).
+     *
+     * <p>审计读者：它的每一条授予都是 {@code read}，且至少有一条落在治理读面上。档 A 的依据串会把这个身份说成
+     * 「可管理本人拥有资源的普通用户」，与它能做的事恰好相反 —— 而 {@code basis} 在契约里是**自由字符串**，
+     * 所以说实话不需要改契约（JV-63）。
+     */
+    public static final String BASIS_AUDITOR = "审计读者：只读审计与治理读面（无写权、无管理权）";
+
     /** The wildcard subject: a rule granted on everything. */
     public static final String SUBJECT_ALL = "all";
 

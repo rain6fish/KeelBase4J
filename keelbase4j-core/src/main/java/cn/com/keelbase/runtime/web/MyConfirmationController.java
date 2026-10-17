@@ -2,18 +2,13 @@
 package cn.com.keelbase.runtime.web;
 
 import cn.com.keelbase.protocol.ConfirmationLifecycle;
-import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
 import cn.com.keelbase.runtime.engine.OutOfBandDecision;
-import cn.com.keelbase.runtime.governance.ConfirmationRequest;
 import cn.com.keelbase.runtime.governance.ConfirmationStore;
-import cn.com.keelbase.runtime.governance.ExecutionAxis;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
 import cn.com.keelbase.runtime.identity.Principal;
-import cn.com.keelbase.runtime.tool.AiTool;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -65,7 +60,7 @@ public class MyConfirmationController {
         Instant now = Instant.now();
         long offlineTtlMillis = ConfirmationLifecycle.DEFAULT_OFFLINE_TTL_MILLIS;
         return confirmations.mine(principal.userId(), status, now, offlineTtlMillis).stream()
-                .map(row -> item(row, now, offlineTtlMillis))
+                .map(row -> ConfirmationItemView.item(row, now, offlineTtlMillis, tools))
                 .toList();
     }
 
@@ -81,64 +76,4 @@ public class MyConfirmationController {
         return engine.decideOutOfBand(token, principal, decision);
     }
 
-    /**
-     * One record in the shape the console's own model requires ({@code my-confirmation-item} v2).
-     *
-     * <p>A {@link LinkedHashMap} rather than a typed carrier, for the reason the effect list uses one:
-     * several of these fields are legitimately null and must still be <em>present</em>.
-     *
-     * <p>Fields this runtime has no concept for are present and null — a {@code summary} needs the
-     * presentation layer the reference has and this runtime does not, an {@code impact} preview
-     * likewise, and a {@code run} batch belongs to a mode this runtime never produces. {@code expiresAt}
-     * is the exception: the contract gives it to pending rows and omits it on terminal ones, and it is
-     * not nullable there, so it is left out rather than sent as null.
-     *
-     * <p>{@code mode} is read off the row, though every row this list can hold is {@code immediate}:
-     * the list is the operator's own and an approval row belongs to somebody else's decision, so it is
-     * not collected here at all. Reading it rather than writing the constant keeps the two facts from
-     * drifting — if the list ever widens, the shape follows instead of lying.
-     *
-     * <p>{@code mode} **从行上读**，尽管这份列表能装的每一行都是 {@code immediate}：这份列表是操作者
-     * 自己的，而审批行属于**别人的**决定，根本不在这里收集。**读它而不是写死那个常量**，是为了让这两个
-     * 事实不会各自漂移——列表若有一天变宽，形状会跟着走，而不是撒谎。
-     */
-    private Map<String, Object> item(ConfirmationRequest row, Instant now, long offlineTtlMillis) {
-        Map<String, Object> item = new LinkedHashMap<>();
-        item.put("token", row.getToken());
-        item.put("toolName", row.getToolName());
-        item.put("summary", null);
-        item.put("arguments", parseArgs(row.getArgsJson()));
-        item.put("mode", row.getMode());
-        item.put("riskLevel", row.getRiskLevel());
-        item.put("status", row.getStatus());
-        item.put("impact", null);
-        item.put("revokeClass", revokeClassOf(row));
-        item.put("run", null);
-        item.put("createdAt", row.getCreatedAt().toString());
-        item.put("decidedAt", row.getDecidedAt() == null ? null : row.getDecidedAt().toString());
-        if (ConfirmationLifecycle.PENDING.equals(row.getStatus())) {
-            item.put("expiresAt", row.getCreatedAt().plusMillis(offlineTtlMillis).toString());
-        }
-        item.put("executionState", ExecutionAxis.derive(row, now));
-        item.put("executedAt", row.getExecutedAt() == null ? null : row.getExecutedAt().toString());
-        item.put("executionError", row.getExecutionError());
-        return item;
-    }
-
-    /**
-     * The tool's own revoke class, or null when this deployment no longer declares that tool — the
-     * contract allows either, and guessing on a row whose tool is gone is not an option.
-     */
-    private String revokeClassOf(ConfirmationRequest row) {
-        return tools.all().stream()
-                .filter(tool -> tool.name().equals(row.getToolName()))
-                .map(AiTool::revokeClass)
-                .findFirst()
-                .orElse(null);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> parseArgs(String argsJson) {
-        return (Map<String, Object>) Json.parse(argsJson);
-    }
 }

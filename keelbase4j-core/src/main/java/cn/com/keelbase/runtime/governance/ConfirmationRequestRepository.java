@@ -4,6 +4,8 @@ package cn.com.keelbase.runtime.governance;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -26,6 +28,24 @@ public interface ConfirmationRequestRepository extends JpaRepository<Confirmatio
      * 它的读者无权回答的东西列出来，等于给出一个必然失败的操作。参照把自己的对话外路径也限制在 R3，同一个道理。
      */
     List<ConfirmationRequest> findByOperatorIdAndModeOrderByCreatedAtDesc(String operatorId, String mode);
+
+    /**
+     * Every confirmation record, newest first, paged — the read-only face a deployment may grant an
+     * audit reader (JV-63 B6).
+     *
+     * <p>There was no all-rows query before: the only readers were "my own" and the administrator's
+     * approval entry, which looks rows up by token. A read-only reader needs to see the queue without
+     * being able to move it, so the query is added here and the controller that serves it is guarded
+     * by {@code read} on {@code Confirmation} — approving and executing remain separate entries with
+     * their own guards.
+     *
+     * <p>全部确认记录，最新的在前、分页 —— 部署方可以授予审计读者的只读面（JV-63 B6）。
+     *
+     * <p>此前没有全量查询：仅有的读者是「我自己的」与管理员那条按 token 取行的审批入口。只读读者需要
+     * **看得见队列、却推不动它**，故这里补上查询，而服务它的控制器由 `Confirmation` 上的 `read` 把关 ——
+     * 审批与执行仍是各自带守卫的独立入口。
+     */
+    Page<ConfirmationRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     /**
      * The offline window's arbitration: every still-{@code pending} row whose window has closed
