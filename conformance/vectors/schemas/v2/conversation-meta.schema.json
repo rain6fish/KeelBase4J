@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v2/conversation-meta.schema.json",
+  "title": "AI Conversation Meta (GET /ai/conversations/:id/meta) — v2",
+  "description": "v2 adds one optional field, `title` — the name the user gave the conversation. It stays additive: `required` is unchanged, so a v1-shaped payload is still valid. The deliberate shape of this view is untouched — it still carries no message text, neither `messages` nor `summary` (summary is a content digest; including it would break \"cite first, no full text\"). Reading the body still requires an explicit GET /ai/conversations/:id. Permissions stay the same as conversation-data (admin or owner).\n\nv2 只加一个**可选**字段 `title`（用户给会话起的名字）。仍是加性变更：`required` 不变，故 v1 形态的载荷仍然合法。本视图刻意保持的形状不变——仍**不含任何消息文本**，既无 `messages` 也无 `summary`（summary 是内容摘要，含它即破坏「引用优先、不落全文」）。要看正文仍须显式请求 GET /ai/conversations/:id。权限与 conversation-data 同源（admin 或 owner）。来源：src/ai/conversation/conversation.service.ts getConversationMeta；v1 冻结历史见 schemas/v1/conversation-meta.schema.json。",
+  "type": "object",
+  "required": ["id", "userId", "provider", "model", "messageCount", "createdAt", "lastActivityAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "userId": { "type": "string", "description": "归属用户（审计归因的「谁」；username 由前端沿用审计行的快照列）" },
+    "provider": { "type": "string" },
+    "model": { "type": "string" },
+    "messageCount": { "type": "number", "description": "消息条数（结构信息，不含内容）" },
+    "title": { "type": ["string", "null"], "description": "工作账本：用户命名的会话标题（未设时字段缺席）" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "lastActivityAt": { "type": "string", "format": "date-time", "description": "末条消息时间（时间跨度末端）" }
+  }
+}

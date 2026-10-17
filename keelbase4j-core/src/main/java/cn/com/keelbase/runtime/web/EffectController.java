@@ -158,6 +158,14 @@ public class EffectController {
         // 自己的 agent 会话发出的调用带的是**那条会话的** id。两者都是字符串；trace 端点对第二种答 404，因为它没有
         // 那个 id 的会话。
         m.put("conversationId", e.getConversationId());
+        // Who the write was for. The column has been non-null since it was added; what was missing was
+        // the wire field that lets a console answer "who", which is why the contract now declares it
+        // (optional there, so a v4-shaped payload stays valid — this runtime always sends it).
+        //
+        // 这次写是**为谁**写的。这一列自加进来起就非空；缺的是让控制台答得出「谁」的那个 wire
+        // 字段，故契约现在声明了它（在契约里是**可选**的，好让 v4 形态的载荷继续合法——而本运行时
+        // 总是发它）。
+        m.put("userId", e.getUserId());
         m.put("resultType", e.getResultType());
         m.put("resultId", e.getResultId());
         m.put("argsHash", e.getArgsHash());

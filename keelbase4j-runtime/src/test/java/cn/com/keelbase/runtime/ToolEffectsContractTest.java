@@ -56,7 +56,7 @@ class ToolEffectsContractTest {
      * {@code WireShapeConformanceTest}）。
      */
     private static final List<String> CONSOLE_REQUIRED_FIELDS = List.of(
-            "id", "toolName", "conversationId", "resultType", "resultId",
+            "id", "toolName", "conversationId", "userId", "resultType", "resultId",
             "argsHash", "createdAt", "targetExists", "targetSoftDeleted", "targetTitle");
 
     @Autowired
@@ -95,6 +95,8 @@ class ToolEffectsContractTest {
             assertTrue(first.containsKey(field),
                     "the console's model requires '" + field + "'; got " + first.keySet());
         }
+        assertEquals("alice", first.get("userId"),
+                "the row says who the write was for — the value the column has always held");
         assertEquals("follow_up", first.get("resultType"));
         assertTrue((Boolean) first.get("targetExists"), "the follow-up it created is there");
         assertEquals(false, first.get("targetSoftDeleted"), "and is not soft-deleted");
