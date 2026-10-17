@@ -48,7 +48,15 @@ public class OperationAuditInterceptor implements HandlerInterceptor {
     private static final Set<String> WRITE_METHODS = Set.of("POST", "PATCH", "PUT", "DELETE");
 
     /** Where {@link #preHandle} leaves the caller for {@link #afterCompletion} to pick up. */
-    private static final String OPERATOR = "keelbase.operationAudit.operator";
+    /**
+     * The request attribute the operation row reads its operator from. A handler that authenticates
+     * the caller itself (the generated application's login) publishes the identity here once it has
+     * one, because {@code preHandle} runs before the caller is known.
+     *
+     * 操作行读取操作者的请求属性。自行认证调用方的处理器（生成物的登录）在拿到身份后写在这里 ——
+     * {@code preHandle} 在调用方已知之前就跑过了。
+     */
+    public static final String OPERATOR_ATTRIBUTE = "keelbase.operationAudit.operator";
 
     private final OperationAuditLogRepository logs;
     private final CurrentPrincipal principals;
@@ -60,7 +68,7 @@ public class OperationAuditInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-        request.setAttribute(OPERATOR, operator(request));
+        request.setAttribute(OPERATOR_ATTRIBUTE, operator(request));
         return true;
     }
 
@@ -74,7 +82,7 @@ public class OperationAuditInterceptor implements HandlerInterceptor {
         }
         try {
             logs.save(new OperationAuditLog(
-                    clip((String) request.getAttribute(OPERATOR), 255),
+                    clip((String) request.getAttribute(OPERATOR_ATTRIBUTE), 255),
                     clip(action(method, path), 32),
                     method,
                     clip(path, 512),

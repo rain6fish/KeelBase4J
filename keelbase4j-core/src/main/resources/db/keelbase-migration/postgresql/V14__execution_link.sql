@@ -36,3 +36,7 @@
 -- 因为它回答的问题问的是这两张表，不是控制台。
 ALTER TABLE ai_audit_logs ADD COLUMN execution_id VARCHAR(64);
 ALTER TABLE side_effects ADD COLUMN execution_id VARCHAR(64);
+-- The key exists for in-database joins; without an index each lookup degrades to a full scan.
+-- 这个键就是为了库内 join；不加索引，每次查找都会退化成全表扫描。
+CREATE INDEX idx_ai_audit_logs_execution ON ai_audit_logs (execution_id);
+CREATE INDEX idx_side_effects_execution ON side_effects (execution_id);

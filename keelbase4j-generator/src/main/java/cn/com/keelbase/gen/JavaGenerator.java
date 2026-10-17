@@ -1826,6 +1826,12 @@ public class JavaGenerator {
                                 false, "pending", toolName, conversationId);
                         Map<String, Object> out = status("pending_confirmation");
                         out.put("token", token);
+                        // The stream labels the card from this flag: an approval row cannot be approved
+                        // by its initiator, and calling it `immediate` would invite a click this
+                        // application then refuses.
+                        // 流式卡片按这个标记取模式：审批行不能由发起者批准，标成 `immediate`
+                        // 会邀请一次本应用随后拒绝的点击。
+                        out.put("requiresApproval", needsApprover);
                         return out;
                     }
 
@@ -3296,10 +3302,14 @@ public class JavaGenerator {
                         confirmation.put("token", turn.outcome().get("token"));
                         confirmation.put("toolName", turn.plan().tool());
                         confirmation.put("arguments", turn.plan().args());
-                        // R3 — the operator confirms their own write, which the frozen vocabulary calls
-                        // `immediate`. This application implements neither of the other two, and saying it
-                        // did would put a claim on the wire that nothing backs.
-                        confirmation.put("mode", "immediate");
+                        // The mode the decision actually needs: an approval row cannot be approved by
+                        // its initiator, and labelling it `immediate` would invite a click this
+                        // application then refuses with a 403.
+                        // 这次裁决真正需要的模式：审批行不能由发起者批准，标成 `immediate`
+                        // 会邀请一次随后被 403 拒绝的点击。
+                        confirmation.put("mode",
+                                Boolean.TRUE.equals(turn.outcome().get("requiresApproval"))
+                                        ? "approval" : "immediate");
                         return confirmation;
                     }
 
@@ -3567,6 +3577,7 @@ public class JavaGenerator {
                 import %s.identity.LocalIdentities;
                 import %s.identity.Principal;
                 import cn.com.keelbase.protocol.DelegationToken;
+                import jakarta.servlet.http.HttpServletRequest;
                 import java.nio.charset.StandardCharsets;
                 import java.security.MessageDigest;
                 import java.time.Instant;
@@ -3727,7 +3738,8 @@ public class JavaGenerator {
                      * 用户 id。口令比较<b>无论用户是否存在都会跑</b>，所以答案在出口处也不呈现不同的形状。
                      */
                     @PostMapping("/auth/login")
-                    public Map<String, Object> login(@RequestBody Map<String, String> body) {
+                    public Map<String, Object> login(@RequestBody Map<String, String> body,
+                                                     HttpServletRequest request) {
                         if (demoPassword == null || demoPassword.isBlank()) {
                             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                                     "login is not enabled on this deployment");
@@ -3745,6 +3757,11 @@ public class JavaGenerator {
                             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
                                     "invalid username or password");
                         }
+                        // The operation interceptor's preHandle ran before the caller was known; publish
+                        // the authenticated identity so the LOGIN row can say who signed in.
+                        // 操作拦截器的 preHandle 在调用方已知之前就跑过了；把认证后的身份写下来，
+                        // 好让 LOGIN 行说得清是谁登录的。
+                        request.setAttribute(OperationAuditInterceptor.OPERATOR_ATTRIBUTE, entry.userId());
 
                         Map<String, Object> claims = new LinkedHashMap<>();
                         claims.put("sub", subject);
@@ -5316,7 +5333,8 @@ public class JavaGenerator {
                     private static final Set<String> WRITE_METHODS = Set.of("POST", "PATCH", "PUT", "DELETE");
 
                     /** Where preHandle leaves the caller for afterCompletion to pick up. */
-                    private static final String OPERATOR = "keelbase.operationAudit.operator";
+                    /** The attribute a self-authenticating handler publishes the operator into. */
+                    public static final String OPERATOR_ATTRIBUTE = "keelbase.operationAudit.operator";
 
                     private final OperationAuditLogRepository logs;
                     private final IdentityResolver identities;
@@ -5330,7 +5348,7 @@ public class JavaGenerator {
                     @Override
                     public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
                                              Object handler) {
-                        request.setAttribute(OPERATOR, operator(request));
+                        request.setAttribute(OPERATOR_ATTRIBUTE, operator(request));
                         return true;
                     }
 
@@ -5344,7 +5362,7 @@ public class JavaGenerator {
                         }
                         try {
                             logs.save(new OperationAuditLog(
-                                    clip((String) request.getAttribute(OPERATOR), 255),
+                                    clip((String) request.getAttribute(OPERATOR_ATTRIBUTE), 255),
                                     clip(action(method, path), 32),
                                     method,
                                     clip(path, 512),

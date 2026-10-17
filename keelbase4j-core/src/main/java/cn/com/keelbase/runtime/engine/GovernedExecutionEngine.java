@@ -585,8 +585,12 @@ public class GovernedExecutionEngine {
             //
             // intent 行（D36 ②）：写在工具跑**之前**，好让「谁试过」**永不缺行** —— 即便工具自己那一笔
             // 落了地、而它后面的记账没有。与下面 catch 里那条拒绝行**同形**；它的结局在**它后面那一行**。
+            // Carry the basis on the intent row too: the result row is best-effort, and the intent
+            // row exists so that a later append failure cannot erase the attempt's record.
+            // 授权依据也带上 intent 行：结果行是尽力而为，而 intent 行存在的意义正是让后续写入失败
+            // 也擦不掉这次尝试的记录。
             audit.append("tool_call", principal.userId(), tool.name() + " attempted", false, "attempted",
-                    tool.name(), conversationId, null, executionId);
+                    tool.name(), conversationId, authorization, executionId);
             // A throw from here is **not** evidence that nothing was written: the tool is where the
             // write happens, so it can write and then fail. What the catch does with that is split
             // below — audited either way, released only when the failure proves it.

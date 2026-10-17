@@ -10,6 +10,40 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [0.1.9] - 2026-10-18
+
+**English**
+
+### Fixed
+
+- **A generated application's confirmation card says `approval` when a second person is required.**
+  The pending outcome now carries `requiresApproval`, and the stream derives the mode from it — the
+  initiator no longer sees a self-confirm card that the application then refuses with a 403.
+
+- **The intent row carries the authorization basis.** The result row is best-effort; if its append
+  fails, the basis is no longer lost with it.
+
+- **A successful sign-in is attributed in the operations chain.** The generated login publishes the
+  authenticated identity into the interceptor's attribute, so the `LOGIN` row names the operator
+  instead of nobody.
+
+- **`execution_id` is indexed in all three dialects**, so the in-database joins the key exists for do
+  not degrade into a full scan.
+
+**中文**
+
+### 修复
+
+- **生成物的确认卡在需要第二个人时显示 `approval`。** 待决结果现在带上 `requiresApproval`，流式从它
+  取模式 —— 发起者不再看到一张随后被应用 403 拒绝的「自己确认」卡。
+
+- **intent 行带上授权依据。** 结果行是尽力而为；它写失败时，依据不再随之丢失。
+
+- **成功的登录在操作链里有归属。** 生成物的登录把认证后的身份写进拦截器的属性，`LOGIN` 行因此说得清
+  操作者是谁，而不是空着。
+
+- **`execution_id` 在三种方言里都建了索引**，这个键存在的目的（库内 join）不再退化成全表扫描。
+
 ## [0.1.8] - 2026-10-18
 
 **English**
