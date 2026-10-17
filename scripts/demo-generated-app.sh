@@ -515,7 +515,8 @@ check_absent "and keeps the other owner's rows out of it" '"note":"alice-fu"' "$
 OPS=$(curl -s "$BASE/audit/operations/logs" -H "Authorization: Bearer $CAROL")
 check "the operations chain answers" '"total":' "$OPS"
 check "a business write is on it" '"action":"CREATE","method":"POST","path":"/api/v1/customers"' "$OPS"
-check "and it records who did it" '"userId":"alice"' "$OPS"
+check "and it records who did it" '"username":"alice"' "$OPS"
+check "and a non-numeric identity leaves the numeric id null" '"userId":null' "$OPS"
 check "and how it ended" '"statusCode":200' "$OPS"
 check_absent "the AI turns are not business operations" '"path":"/api/v1/ai/' "$OPS"
 check "the operations chain is closed to a plain user" '403' \

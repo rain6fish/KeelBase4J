@@ -74,17 +74,29 @@ public class OperationAuditInterceptor implements HandlerInterceptor {
         }
         try {
             logs.save(new OperationAuditLog(
-                    (String) request.getAttribute(OPERATOR),
-                    action(method, path),
+                    clip((String) request.getAttribute(OPERATOR), 255),
+                    clip(action(method, path), 32),
                     method,
-                    path,
-                    targetId(request),
+                    clip(path, 512),
+                    clip(targetId(request), 255),
                     response.getStatus(),
-                    request.getRemoteAddr(),
-                    request.getHeader("User-Agent")));
+                    clip(request.getRemoteAddr(), 64),
+                    clip(request.getHeader("User-Agent"), 512)));
         } catch (RuntimeException notAudited) {
             log.warn("operation not audited: {} {}", method, path, notAudited);
         }
+    }
+
+    /**
+     * A client-controlled value must fit its column: an over-long User-Agent would otherwise make the
+     * insert fail, and the catch below would drop the row while the write itself succeeded — an
+     * attacker-controlled way to suppress the audit. Truncation is recorded rather than the row lost.
+     *
+     * 客户端可控的值必须装得进它的列：过长的 User-Agent 会让插入失败，而下面的 catch 会把那一行丢掉、
+     * 而写本身已经成功 —— 那是一条可由攻击者操纵的审计抑制路径。宁可截断，也不丢整行。
+     */
+    private static String clip(String value, int max) {
+        return value == null || value.length() <= max ? value : value.substring(0, max);
     }
 
     private static boolean isOperation(String method, String path) {

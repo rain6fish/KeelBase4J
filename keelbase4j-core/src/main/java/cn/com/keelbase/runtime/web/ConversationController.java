@@ -81,7 +81,19 @@ public class ConversationController {
         Principal caller = principals.current();
         List<Conversation> found = new ArrayList<>();
         for (String id : messages.conversationIdsFor(caller.userId())) {
-            found.add(new Conversation(id, messages.findTop2ByConversationIdOrderByIdAsc(id)));
+            // The preview and the row's last activity both come from the **newest** turns; the
+            // oldest turn supplies the conversation's own start time and owner. Reading the oldest
+            // two made `lastActivityAt` and the list order stale for any conversation past two turns.
+            //
+            // 预览与「最近活动」都取自**最新**的回合；最早的回合提供会话的起始时间与属主。
+            // 原先读最早两条，会让超过两轮的会话的 `lastActivityAt` 与列表顺序停留在旧值上。
+            List<ConversationMessage> recent = messages.findTop2ByConversationIdOrderByIdDesc(id);
+            ConversationMessage first = messages.findFirstByConversationIdOrderByIdAsc(id).orElse(recent.get(recent.size() - 1));
+            List<ConversationMessage> chronological = new ArrayList<>();
+            for (int i = recent.size() - 1; i >= 0; i--) {
+                chronological.add(recent.get(i));
+            }
+            found.add(new Conversation(id, first, chronological));
         }
         // Most recent activity first, the order the console lists them in. Sorted here because this
         // runtime derives conversations from their messages, so there is no row to order by.
@@ -108,7 +120,7 @@ public class ConversationController {
                     "conversation belongs to another user");
         }
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("conversation", new Conversation(id, turns).data());
+        body.put("conversation", new Conversation(id, turns.get(0), turns).data());
         body.put("steps", steps(id, turns));
         return body;
     }
@@ -260,24 +272,24 @@ public class ConversationController {
     private record Timed(Instant time, int order, Map<String, Object> step) {
     }
 
-    /** A conversation and the turns that were looked up for it. */
-    private record Conversation(String id, List<ConversationMessage> turns) {
+    /** A conversation, its first turn, and the messages to emit in chronological order. */
+    private record Conversation(String id, ConversationMessage first, List<ConversationMessage> messages) {
 
         Instant lastActivity() {
-            return turns.get(turns.size() - 1).getCreatedAt();
+            return messages.get(messages.size() - 1).getCreatedAt();
         }
 
         Map<String, Object> data() {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("id", id);
-            data.put("userId", turns.get(0).getUserId());
+            data.put("userId", first.getUserId());
             data.put("provider", DeterministicReplier.PROVIDER);
             data.put("model", DeterministicReplier.MODEL);
             data.put("summary", null);
-            data.put("createdAt", turns.get(0).getCreatedAt());
+            data.put("createdAt", first.getCreatedAt());
             data.put("lastActivityAt", lastActivity());
             List<Map<String, Object>> shown = new ArrayList<>();
-            for (ConversationMessage turn : turns) {
+            for (ConversationMessage turn : messages) {
                 Map<String, Object> message = new LinkedHashMap<>();
                 message.put("role", turn.getRole());
                 message.put("content", turn.getContent());

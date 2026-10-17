@@ -2,7 +2,7 @@
   "registryVersion": "v1",
   "title": "KeelBase wire 对象 Schema v1 Registry（CE-1 wire Schema 版本化）",
   "license": "Apache-2.0",
-  "note": "wire 对象 Schema = 固化当前形状（实证优先，非自动派生——人工策展快照）。语义变更必须先升 v2（新增 schemas/v2/ + 本表对应条目）再改实现（CE-1 L3 / C-1 单源规则），否则 wire-schema.spec.ts 的对象清单断言红。来源行号为抽取时锚，可能随代码漂移——权威以 Server-NestJS/src 为准。v2 条目（decision 词汇统一，CE-1 B3b）：confirm-decision-body / confirmation-decision 升 v2，v1 冻结历史留在 schemas/v1/。v3 条目（级联补偿，docs/cascade-compensation.spec.md）：side-effect-revoke 升 v3（加 compensationGroup/parentEffectId/cascade），v2 冻结历史留在 schemas/v2/。sse-event 升 v2（2026-09-16 §22.17 ④ 影响预览收口）：**事件名枚举不变**，只把嵌套载荷 $ref 从裸名（解析到冻结的 v1 载荷、additionalProperties:false、无 impact / revokeClass）改指各对象当前版——confirmation_request → confirmation-request v3、confirmation_decision → confirmation-decision v2，修「信封与内层对象版本脱节」。v3 条目（国密 SM2 签名，docs/evidence-root.spec.md §11）：evidence-package 升 v3——signature 段由「字符串 HMAC 或 null」扩为 oneOf[null, 字符串(历史包向后兼容), 对象 {hmac, sm2?}]；**加性变更**（旧形态仍合法），canonical 签名对象不变（仍剔除 signature 段自身），故 v1/v2 包可继续离线验证。v2 条目（P2 审批执行态，2026-09-23）：governance-confirmation-item 与 my-confirmation-item 升 v2——加 executionState / executedAt / executionError（决策轴与执行轴分离，status 枚举与冻结语料均不变），使「已批准但未执行」的行可见且可重试（POST /ai/confirmations/:token/retry-execution）。v5 条目（租户升为契约一等维度，决定索引 `D26 ①`）：org-membership-scope 升 v5——加**可选** `tenant`（与 org 并列、**不折进 org**；**不进 required ⇒ v1 形态仍合法**，因为主仓今天没有租户概念，做成必需会当场留下一处没有实现产出的缺口），v1 冻结历史留在 schemas/v1/。v5 条目（JV-65）：side-effect-revoke 升 v5——`item` 与 `traceItem` 加**可选** `userId`（这次写由**谁**发起）；**不进 required ⇒ v4 形态仍合法**（`schemas/v5/samples/side-effect-revoke-item-no-user-id.json` 就是那一条），两个对象仍是 `additionalProperties:false`，故旧消费者不受影响。v4 条目（CONF-4，2026-10-17）：confirmation-request 升 v4——`summary` 两处（顶层与 run.items[] 逐条）由 `string` 改为服务端**一直实际在下发**的 `{key, fallback, params?}` 对象；v1/v2/v3 冻结不动，v3 的 string 样例仍按 v3 校验。sse-event 随之升 v3，只把嵌套 `$ref` 指到 v4（信封与内层版本不得脱节）。registry 新增 `negativeSamples`：列出的负样例必须被 schema **拒绝**，由 verify-full-profile 离线跑反向，故「旧 string 形状会被拒」不再只是句子、而是每次 check 都执行的断言。",
+  "note": "wire 对象 Schema = 固化当前形状（实证优先，非自动派生——人工策展快照）。语义变更必须先升 v2（新增 schemas/v2/ + 本表对应条目）再改实现（CE-1 L3 / C-1 单源规则），否则 wire-schema.spec.ts 的对象清单断言红。来源行号为抽取时锚，可能随代码漂移——权威以 Server-NestJS/src 为准。v2 条目（decision 词汇统一，CE-1 B3b）：confirm-decision-body / confirmation-decision 升 v2，v1 冻结历史留在 schemas/v1/。v3 条目（级联补偿，docs/cascade-compensation.spec.md）：side-effect-revoke 升 v3（加 compensationGroup/parentEffectId/cascade），v2 冻结历史留在 schemas/v2/。sse-event 升 v2（2026-09-16 §22.17 ④ 影响预览收口）：**事件名枚举不变**，只把嵌套载荷 $ref 从裸名（解析到冻结的 v1 载荷、additionalProperties:false、无 impact / revokeClass）改指各对象当前版——confirmation_request → confirmation-request v3、confirmation_decision → confirmation-decision v2，修「信封与内层对象版本脱节」。v3 条目（国密 SM2 签名，docs/evidence-root.spec.md §11）：evidence-package 升 v3——signature 段由「字符串 HMAC 或 null」扩为 oneOf[null, 字符串(历史包向后兼容), 对象 {hmac, sm2?}]；**加性变更**（旧形态仍合法），canonical 签名对象不变（仍剔除 signature 段自身），故 v1/v2 包可继续离线验证。v2 条目（P2 审批执行态，2026-09-23）：governance-confirmation-item 与 my-confirmation-item 升 v2——加 executionState / executedAt / executionError（决策轴与执行轴分离，status 枚举与冻结语料均不变），使「已批准但未执行」的行可见且可重试（POST /ai/confirmations/:token/retry-execution）。v5 条目（租户升为契约一等维度，决定索引 `D26 ①`）：org-membership-scope 升 v5——加**可选** `tenant`（与 org 并列、**不折进 org**；**不进 required ⇒ v1 形态仍合法**，因为主仓今天没有租户概念，做成必需会当场留下一处没有实现产出的缺口），v1 冻结历史留在 schemas/v1/。v5 条目（JV-65）：side-effect-revoke 升 v5——`item` 与 `traceItem` 加**可选** `userId`（这次写由**谁**发起）；**不进 required ⇒ v4 形态仍合法**（`schemas/v5/samples/side-effect-revoke-item-no-user-id.json` 就是那一条），两个对象仍是 `additionalProperties:false`，故按 v4 schema 校验的消费者会拒掉带 `userId` 的 v5 载荷 —— 消费方须跟上版本。v4 条目（CONF-4，2026-10-17）：confirmation-request 升 v4——`summary` 两处（顶层与 run.items[] 逐条）由 `string` 改为服务端**一直实际在下发**的 `{key, fallback, params?}` 对象；v1/v2/v3 冻结不动，v3 的 string 样例仍按 v3 校验。sse-event 随之升 v3：嵌套 `$ref` 指到 v4（信封与内层版本不得脱节），并把 `tool_start` / `tool_end` 的 `summary` 由字符串改为呈现文案对象（`tool_start` 可为 null）—— 运行时一直发对象，旧声明会拒掉它。registry 新增 `negativeSamples`：列出的负样例必须被 schema **拒绝**，每条必须写成 `{path, validUnder}` 并注明它必须在旧 schema 下合法；runner 先核 `validUnder`、再核拒绝，故拒绝不会因无关漂移而假绿，而「旧 string 形状会被拒」也不再只是句子、而是每次 check 都执行的断言。",
   "schemasDir": "schemas/",
   "supportSchemas": [
     "risk-level-ref.schema.json",
@@ -34,11 +34,14 @@
       "id": "sse-event",
       "version": "v3",
       "schema": "sse-event-v3.schema.json",
-      "title": "AI Chat SSE 帧（v3：事件名枚举不变，嵌套载荷 $ref 跟到当前版——confirmation-request→v4 / confirmation-decision→v2）",
+      "title": "AI Chat SSE 帧（v3：事件名枚举不变，嵌套载荷 $ref 跟到当前版——confirmation-request→v4 / confirmation-decision→v2；tool_start/tool_end 的 summary 改为呈现文案对象，tool_start 可为 null）",
       "source": "src/ai/interfaces/llm-provider.interface.ts; src/ai/ai.controller.ts",
       "samples": [
         "schemas/v3/samples/sse-event.json",
-        "schemas/v3/samples/sse-event-single.json"
+        "schemas/v3/samples/sse-event-single.json",
+        "schemas/v3/samples/sse-event-tool-start.json",
+        "schemas/v3/samples/sse-event-tool-start-null-summary.json",
+        "schemas/v3/samples/sse-event-tool-end.json"
       ]
     },
     {
@@ -52,8 +55,14 @@
         "schemas/v4/samples/confirmation-request-run.json"
       ],
       "negativeSamples": [
-        "schemas/v4/samples/confirmation-request-invalid-string-summary.json",
-        "schemas/v4/samples/confirmation-request-run-invalid-string-summary.json"
+        {
+          "path": "schemas/v3/samples/confirmation-request.json",
+          "validUnder": "confirmation-request-v3.schema.json"
+        },
+        {
+          "path": "schemas/v3/samples/confirmation-request-run.json",
+          "validUnder": "confirmation-request-v3.schema.json"
+        }
       ]
     },
     {

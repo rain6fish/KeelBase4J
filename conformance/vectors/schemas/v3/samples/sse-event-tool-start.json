@@ -1,0 +1,36 @@
+{
+  "type": "tool_start",
+  "toolStart": {
+    "name": "create_followup_task",
+    "summary": {
+      "key": "ai.present.write.createFollowupTask",
+      "fallback": "Creating a follow-up task",
+      "params": {
+        "title": "Call the customer back"
+      }
+    },
+    "arguments": {
+      "title": "Call the customer back"
+    },
+    "isWrite": true,
+    "riskLevel": "R3",
+    "authorization": {
+      "tool": "create_followup_task",
+      "riskLevel": "R3",
+      "riskStrategy": "confirmation",
+      "requiresConfirmation": true,
+      "checks": [
+        {
+          "name": "tool_enabled",
+          "ok": true,
+          "note": "治理策略已启用"
+        },
+        {
+          "name": "risk_policy",
+          "ok": true,
+          "note": "风险级 R3（confirmation）→ 需人工确认"
+        }
+      ]
+    }
+  }
+}

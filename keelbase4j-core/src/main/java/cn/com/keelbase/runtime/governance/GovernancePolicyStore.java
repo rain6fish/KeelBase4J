@@ -106,7 +106,14 @@ public class GovernancePolicyStore {
                 .orElseGet(() -> new GovernancePolicyRow(json));
         row.setPolicyJson(json);
         policies.save(row);
-        history.save(new GovernancePolicyHistoryRow(revision(json), json));
+        String revision = revision(json);
+        // The revision is content, so an unchanged policy must not append another snapshot.
+        boolean alreadyRecorded = history.findFirstByOrderByIdDesc()
+                .map(snapshot -> revision.equals(snapshot.getRevision()))
+                .orElse(false);
+        if (!alreadyRecorded) {
+            history.save(new GovernancePolicyHistoryRow(revision, json));
+        }
         return view(json, row.getUpdatedAt());
     }
 

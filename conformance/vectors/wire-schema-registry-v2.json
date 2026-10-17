@@ -34,11 +34,14 @@
       "id": "sse-event",
       "version": "v3",
       "schema": "sse-event.schema.json",
-      "title": "AI Chat SSE 帧（v3：事件名枚举不变，嵌套载荷 $ref 跟到当前版——confirmation-request→v4 / confirmation-decision→v2）",
+      "title": "AI Chat SSE 帧（v3：事件名枚举不变，嵌套载荷 $ref 跟到当前版——confirmation-request→v4 / confirmation-decision→v2；tool_start/tool_end 的 summary 改为呈现文案对象，tool_start 可为 null）",
       "source": "src/ai/interfaces/llm-provider.interface.ts; src/ai/ai.controller.ts",
       "samples": [
         "schemas/v3/samples/sse-event.json",
-        "schemas/v3/samples/sse-event-single.json"
+        "schemas/v3/samples/sse-event-single.json",
+        "schemas/v3/samples/sse-event-tool-start.json",
+        "schemas/v3/samples/sse-event-tool-start-null-summary.json",
+        "schemas/v3/samples/sse-event-tool-end.json"
       ]
     },
     {
@@ -52,8 +55,14 @@
         "schemas/v4/samples/confirmation-request-run.json"
       ],
       "negativeSamples": [
-        "schemas/v4/samples/confirmation-request-invalid-string-summary.json",
-        "schemas/v4/samples/confirmation-request-run-invalid-string-summary.json"
+        {
+          "path": "schemas/v3/samples/confirmation-request.json",
+          "validUnder": "confirmation-request-v3.schema.json"
+        },
+        {
+          "path": "schemas/v3/samples/confirmation-request-run.json",
+          "validUnder": "confirmation-request-v3.schema.json"
+        }
       ]
     },
     {

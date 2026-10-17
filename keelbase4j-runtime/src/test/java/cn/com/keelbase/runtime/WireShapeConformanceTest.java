@@ -4,6 +4,7 @@ package cn.com.keelbase.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.protocol.Json;
@@ -384,8 +385,10 @@ class WireShapeConformanceTest {
                 .findFirst().orElseThrow(() -> new AssertionError("the probe's write is not in the log: " + items));
         assertEquals("CREATE", created.get("action"), "a POST creates: " + created);
         assertEquals("POST", created.get("method"), "and the row says how it arrived: " + created);
-        assertEquals("alice", created.get("userId"),
-                "and who did it — read before the security context is gone: " + created);
+        assertNull(created.get("userId"),
+                "the frozen row types `userId` as number|null, and this identity is not numeric: " + created);
+        assertEquals("alice", created.get("username"),
+                "and who did it — read before the security context is gone, carried in `username`: " + created);
         assertEquals(200, ((Number) created.get("statusCode")).intValue(),
                 "and how it ended, since the row is written after the answer: " + created);
 

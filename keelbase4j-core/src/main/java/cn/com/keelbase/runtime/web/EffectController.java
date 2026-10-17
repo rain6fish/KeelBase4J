@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.web;
 
+import cn.com.keelbase.protocol.PermissionCapabilityList;
 import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
 import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.domain.FollowUp;
@@ -104,9 +105,16 @@ public class EffectController {
         // 管理员看整本账；审计读者也看整本账 —— 那个身份的每一条授予都只有 `read`，且在该 subject 上被授予了
         // `read`（JV-63 B5）。**投影就是管理员今天看到的那一份**：不为读者新增任何字段，而字段白名单本身
         // （`userId` / `beforeSnapshot` 对只读读者是否该更窄）**仍待裁**，故本次改动既不扩大也不缩小暴露面。
+        // The grant must cover **all** rows, not merely allow the action: a tier-B rule may declare
+        // `read` with an owner field, and treating that as global would return every caller's rows.
+        // 授予必须覆盖**全部行**，而不只是允许该动作：档 B 规则可以带 owner 字段声明 `read`，
+        // 把它当作全局读就会返回所有人的行。
+        PermissionCapabilityList.Resource effectRead =
+                authorizer.capabilityFor(principal, GovernanceReadSubjects.TOOL_EFFECT);
         boolean globalRead = principal.isManager()
-                || authorizer.decide(principal, PermissionAuthorizer.ACTION_READ,
-                        GovernanceReadSubjects.TOOL_EFFECT).allowed();
+                || (effectRead != null
+                    && PermissionCapabilityList.SCOPE_ALL.equals(effectRead.scope())
+                    && effectRead.actions().contains(PermissionAuthorizer.ACTION_READ));
 
         Page<SideEffect> found;
         if (!globalRead) {

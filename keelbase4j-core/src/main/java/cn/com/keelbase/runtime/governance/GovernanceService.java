@@ -98,6 +98,27 @@ public class GovernanceService {
      * 角色白名单 —— 读轨迹的人分得出「是策略禁用了它」与「是风险级」。治理策略的 revision 亦随之携带，因为一次
      * 决定是在**某一份策略之下**做出的，读的人应当说得清是哪一份。
      */
+    /**
+     * The published pre-0.1.8 signature, kept so existing callers still compile.
+     *
+     * <p>The answer depends on the caller's role, so this overload answers conservatively as an
+     * ordinary user: a tool restricted to another role is reported as not allowed rather than
+     * guessed. Callers that know the caller should use {@link #reasons(AiTool, Principal)}.
+     *
+     * @deprecated use {@link #reasons(AiTool, Principal)} with the actual caller.
+     *
+     * 0.1.8 之前的已发布签名，保留以便既有调用方仍然编译得过。
+     *
+     * <p>结论取决于调用方角色，故本重载按普通用户保守作答：限定给其它角色的工具会报「不允许」，
+     * 而不是靠猜。知道调用方是谁的调用方应使用 {@link #reasons(AiTool, Principal)}。
+     *
+     * @deprecated 请改用带真实调用方的 {@link #reasons(AiTool, Principal)}。
+     */
+    @Deprecated
+    public AuthorizationReasons reasons(AiTool tool) {
+        return reasons(tool, new Principal("unknown", Principal.ROLE_USER));
+    }
+
     public AuthorizationReasons reasons(AiTool tool, Principal principal) {
         String strategy = RiskLevel.strategy(tool.riskLevel());
         GovernanceBinding.GateOutcome outcome = GovernanceBinding.gate(strategy);

@@ -1,0 +1,12 @@
+{
+  "type": "tool_start",
+  "toolStart": {
+    "name": "list_events",
+    "summary": null,
+    "arguments": {
+      "limit": 10
+    },
+    "isWrite": false,
+    "riskLevel": "R1"
+  }
+}

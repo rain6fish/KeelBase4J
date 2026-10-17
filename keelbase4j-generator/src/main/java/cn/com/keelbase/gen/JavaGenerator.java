@@ -977,6 +977,7 @@ public class JavaGenerator {
                 package %s.conversation;
 
                 import java.util.List;
+                import java.util.Optional;
                 import org.springframework.data.jpa.repository.JpaRepository;
                 import org.springframework.data.jpa.repository.Query;
                 import org.springframework.data.repository.query.Param;
@@ -1000,8 +1001,11 @@ public class JavaGenerator {
                     @Query("select distinct m.conversationId from ConversationMessage m where m.userId = :userId")
                     List<String> conversationIdsFor(@Param("userId") String userId);
 
-                    /** A conversation's opening turns, oldest first — the preview a list shows. */
-                    List<ConversationMessage> findTop2ByConversationIdOrderByIdAsc(String conversationId);
+                    /** The oldest row, where the conversation's owner and start time are recorded. */
+                    Optional<ConversationMessage> findFirstByConversationIdOrderByIdAsc(String conversationId);
+
+                    /** The two most recent turns, newest first — the preview and the row's last activity. */
+                    List<ConversationMessage> findTop2ByConversationIdOrderByIdDesc(String conversationId);
                 }
                 """.formatted(pkg);
     }
@@ -1289,16 +1293,16 @@ public class JavaGenerator {
                      * 会话时为 null。
                      */
                     public record Pending(String token, String toolName, String argsJson, String userId,
-                                          String riskLevel, String conversationId) {
+                                          String riskLevel, String conversationId, boolean requiresApproval) {
                     }
 
                     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
 
                     public String create(String userId, String toolName, Map<String, Object> args,
-                                         String riskLevel, String conversationId) {
+                                         String riskLevel, String conversationId, boolean requiresApproval) {
                         String token = UUID.randomUUID().toString();
                         pending.put(token, new Pending(token, toolName, CanonicalJson.json(args), userId,
-                                riskLevel, conversationId));
+                                riskLevel, conversationId, requiresApproval));
                         return token;
                     }
 
@@ -1309,12 +1313,22 @@ public class JavaGenerator {
                      * approvals arrive. Reading the token, acting, and removing it afterwards would let
                      * both callers past the check and run the tool twice.
                      */
-                    public Pending claim(String token, String userId) {
+                    public Pending claim(String token, String userId, boolean approving) {
                         Pending p = pending.get(token);
                         if (p == null) {
                             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown confirmation token");
                         }
-                        if (!p.userId().equals(userId)) {
+                        if (p.requiresApproval()) {
+                            // A high-impact action needs a second person: its initiator cannot approve
+                            // it. Declining stays open to anyone holding the token, as in the runtime.
+                            //
+                            // 高影响动作需要**第二个人**：发起者不能批准它。否决仍对持有 token 的任何
+                            // 人开放，与运行时一致。
+                            if (approving && p.userId().equals(userId)) {
+                                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                        "a high-impact action needs a second person: its initiator cannot approve it");
+                            }
+                        } else if (!p.userId().equals(userId)) {
                             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                                     "confirmation belongs to another operator");
                         }
@@ -1798,8 +1812,16 @@ public class JavaGenerator {
                         if ("ALLOW".equals(decision)) {
                             return run(tool, args, userId, conversationId);
                         }
+                        // REQUIRE_APPROVAL is a *second person*, not a self-confirmation: the mode is
+                        // carried onto the pending row so the claim can enforce it. Collapsing both
+                        // non-allow decisions into one self-approval would turn the declared R4 path
+                        // into a no-op.
+                        //
+                        // REQUIRE_APPROVAL 要的是**第二个人**，不是自己确认：模式随待决行一起带上，
+                        // 由认领那一步施加。把两个非放行结果并成一次自批准，会把声明的 R4 路径变成空转。
+                        boolean needsApprover = "REQUIRE_APPROVAL".equals(decision);
                         String token = confirmations.create(userId, toolName, args, tool.riskLevel(),
-                                conversationId);
+                                conversationId, needsApprover);
                         audit.append("tool_call", userId, toolName + " pending confirmation",
                                 false, "pending", toolName, conversationId);
                         Map<String, Object> out = status("pending_confirmation");
@@ -1819,7 +1841,7 @@ public class JavaGenerator {
                      * 一起走**，因为批准是一个自己的请求、否则无从知道。
                      */
                     public Map<String, Object> approve(String token, String userId) {
-                        ConfirmationStore.Pending pending = confirmations.claim(token, userId);
+                        ConfirmationStore.Pending pending = confirmations.claim(token, userId, true);
                         AiTool tool = registry.require(pending.toolName());
                         audit.append("tool_confirmation", userId, tool.name() + " approved",
                                 false, "approved", tool.name(), pending.conversationId());
@@ -1834,7 +1856,7 @@ public class JavaGenerator {
 
                     /** Decline — the token is consumed and nothing is written. */
                     public Map<String, Object> decline(String token, String userId) {
-                        ConfirmationStore.Pending pending = confirmations.claim(token, userId);
+                        ConfirmationStore.Pending pending = confirmations.claim(token, userId, false);
                         // A decline is the caller not getting what they asked for, so it is an error row —
                         // and the one that says a human said no, which is what an operator comes looking for.
                         //
@@ -4852,7 +4874,20 @@ public class JavaGenerator {
                                 identities.resolve(IdentityEvidence.ofHeaders(authorization, userId, role, oidcSubject));
                         List<Conversation> found = new ArrayList<>();
                         for (String id : messages.conversationIdsFor(caller.userId())) {
-                            found.add(new Conversation(id, messages.findTop2ByConversationIdOrderByIdAsc(id)));
+                            // The newest turns drive the preview and last activity; the oldest supplies
+                            // the conversation's start time and owner. Reading the oldest two made both
+                            // stale for any conversation past two turns.
+                            //
+                            // 最新回合驱动预览与「最近活动」；最早的回合提供起始时间与属主。
+                            // 原先读最早两条，会让超过两轮的会话两者都停在旧值上。
+                            List<ConversationMessage> recent = messages.findTop2ByConversationIdOrderByIdDesc(id);
+                            ConversationMessage first = messages.findFirstByConversationIdOrderByIdAsc(id)
+                                    .orElse(recent.get(recent.size() - 1));
+                            List<ConversationMessage> chronological = new ArrayList<>();
+                            for (int i = recent.size() - 1; i >= 0; i--) {
+                                chronological.add(recent.get(i));
+                            }
+                            found.add(new Conversation(id, first, chronological));
                         }
                         // Most recent activity first, the order the console lists them in. Sorted here
                         // because a conversation is derived from its messages, so there is no row to
@@ -4886,7 +4921,7 @@ public class JavaGenerator {
                                     "conversation belongs to another user");
                         }
                         Map<String, Object> body = new LinkedHashMap<>();
-                        body.put("conversation", new Conversation(id, turns).data());
+                        body.put("conversation", new Conversation(id, turns.get(0), turns).data());
                         body.put("steps", steps(id, turns));
                         return body;
                     }
@@ -5011,24 +5046,24 @@ public class JavaGenerator {
                     private record Timed(Instant time, int order, Map<String, Object> step) {
                     }
 
-                    /** A conversation and the turns that were looked up for it. */
-                    private record Conversation(String id, List<ConversationMessage> turns) {
+                    /** A conversation, its first turn, and the messages to emit in chronological order. */
+                    private record Conversation(String id, ConversationMessage first, List<ConversationMessage> messages) {
 
                         Instant lastActivity() {
-                            return turns.get(turns.size() - 1).getCreatedAt();
+                            return messages.get(messages.size() - 1).getCreatedAt();
                         }
 
                         Map<String, Object> data() {
                             Map<String, Object> data = new LinkedHashMap<>();
                             data.put("id", id);
-                            data.put("userId", turns.get(0).getUserId());
+                            data.put("userId", first.getUserId());
                             data.put("provider", DeterministicReplier.PROVIDER);
                             data.put("model", DeterministicReplier.MODEL);
                             data.put("summary", null);
-                            data.put("createdAt", turns.get(0).getCreatedAt());
+                            data.put("createdAt", first.getCreatedAt());
                             data.put("lastActivityAt", lastActivity());
                             List<Map<String, Object>> shown = new ArrayList<>();
-                            for (ConversationMessage turn : turns) {
+                            for (ConversationMessage turn : messages) {
                                 Map<String, Object> message = new LinkedHashMap<>();
                                 message.put("role", turn.getRole());
                                 message.put("content", turn.getContent());
@@ -5309,17 +5344,22 @@ public class JavaGenerator {
                         }
                         try {
                             logs.save(new OperationAuditLog(
-                                    (String) request.getAttribute(OPERATOR),
-                                    action(method, path),
+                                    clip((String) request.getAttribute(OPERATOR), 255),
+                                    clip(action(method, path), 32),
                                     method,
-                                    path,
-                                    targetId(request),
+                                    clip(path, 512),
+                                    clip(targetId(request), 255),
                                     response.getStatus(),
-                                    request.getRemoteAddr(),
-                                    request.getHeader("User-Agent")));
+                                    clip(request.getRemoteAddr(), 64),
+                                    clip(request.getHeader("User-Agent"), 512)));
                         } catch (RuntimeException notAudited) {
                             log.warn("operation not audited: {} {}", method, path, notAudited);
                         }
+                    }
+
+                    /** Truncate a client-controlled value to its column so the row is never dropped. */
+                    private static String clip(String value, int max) {
+                        return value == null || value.length() <= max ? value : value.substring(0, max);
                     }
 
                     private static boolean isOperation(String method, String path) {
@@ -5514,7 +5554,13 @@ public class JavaGenerator {
                     private static Map<String, Object> view(OperationAuditLog log) {
                         Map<String, Object> row = new LinkedHashMap<>();
                         row.put("id", log.getId());
-                        row.put("userId", log.getUserId());
+                        // The frozen row types `userId` as number|null and carries the identity string
+                        // in `username`; a numeric subject becomes a number, any other becomes null.
+                        //
+                        // 冻结行把 `userId` 定型为 number|null、身份字符串放在 `username` 里；
+                        // 数字形式的 subject 发成 number，其它身份发 null。
+                        row.put("userId", numericId(log.getUserId()));
+                        row.put("username", log.getUserId());
                         row.put("action", log.getAction());
                         row.put("method", log.getMethod());
                         row.put("path", log.getPath());
@@ -5524,6 +5570,18 @@ public class JavaGenerator {
                         row.put("statusCode", log.getStatusCode());
                         row.put("createdAt", log.getCreatedAt());
                         return row;
+                    }
+
+                    /** The numeric form of an identity, or null when it is not numeric. */
+                    private static Long numericId(String identity) {
+                        if (identity == null || !identity.matches("-?\\\\d{1,18}")) {
+                            return null;
+                        }
+                        try {
+                            return Long.parseLong(identity);
+                        } catch (NumberFormatException notNumeric) {
+                            return null;
+                        }
                     }
                 }
                 """.formatted(pkg, pkg, pkg, pkg, pkg, pkg);

@@ -10,7 +10,7 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
-## [Unreleased]
+## [0.1.8] - 2026-10-18
 
 **English**
 
@@ -27,9 +27,9 @@ Each version is written in two blocks — English first, then Chinese — marked
   state into its own tables is the change a deployment that leans on it should make.
 
 - **The governance policy answers on the wire, and what it says is enforced.** The frozen
-  `governance-policy` object is now served at `GET` / `PUT /api/v1/ai/governance/policy`, administrators
-  only: the per-tool overrides and the audit granularity, plus the object's own `updatedAt` and
-  `revision`. Writing it changes what happens next rather than only what a console shows — a disabled
+  `governance-policy` object is now served at `GET` / `PUT /api/v1/ai/governance/policy` — writable by
+  administrators, readable by administrators or an audit reader: the per-tool overrides and the audit
+  granularity, plus the object's own `updatedAt` and `revision`. Writing it changes what happens next rather than only what a console shows — a disabled
   tool and a role allowlist refuse at the gate the engine runs every call through, a gate mode moves it,
   and the granularity governs the AI audit chain — because a policy that is stored and ignored is the
   failure the surface exists to avoid. The store refuses a submission it cannot apply (a tool this
@@ -96,13 +96,69 @@ Each version is written in two blocks — English first, then Chinese — marked
   list and the gate cannot disagree, and `revision` is the frozen object's first-twelve-hex content
   fingerprint taken over ordered content.
 
+- **An execution id links the three rows one attempt leaves.** Every attempt mints one `execution_id`
+  and writes it on the intent row, the result row and the side-effect row; `V14` adds the nullable
+  column to `ai_audit_logs` and `side_effects` in all three dialects, beside the hash chain rather
+  than inside it, so existing chains still verify. The id names an attempt, not a conversation or an
+  effect: the idempotent-reuse branch writes its own intent row and deliberately adds no effect row,
+  because nothing was written there.
+
+- **A side-effect row says who it was for.** `EffectController.view()` now carries `userId`, the
+  caller the write was made for. The column has been non-null since it was added; only the wire field
+  was missing. The vendored snapshot moves to `side-effect-revoke` v5, which declares the field
+  optional, so v4-shaped payloads stay valid while this runtime always sends it.
+
+- **The governance read faces answer to the capability seam.** The four governance read endpoints call
+  `OwnershipGuard.requireAction` with per-surface subjects instead of inlining `isManager()`, and the
+  policy write keeps its write action. The side-effect list gains a global read-only branch that reuses
+  the manager's exact projection, and a read-only confirmation queue (`GET /ai/confirmations`) is added
+  on the same seam. Administrators still see everything, ordinary callers are still refused, and an
+  audit reader is granted reads only, so it cannot approve or execute by construction.
+
+- **The chat request's structured slot is generic, and the old name still binds.** `customerId` becomes
+  `targetId`; the old name is kept as a JSON alias and behind a deprecated accessor, because callers
+  outside this repository still post it. The context key the routes read follows the new name.
+
+- **The trail keeps what a write changed and what allowed it.** `side_effects` gains `before_snapshot`,
+  and `ai_audit_logs` gains the authorization basis — the frozen reasons a call was allowed or refused
+  — carried on the row rather than only inside a sentence. Neither field needs a contract change; both
+  are already declared.
+
+- **The tool inventory answers the frozen object, and its governance half is asked rather than
+  restated.** `GET /ai/tools` answers `ai-tool-inventory` for every registered tool, administrators
+  only; `gateMode` and its two derived flags come from the same `GovernanceService.decide` call the
+  engine makes, so a tool cannot be described one way and gated another.
+
+### Fixed
+
+- **A high-impact action in a generated application needs a second person.** The generated engine
+  treated `REQUIRE_APPROVAL` like an ordinary confirmation, so an R4 tool or a policy
+  `mode: "approval"` could be approved by its own initiator — a declared control turned into one
+  click. The pending row now carries the mode, and the claim refuses self-approval while leaving
+  decline open to whoever holds the token, as the runtime does.
+
+- **An own-scoped read on the side-effect ledger no longer widens to everyone's rows.** The list
+  treated any `read` grant as global; a tier-B rule with an owner field now stays narrowed to the
+  caller's own rows. The global branch requires the capability's scope to be `all`.
+
+- **An over-long `User-Agent` can no longer suppress an operations-audit row.** Client-controlled
+  values are truncated to their column widths before the insert, so the row is recorded rather than
+  lost when the value would have overflowed.
+
+- **An unchanged policy no longer appends a duplicate history snapshot.** The store compares the
+  content revision with the latest snapshot before saving.
+
+- **The operations-audit row's `userId` matches the frozen object.** `userId` is `number|null` there,
+  so a numeric identity is emitted as a number and any other identity as null, with the string carried
+  in `username` instead of dropped. The generated application emits the same shape.
+
 **中文**
 
 ### 新增
 
 - **生成物现在自带运维清单，并说清它的状态有哪一半活不过一次重启。** 生成器发出的 `README` 多了一节 `## Operations` —— 什么留得下（业务表与 `flyway_schema_history`）、什么留不下（**审计链**、待裁决的确认、以及副作用记录 —— **撤销就记在那里** —— **都在内存**）、怎么把它指向 PostgreSQL、哪些密钥的出厂值是 spike 值、对**持久那一半**做 `pg_dump`，以及「升级就是一条加性迁移、`ddl-auto=validate` 在不一致时让启动失败」。**活不过重启的那一半被声明为「刻意 demo 级」**，而不是留给读者当成疏漏：它是**刻意的简化**，而把这份状态搬进它自己的表，才是**真的依赖它的部署**该做的改动。
 
-- **治理策略在线缆上答得出来，而它说的东西是被施加的。** 冻结的 `governance-policy` 对象现在服务在 `GET` / `PUT /api/v1/ai/governance/policy`、**仅管理员**：逐工具的覆盖与审计粒度，外加对象自带的 `updatedAt` 与 `revision`。写下它改变的是**接下来会发生什么**、不只是控制台显示什么 —— 被禁用的工具与角色白名单在引擎每次调用都要过的**那道闸**上拒绝、门控档位把闸移动、粒度管的是 AI 审计链 —— 因为**被存下却被忽略**的策略正是这条面生来要避免的失败。存储**拒绝**它施加不了的提交（本部署没有注册的工具、冻结三值之外的 `mode`、本部署词表之外的角色、未识别的键），回 `400` 并给出理由，且是**整份**拒绝、不是逐字段半应用。`revision` 是冻结对象写明的**前十二位十六进制内容指纹**，故同一份策略提交两次指纹相同。工具清单的 `enabled` 与 `allowedRoles` 现在读自同一份策略，故清单与那道闸不可能各执一词。
+- **治理策略在线缆上答得出来，而它说的东西是被施加的。** 冻结的 `governance-policy` 对象现在服务在 `GET` / `PUT /api/v1/ai/governance/policy` —— **写由管理员、读由管理员或审计读者**：逐工具的覆盖与审计粒度，外加对象自带的 `updatedAt` 与 `revision`。写下它改变的是**接下来会发生什么**、不只是控制台显示什么 —— 被禁用的工具与角色白名单在引擎每次调用都要过的**那道闸**上拒绝、门控档位把闸移动、粒度管的是 AI 审计链 —— 因为**被存下却被忽略**的策略正是这条面生来要避免的失败。存储**拒绝**它施加不了的提交（本部署没有注册的工具、冻结三值之外的 `mode`、本部署词表之外的角色、未识别的键），回 `400` 并给出理由，且是**整份**拒绝、不是逐字段半应用。`revision` 是冻结对象写明的**前十二位十六进制内容指纹**，故同一份策略提交两次指纹相同。工具清单的 `enabled` 与 `allowedRoles` 现在读自同一份策略，故清单与那道闸不可能各执一词。
 
 - **生成物的工具名录也答冻结的 `ai-tool-inventory` 了。** 生成器发出的 `GET /ai/tools` 原本答的是手搓的 `{name, riskLevel}`；现在按冻结对象**逐字段**作答，与运行时服务的是**同一个形状** —— 故读运行时的控制台**原样**读生成物。它的治理那一半向**生成物引擎自己用的那道闸**问来、从不复述：写工具列成闸会确认的那个（它的 `R3` 推出 `riskStrategy: "confirmation"`）、读工具列成自己就跑的那个。撤销会是什么，从**它写什么**读出 —— 写下一行的工具靠**本地**撤销、什么都不写的**没有可撤的** —— 而本应用**哪里都没声明**的两个维度（`parameters`、`permissions`）答**空**与 `null`、不是编一个。生成物的 `AiTool` 补上了它缺的 `description()`，因为对象要求这一项。
 
@@ -113,6 +169,23 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **生成物的决策轨迹也答得出它的治理那一半了。** 生成物发出的 `GET /ai/conversations` 列出调用方自己的会话，`GET /ai/conversations/{id}/trace` 答 `{conversation, steps}` —— 回合，加上那些回合产出的治理事件，按**事情发生的先后**并成一条时间线。会话 id 记在**引擎写下的每一行旁边**：审计行上、把提议从「提议时刻」带到「裁决时刻」的待决记录上、以及批准产出的副作用上 —— 故一个**在自己的请求里**到达的批准，仍点得出提议它的那条会话。**没有会话**时写下的行（一次任务运行）带 null、也不出现在任何追踪里 —— 而「没有会话」本来就该如此。副作用清单的 `conversationId` 不再是写死的 null，生成物 README 也不再那么说。
 
 - **生成物也服务治理策略了，而且施加它。** 生成物发出的 `GET` / `PUT /ai/governance/policy` 按冻结的 `governance-policy` 作答 —— 仅管理员 —— 给出逐工具的覆盖与审计粒度，外加对象自带的 `updatedAt` 与 `revision`，而一次 GET 的结果也是一份合法的 PUT 体。它说的东西在**引擎每次调用都要过的那道闸**上被施加：被禁用的工具与角色白名单拒绝、显式的门控档位移动那道闸、粒度管的是 AI 审计链（`off` 一行不写）。存储**拒绝**它施加不了的提交 —— 未注册的工具、冻结三值之外的 `mode`、本应用词表之外的角色、未识别的键 —— 回 `400` 并给出理由，且是**整份**拒绝、不是逐字段半应用。名录的 `enabled` 与 `allowedRoles` 读自**同一份**策略，故清单与那道闸不可能各执一词；`revision` 是冻结对象写明的**前十二位十六进制内容指纹**，取自**有序内容**。
+
+### 修复
+
+- **生成物里的高影响动作需要第二个人。** 生成物引擎原先把 `REQUIRE_APPROVAL` 当成普通确认，于是 R4 工具或策略
+  `mode: "approval"` 可由其发起者自己批准 —— 一项声明的控制被降成一次点击。待决行现在带上模式，认领时拒绝自批准，
+  而否决仍对持有 token 的任何人开放，与运行时一致。
+
+- **副作用账本上的 own 范围读不再扩大到所有人的行。** 列表原先把任何 `read` 授予都当作全局；带 owner 字段的
+  档 B 规则现在仍收窄到调用方自己的行。全局分支要求能力的范围是 `all`。
+
+- **过长的 `User-Agent` 不再能抑制一条操作审计行。** 客户端可控的值在插入前先截到列宽，故行会被记下，而不是在
+  值溢出时丢掉。
+
+- **未变更的策略不再追加重复的历史快照。** 存储先比对内容 revision 与最新快照，再决定是否写入。
+
+- **操作审计行的 `userId` 与冻结对象一致。** 那里 `userId` 是 `number|null`，故数字形式的身份发成 number、
+  其它身份发 null，并把字符串保留在 `username` 里而不是丢掉。生成物发出同一形状。
 
 ## [0.1.7] - 2026-10-12
 

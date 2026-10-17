@@ -79,7 +79,14 @@ public class OperationAuditController {
     private static Map<String, Object> view(OperationAuditLog log) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", log.getId());
-        row.put("userId", log.getUserId());
+        // The frozen row types `userId` as number|null and carries the identity string in `username`.
+        // This runtime's identities are strings, so a numeric subject is emitted as a number and any
+        // other identity as null, with the string preserved in `username` rather than dropped.
+        //
+        // 冻结行把 `userId` 定型为 number|null、身份字符串放在 `username`。本运行时的身份是字符串，
+        // 故数字形式的 subject 发成 number、其它身份发 null，并把字符串保留在 `username` 里、不丢弃。
+        row.put("userId", numericId(log.getUserId()));
+        row.put("username", log.getUserId());
         row.put("action", log.getAction());
         row.put("method", log.getMethod());
         row.put("path", log.getPath());
@@ -89,5 +96,17 @@ public class OperationAuditController {
         row.put("statusCode", log.getStatusCode());
         row.put("createdAt", log.getCreatedAt());
         return row;
+    }
+
+    /** The numeric form of an identity, or null when this deployment's identity is not numeric. */
+    private static Long numericId(String identity) {
+        if (identity == null || !identity.matches("-?\\d{1,18}")) {
+            return null;
+        }
+        try {
+            return Long.parseLong(identity);
+        } catch (NumberFormatException notNumeric) {
+            return null;
+        }
     }
 }

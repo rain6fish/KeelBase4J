@@ -1,0 +1,11 @@
+{
+  "type": "tool_end",
+  "toolEnd": {
+    "name": "create_followup_task",
+    "success": true,
+    "summary": {
+      "key": "ai.present.write.createFollowupTask.done",
+      "fallback": "Follow-up task created"
+    }
+  }
+}

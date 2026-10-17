@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "$id": "sse-event-v3.schema.json",
   "title": "AI Chat SSE Event (POST /ai/chat/stream) — v3",
-  "description": "SSE streaming frame: `event: <type>`; `data` is the whole chunk object (top-level `type` plus the nested payload). v3 keeps the event-name enum unchanged and moves only the nested payload reference that the v4 confirmation object changed: `confirmation_request.confirmation` → `confirmation-request-v4` (whose `summary`, at top level and per run item, is now the `{key, fallback, params?}` object instead of a string). The `confirmation_decision` reference stays at `v2/confirmation-decision`; the `tool_start` / `tool_end` branches are unchanged from v2. This is the same repair v2 made: an envelope that pins an older payload version rejects the payload the runtime actually sends. `$id` stays bare (no `v3/` prefix) because this schema uses the same cross-file relative refs as v1/v2 (`risk-level-ref` / `authorization`); a slashed `$id` would resolve them into a directory that does not exist. Source: src/ai/interfaces/llm-provider.interface.ts, src/ai/ai.controller.ts. Frozen v1/v2 history: schemas/v1/sse-event.schema.json, schemas/v2/sse-event.schema.json.\n\nSSE 流式帧：event: <type>；data 为整个 chunk 对象（含 type 顶层 + 嵌套载荷）。v3 事件名枚举不变，只跟随 v4 确认对象改掉那一处嵌套载荷引用：`confirmation_request.confirmation` → `confirmation-request-v4`（其 `summary` 在顶层与 run 逐条中都已由字符串变为 `{key, fallback, params?}` 对象）。`confirmation_decision` 仍指 `v2/confirmation-decision`；`tool_start` / `tool_end` 分支相对 v2 未动。这与 v2 修的是同一件事：信封钉住旧版载荷，就会拒掉运行时真正发出的载荷。`$id` 仍用裸名（不带 `v3/` 前缀），因为本 schema 沿用 v1/v2 的跨文件相对引用（`risk-level-ref` / `authorization`）；带斜杠的 `$id` 会把它们解析到不存在的目录下。来源：src/ai/interfaces/llm-provider.interface.ts、src/ai/ai.controller.ts。v1/v2 冻结历史见 schemas/v1/sse-event.schema.json、schemas/v2/sse-event.schema.json。",
+  "description": "SSE streaming frame: `event: <type>`; `data` is the whole chunk object (top-level `type` plus the nested payload). v3 keeps the event-name enum unchanged and moves only the nested payload reference that the v4 confirmation object changed: `confirmation_request.confirmation` → `confirmation-request-v4` (whose `summary`, at top level and per run item, is now the `{key, fallback, params?}` object instead of a string). The `confirmation_decision` reference stays at `v2/confirmation-decision`. The `tool_start` / `tool_end` branches now declare `summary` as the same presentation-text object (nullable on `tool_start`) instead of a string — the runtime has always sent the object, and a v2-shaped declaration rejects what it actually sends. This is the same repair v2 made: an envelope that pins an older payload version rejects the payload the runtime actually sends. `$id` stays bare (no `v3/` prefix) because this schema uses the same cross-file relative refs as v1/v2 (`risk-level-ref` / `authorization`); a slashed `$id` would resolve them into a directory that does not exist. Source: src/ai/interfaces/llm-provider.interface.ts, src/ai/ai.controller.ts. Frozen v1/v2 history: schemas/v1/sse-event.schema.json, schemas/v2/sse-event.schema.json.\n\nSSE 流式帧：event: <type>；data 为整个 chunk 对象（含 type 顶层 + 嵌套载荷）。v3 事件名枚举不变，只跟随 v4 确认对象改掉那一处嵌套载荷引用：`confirmation_request.confirmation` → `confirmation-request-v4`（其 `summary` 在顶层与 run 逐条中都已由字符串变为 `{key, fallback, params?}` 对象）。`confirmation_decision` 仍指 `v2/confirmation-decision`；`tool_start` / `tool_end` 两处的 `summary` 由字符串改为同一个呈现文案对象（`tool_start` 可为 null）—— 运行时一直发的是对象，按 v2 的声明会把它拒掉。这与 v2 修的是同一件事：信封钉住旧版载荷，就会拒掉运行时真正发出的载荷。`$id` 仍用裸名（不带 `v3/` 前缀），因为本 schema 沿用 v1/v2 的跨文件相对引用（`risk-level-ref` / `authorization`）；带斜杠的 `$id` 会把它们解析到不存在的目录下。来源：src/ai/interfaces/llm-provider.interface.ts、src/ai/ai.controller.ts。v1/v2 冻结历史见 schemas/v1/sse-event.schema.json、schemas/v2/sse-event.schema.json。",
   "oneOf": [
     {
       "type": "object",
@@ -77,7 +77,12 @@
           "additionalProperties": true,
           "properties": {
             "name": { "type": "string" },
-            "summary": { "type": "string" },
+            "summary": {
+              "anyOf": [
+                { "$ref": "confirmation-request-v4.schema.json#/definitions/presentationText" },
+                { "type": "null" }
+              ]
+            },
             "arguments": { "type": "object" },
             "isWrite": { "type": "boolean" },
             "riskLevel": { "$ref": "risk-level-ref.schema.json" },
@@ -99,7 +104,7 @@
           "properties": {
             "name": { "type": "string" },
             "success": { "type": "boolean" },
-            "summary": { "type": "string" },
+            "summary": { "$ref": "confirmation-request-v4.schema.json#/definitions/presentationText" },
             "error": { "type": "string" },
             "authorizationDenied": {
               "type": "object",

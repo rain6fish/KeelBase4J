@@ -153,8 +153,18 @@ public final class WireSchemas {
      * 失败**：这个检查唯一不能有的结果，就是一个什么都不说的绿。
      */
     private static Map<String, Object> schemaNamed(String reference) {
-        Map<String, Object> named = BY_ID.get(reference);
-        return named != null ? named : Vectors.map(Vectors.read("schemas/v1/" + reference));
+        // A cross-file ref may carry a fragment (`file.json#/definitions/x`): resolve the document by
+        // the part before `#`, then follow the pointer inside it. Treating the whole reference as an
+        // id asks for a file named `….json#/definitions/x`, which no tree contains.
+        // 跨文件引用可能带片段（`file.json#/definitions/x`）：先按 `#` 之前的部分解析文档，再在文档内
+        // 跟随指针。把整条引用当作 id，会去找一个叫 `….json#/definitions/x` 的文件，而任何树里都没有它。
+        int hash = reference.indexOf('#');
+        String documentName = hash >= 0 ? reference.substring(0, hash) : reference;
+        Map<String, Object> named = BY_ID.get(documentName);
+        if (named == null) {
+            named = Vectors.map(Vectors.read("schemas/v1/" + documentName));
+        }
+        return hash >= 0 ? resolveWithin(named, reference.substring(hash)) : named;
     }
 
     /** Walks {@code schemas/} once and keys every schema by its own {@code $id}. */

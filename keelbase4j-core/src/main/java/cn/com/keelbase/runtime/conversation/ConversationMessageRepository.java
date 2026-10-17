@@ -35,8 +35,8 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
     @Query("select distinct m.conversationId from ConversationMessage m where m.userId = :userId")
     List<String> conversationIdsFor(@Param("userId") String userId);
 
-    /** A conversation's opening turns, oldest first — the preview a list shows. */
-    List<ConversationMessage> findTop2ByConversationIdOrderByIdAsc(String conversationId);
+    /** The two most recent turns, newest first — the preview a list shows and the row's last activity. */
+    List<ConversationMessage> findTop2ByConversationIdOrderByIdDesc(String conversationId);
 
     /** A conversation's turns, oldest first — uncapped, because a trace is of the whole of it. */
     List<ConversationMessage> findByConversationIdOrderByIdAsc(String conversationId);
