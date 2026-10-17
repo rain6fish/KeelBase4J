@@ -11,6 +11,15 @@ public interface SideEffectRepository extends JpaRepository<SideEffect, Long> {
 
     Optional<SideEffect> findByIdempotencyKey(String idempotencyKey);
 
+    /**
+     * The effect one execution wrote — the third row of the same attempt. Empty for an execution that
+     * produced no effect (a read) or reused one (the row belongs to the execution that wrote it).
+     *
+     * 一次执行写下的 effect —— 同一次尝试的第三行。没有产出 effect 的执行（读）或复用了一个执行（那一行属于
+     * 写下它的那次执行）为空。
+     */
+    List<SideEffect> findByExecutionIdOrderByIdAsc(String executionId);
+
     /** The effects a conversation's calls produced, oldest first — a trace's effect steps. */
     List<SideEffect> findByConversationIdOrderByIdAsc(String conversationId);
 

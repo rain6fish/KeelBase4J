@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -527,7 +528,20 @@ public class GovernedExecutionEngine {
      * <p>Nothing here can roll the line back: no transaction surrounds the engine call, so the audit
      * service's own transaction commits on its own.
      *
+     * <p><b>Every attempt gets one execution id, and the three rows it leaves carry it.</b> The intent
+     * row, the result row and the side-effect row of one execution share the value, so a reader pairs
+     * them without guessing from the conversation, the tool name and the timestamps — which cannot
+     * separate two executions in one conversation, two calls to the same tool, or a call with no
+     * conversation at all. The id names the <em>attempt</em>: two identical calls get two ids, and the
+     * reuse branch below writes its own intent row under its own id (see that method for why it adds
+     * no effect row).
+     *
      * 执行一个被允许的工具，并审计它——**包括它拒绝的时候**。
+     *
+     * <p><b>每一次尝试有一个执行 id，它留下的三行都带着它。</b>同一次执行的 intent 行、结果行与副作用行共享
+     * 这个值，于是读的人不必从会话、工具名与时间戳去猜 —— 那三样分不开同一条会话里的两次执行、同一个工具的两
+     * 次调用、或一次根本没有会话的调用。这个 id 指**这次尝试**：两次相同的调用拿到两个 id，而下面的复用分支
+     * 用**它自己的 id** 写下它自己的 intent 行（它为什么不新增 effect 行，见那个方法）。
      *
      * <p><b>一次尝试有自己的一行，写在工具跑之前。</b>「谁试过」于是**不**取决于结果行——那一行写在工具
      * 的写**之后**、且是 best-effort：一次落了地的宿主写、加上一步没落地的记账，本来会让这次尝试**无人
@@ -549,10 +563,18 @@ public class GovernedExecutionEngine {
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal,
                                  String conversationId, String authorization) {
         String argsJson = CanonicalJson.json(args);
+        // One id per attempt, minted before anything is written: the intent row needs it first, and
+        // every later row of this execution reads it off here. It is deliberately not derived from the
+        // call's content — two identical calls are two attempts, and each must be separable.
+        //
+        // 每次尝试一个 id，在任何行写下之前生成：intent 行最先要它，而这次执行后面的每一行都从这里取。
+        // 它刻意**不**从调用的内容推导 —— 两次相同的调用就是两次尝试，必须能分开。
+        String executionId = UUID.randomUUID().toString();
         ToolResult result;
         boolean claimed = false;
         try {
-            ExecutionOutcome reused = reuseIfAlreadyExecuted(tool, args, principal, conversationId);
+            ExecutionOutcome reused =
+                    reuseIfAlreadyExecuted(tool, args, principal, conversationId, executionId);
             if (reused != null) {
                 return reused;
             }
@@ -564,7 +586,7 @@ public class GovernedExecutionEngine {
             // intent 行（D36 ②）：写在工具跑**之前**，好让「谁试过」**永不缺行** —— 即便工具自己那一笔
             // 落了地、而它后面的记账没有。与下面 catch 里那条拒绝行**同形**；它的结局在**它后面那一行**。
             audit.append("tool_call", principal.userId(), tool.name() + " attempted", false, "attempted",
-                    tool.name(), conversationId);
+                    tool.name(), conversationId, null, executionId);
             // A throw from here is **not** evidence that nothing was written: the tool is where the
             // write happens, so it can write and then fail. What the catch does with that is split
             // below — audited either way, released only when the failure proves it.
@@ -588,7 +610,7 @@ public class GovernedExecutionEngine {
             }
             audit.append("tool_call", principal.userId(),
                     tool.name() + " refused: " + refused.getMessage(), true, "refused", tool.name(),
-                    conversationId);
+                    conversationId, null, executionId);
             throw refused;
         }
         Long effectId = null;
@@ -618,7 +640,7 @@ public class GovernedExecutionEngine {
                         tool.name() + " -> fail: the tool declared result type '" + tool.resultType()
                                 + "' but returned no result id, so the effect cannot be recorded — the"
                                 + " contract requires one and the ledger will not store null",
-                        true, "failed", tool.name(), conversationId);
+                        true, "failed", tool.name(), conversationId, null, executionId);
                 return new ExecutionOutcome("error", null, null, null,
                         "no result id: the tool returned no id, so the effect could not be recorded");
             }
@@ -630,7 +652,8 @@ public class GovernedExecutionEngine {
             // 再往后读到的就是这一行后来变成的样子了。冻结的 `traceItem` 把它读作 `afterSnapshot`。
             SideEffect effect = sideEffects.record(principal, tool.name(), tool.resultType(), resultId,
                     argsJson, tool.revokeClass(), result.beforeSnapshot(),
-                    result.data() == null ? null : CanonicalJson.json(result.data()), conversationId);
+                    result.data() == null ? null : CanonicalJson.json(result.data()), conversationId,
+                    executionId);
             effectId = effect.getId();
         }
         if (claimed) {
@@ -639,7 +662,8 @@ public class GovernedExecutionEngine {
         audit.append("tool_call", principal.userId(),
                 tool.name() + " -> " + (result.success() ? "ok" : "fail: " + result.error()),
                 !result.success(),
-                result.success() ? "executed" : "failed", tool.name(), conversationId, authorization);
+                result.success() ? "executed" : "failed", tool.name(), conversationId, authorization,
+                executionId);
         return result.success()
                 ? ExecutionOutcome.executed(result.data(), effectId)
                 : new ExecutionOutcome("error", null, null, null, result.error());
@@ -712,6 +736,16 @@ public class GovernedExecutionEngine {
      * The reference arbitrates that with a write claim taken before execution; this runtime has no such
      * row, so the concurrent case remains open and is recorded as such rather than claimed.
      *
+     * <p><b>The reuse branch is an execution too, so it writes an intent row.</b> It used to write only
+     * the result, which made "a successful execution leaves an intent row and a result row" false on
+     * this path and left the attempt recorded only after the fact. Both rows now carry the attempt's
+     * own {@code executionId}. <b>No effect row is added, and that is not an omission:</b> nothing was
+     * written on this path — the ledger row belongs to the earlier execution that produced it, and it
+     * keeps that execution's id. Stamping the old row with this attempt's id would relabel a write that
+     * already happened, and inserting a second row would fork the ledger for a call that ran nothing.
+     * So this attempt's id selects its intent and result rows, and the effect it points at answers by
+     * its own id — which is exactly the shape of the two executions involved.
+     *
      * <p><b>⚠ Corrected 2026-10-12:</b> that last sentence went stale the same day it was written —
      * {@code ffc5a0e} ("a write is claimed before it runs") landed the row this paragraph says is
      * absent ({@code WriteClaimService}, {@code write_claims}), and {@link #claimForExecution} is what
@@ -721,9 +755,17 @@ public class GovernedExecutionEngine {
      * <p><b>⚠ 2026-10-12 更正：</b>最后那句**写下当天就陈旧了**——`ffc5a0e`（「写在执行前被领取」）落地了本段
      * 说「没有」的那张表（`WriteClaimService`、`write_claims`），而 {@link #claimForExecution} 正是取它的地方。
      * 并发那一档**是被仲裁的**；输掉领取的一方拿到的是 409、不是第二次写。原段**保留**，好让这条更正有东西可指。
+     *
+     * <p><b>复用分支也是一次执行，故它也写 intent 行。</b>它过去只写结果行，于是「一次成功的执行留下 intent 行
+     * 与结果行」在这条路上不成立，这次尝试只在事后被记下。两行现在都带这次尝试**自己的** `executionId`。
+     * <b>不新增 effect 行，这不是遗漏：</b>这条路上什么都没写 —— 账本那一行属于此前**产出**它的那次执行，
+     * 并保留那次执行的 id。把旧行盖上这次尝试的 id，等于给一次**已经发生**的写重新贴标签；而插第二行，等于
+     * 为一次**什么都没跑**的调用分裂账本。于是这次尝试的 id 选出它的 intent 与结果行，它指向的 effect 用自己的
+     * id 作答 —— 这正是所涉两次执行各自的形状。
      */
     private ExecutionOutcome reuseIfAlreadyExecuted(AiTool tool, Map<String, Object> args,
-                                                   Principal principal, String conversationId) {
+                                                   Principal principal, String conversationId,
+                                                   String executionId) {
         SideEffect existing = sideEffects
                 .existingFor(principal, tool.name(), CanonicalJson.json(args))
                 .orElse(null);
@@ -735,9 +777,15 @@ public class GovernedExecutionEngine {
                     "this call was revoked (effect " + existing.getId() + ") and its key stays occupied"
                             + " — change the arguments to make it again");
         }
+        // The intent row comes first here exactly as it does on the executing path: every execution
+        // that writes a result writes an attempt before it, and this branch used to be the exception.
+        //
+        // intent 行在这里与在执行路径上一样先写：每一次写下结果的执行，都先写下尝试；这条分支过去正是那个例外。
+        audit.append("tool_call", principal.userId(), tool.name() + " attempted", false, "attempted",
+                tool.name(), conversationId, null, executionId);
         audit.append("tool_call", principal.userId(),
                 tool.name() + " -> ok (effect " + existing.getId() + " reused: the same call)",
-                false, "executed", tool.name(), conversationId);
+                false, "executed", tool.name(), conversationId, null, executionId);
         return ExecutionOutcome.executed(
                 existing.getResultId() == null ? null : Map.of("id", existing.getResultId()),
                 existing.getId());

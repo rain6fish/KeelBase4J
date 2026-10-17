@@ -183,6 +183,31 @@ public class SideEffectService {
     public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
                              String argsJson, String revokeClass, String beforeSnapshot,
                              String afterSnapshot, String conversationId) {
+        return record(principal, toolName, resultType, resultId, argsJson, revokeClass,
+                beforeSnapshot, afterSnapshot, conversationId, null);
+    }
+
+    /**
+     * The same, plus the execution that wrote this effect — the key that pairs the row with that
+     * attempt's intent and result rows.
+     *
+     * <p>An overload, for the reason the shorter one above it is an overload: this class lives in a
+     * published artifact. When the content-derived lookup finds an existing row, the row is returned
+     * as it stands — <b>its execution id is not overwritten</b>. The id belongs to the execution that
+     * actually wrote the effect; the attempt now asking is a reuse, and its own id lives on its own
+     * audit rows. Rewriting it here would relabel a write that already happened, on a path that wrote
+     * nothing.
+     *
+     * 同上，另加写下这个 effect 的**执行** —— 正是它把本行与那次尝试的 intent 行、结果行配到一起。
+     *
+     * <p>做成**重载**，理由与上面那个短重载相同：这个类住在一个**已发布**的 artifact 里。内容推导的查找若找到
+     * 既有行，就**原样**返回 —— **不覆盖它的执行 id**。id 属于**真正写下**这个 effect 的那次执行；此刻来问的
+     * 是一次**复用**，它自己的 id 记在它自己的审计行上。在这里改写它，等于在一条什么都没写的路径上，给一次
+     * **已经发生**的写重新贴标签。
+     */
+    public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
+                             String argsJson, String revokeClass, String beforeSnapshot,
+                             String afterSnapshot, String conversationId, String executionId) {
         String key = idempotencyKey(principal.userId(), toolName, argsJson);
         Optional<SideEffect> existing = repository.findByIdempotencyKey(key);
         if (existing.isPresent()) {
@@ -191,7 +216,7 @@ public class SideEffectService {
         try {
             return repository.saveAndFlush(new SideEffect(
                     key, principal.userId(), toolName, resultType, resultId, revokeClass,
-                    argsHash(argsJson), beforeSnapshot, afterSnapshot, conversationId));
+                    argsHash(argsJson), beforeSnapshot, afterSnapshot, conversationId, executionId));
         } catch (DataIntegrityViolationException race) {
             // A concurrent call with the same key won. The effect exists, so this call is a skip, not
             // a failure — return the winner's row. If the re-read finds nothing the violation was

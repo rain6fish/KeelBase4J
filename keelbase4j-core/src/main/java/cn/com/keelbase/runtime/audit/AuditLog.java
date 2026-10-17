@@ -84,6 +84,27 @@ public class AuditLog {
     private String conversationId;
 
     /**
+     * The execution this row belongs to, or null when no execution produced it — a block, a pending
+     * decision, an approval or a decline. The intent row, the result row and the side-effect row of
+     * one execution share this value, which is what pairs them without guessing from the conversation,
+     * the tool name and the timestamps (see {@code V14__execution_link}). Not part of the hashed
+     * payload, so adding it beside the chain leaves every existing chain verifiable.
+     *
+     * <p>The id names an <em>attempt</em>: making the same call twice yields two ids, and an attempt
+     * that reuses an effect it already produced still gets its own — the effect row keeps the id of
+     * the execution that actually wrote it.
+     *
+     * 本行所属的**执行**；没有执行产出它时为 null —— 拦截、待决、批准、否决都是这样。同一次执行的 intent 行、
+     * 结果行与副作用行共享这个值，正是它把三行配上、而不必从会话、工具名与时间戳去猜（见
+     * `V14__execution_link`）。不进哈希载荷，故把它加在链**旁边**不破坏任何既有链。
+     *
+     * <p>这个 id 指的是一次**尝试**：同一次调用做两遍会拿到两个 id；即使一次尝试复用了它此前产出的 effect，
+     * 它自己也仍有一个 —— effect 行保留**真正写下它**的那次执行的 id。
+     */
+    @Column(name = "execution_id", length = 64)
+    private String executionId;
+
+    /**
      * What allowed or refused this row, as the frozen {@code ai-audit-log-row} declares it — a snapshot
      * of the checks that passed for a call the gate allowed, or the reasons a refused one was refused.
      * Null for a declined confirmation: nothing was denied there, and a row that looked refused would be
@@ -144,6 +165,21 @@ public class AuditLog {
     public AuditLog(String action, String userId, String detail, String prevHash, String hash,
                     boolean error, String outcome, String tool, String conversationId,
                     String authorization) {
+        this(action, userId, detail, prevHash, hash, error, outcome, tool, conversationId,
+                authorization, null);
+    }
+
+    /**
+     * The same, plus the execution this row belongs to — the key that pairs it with the other rows of
+     * one attempt. An overload for the reason the shorter calls are: a published artifact carries
+     * their signatures, and a signature that gains a parameter breaks a caller with none to pass.
+     *
+     * 同上，另加本行所属的**执行** —— 把同一次尝试的几行配到一起的那个键。做成重载，理由与那些更短的调用相同：
+     * **已发布**的 artifact 带着它们的签名，而签名多一个参数会让手上没有这个值的调用方编译不过。
+     */
+    public AuditLog(String action, String userId, String detail, String prevHash, String hash,
+                    boolean error, String outcome, String tool, String conversationId,
+                    String authorization, String executionId) {
         this.action = action;
         this.userId = userId;
         this.detail = detail;
@@ -154,6 +190,7 @@ public class AuditLog {
         this.tool = tool;
         this.conversationId = conversationId;
         this.authorization = authorization;
+        this.executionId = executionId;
     }
 
     public Long getId() {
@@ -194,6 +231,10 @@ public class AuditLog {
 
     public String getConversationId() {
         return conversationId;
+    }
+
+    public String getExecutionId() {
+        return executionId;
     }
 
     public String getAuthorization() {

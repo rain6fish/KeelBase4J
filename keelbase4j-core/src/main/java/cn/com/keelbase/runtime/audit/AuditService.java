@@ -133,6 +133,30 @@ public class AuditService {
     @Transactional
     public AuditLog append(String action, String userId, String detail, boolean isError,
                            String outcome, String tool, String conversationId, String authorization) {
+        return append(action, userId, detail, isError, outcome, tool, conversationId, authorization,
+                null);
+    }
+
+    /**
+     * The same, plus the execution this row belongs to — the key that pairs the intent, result and
+     * side-effect rows of one attempt.
+     *
+     * <p>An overload for the reason the shorter calls are: a published artifact carries their
+     * signatures, and a signature that gains a parameter breaks a caller with none to pass. A row
+     * written through the shorter call carries null — a block, a pending decision, an approval or a
+     * decline is not part of an execution, and a row written before the column existed has no id to
+     * carry. The link is stored beside the chain, not inside it (see {@code V14__execution_link}).
+     *
+     * 同上，另加本行所属的**执行** —— 正是它把同一次尝试的 intent、结果与副作用三行配到一起。
+     *
+     * <p>做成**重载**，理由与那些更短的调用相同：**已发布**的 artifact 带着它们的签名，而签名多一个参数会让
+     * 手上没有这个值的调用方编译不过。走短签名的行带 null —— 拦截、待决、批准、否决都不属于任何一次执行，
+     * 而在本列存在之前写下的行没有 id 可带。这条链**存在链旁边、不在链里面**（见 `V14__execution_link`）。
+     */
+    @Transactional
+    public AuditLog append(String action, String userId, String detail, boolean isError,
+                           String outcome, String tool, String conversationId, String authorization,
+                           String executionId) {
         // The governance policy's audit granularity is applied here, on the one path every row travels:
         // `off` writes nothing at all, which is the one value that changes the chain. `write` and `all`
         // come to the same set here because this runtime records only tool-scoped rows — it has no
@@ -161,7 +185,7 @@ public class AuditService {
         payload.put("detail", detail);
         String hash = AuditChain.hash(chainKey, prevHash, payload);
         return repository.save(new AuditLog(action, userId, detail, prevHash, hash, isError, outcome,
-                tool, conversationId, authorization));
+                tool, conversationId, authorization, executionId));
     }
 
     /** Walk the chain and recompute every hash. */

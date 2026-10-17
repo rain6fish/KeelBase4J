@@ -110,6 +110,24 @@ public class SideEffect {
     @Column(name = "conversation_id", length = 64)
     private String conversationId;
 
+    /**
+     * The execution that wrote this effect — the same value the intent and result rows of that
+     * attempt carry, which is what lets the three rows be paired without guessing (see
+     * {@code V14__execution_link}). Null for an effect recorded before the column existed.
+     *
+     * <p>An attempt that reuses this effect does <b>not</b> take the row over: the id stays with the
+     * execution that actually wrote it, because that is the execution whose write this row records.
+     * The reusing attempt gets its own id on its own audit rows.
+     *
+     * 写下这个 effect 的**执行** —— 与那次尝试的 intent 行、结果行携带的是同一个值，正是它让三行不必靠猜
+     * 就能配上（见 `V14__execution_link`）。在本列存在之前记下的 effect 为 null。
+     *
+     * <p>复用这个 effect 的那次尝试**不**接管本行：id 留在**真正写下它**的那次执行上，因为本行记录的就是
+     * 那次执行的写。复用者拿自己的 id 记在它自己的审计行上。
+     */
+    @Column(name = "execution_id", length = 64)
+    private String executionId;
+
     protected SideEffect() {
     }
 
@@ -149,6 +167,22 @@ public class SideEffect {
     public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
                       Long resultId, String revokeClass, String argsHash, String beforeSnapshot,
                       String afterSnapshot, String conversationId) {
+        this(idempotencyKey, userId, toolName, resultType, resultId, revokeClass, argsHash,
+                beforeSnapshot, afterSnapshot, conversationId, null);
+    }
+
+    /**
+     * The same, plus the execution that wrote this effect — the key that pairs it with that attempt's
+     * intent and result rows. An overload for the reason the shorter calls are: this class lives in a
+     * published artifact, and a signature that gains a parameter breaks a caller with none to pass.
+     *
+     * 同上，另加写下这个 effect 的**执行** —— 正是它把本行与那次尝试的 intent 行、结果行配到一起。做成重载，
+     * 理由与那些更短的调用相同：这个类住在一个**已发布**的 artifact 里，而签名多一个参数会让手上没有这个值的
+     * 调用方编译不过。
+     */
+    public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
+                      Long resultId, String revokeClass, String argsHash, String beforeSnapshot,
+                      String afterSnapshot, String conversationId, String executionId) {
         this.idempotencyKey = idempotencyKey;
         this.userId = userId;
         this.toolName = toolName;
@@ -159,6 +193,7 @@ public class SideEffect {
         this.beforeSnapshot = beforeSnapshot;
         this.afterSnapshot = afterSnapshot;
         this.conversationId = conversationId;
+        this.executionId = executionId;
     }
 
     public Long getId() {
@@ -203,6 +238,10 @@ public class SideEffect {
 
     public String getConversationId() {
         return conversationId;
+    }
+
+    public String getExecutionId() {
+        return executionId;
     }
 
     public Instant getCreatedAt() {

@@ -1,0 +1,38 @@
+-- One execution, three rows: the attempt, its result, and the effect it produced.
+--
+-- A call leaves an intent row before the tool runs and a result row after it, and a write leaves a
+-- side-effect row in the ledger. Nothing tied those three together: a reader had the conversation, the
+-- tool's name and the timestamps, so two executions of the same tool in one conversation — or one
+-- after the other, or a call with no conversation at all — could only be told apart by guessing.
+-- `execution_id` is that link. It is minted per **attempt**, not per conversation and not per effect:
+-- the same call made twice gets two ids, and a call that reuses an effect it already produced still
+-- gets its own (the effect row keeps the id of the execution that actually wrote it).
+--
+-- One column on each table, so the intent / result / effect rows of one execution share a value.
+-- Nullable and additive: rows written before this column existed, and the governance rows that are
+-- not part of an execution (a block, a pending decision, an approval or a decline), carry null —
+-- which is honest, since no execution produced them. Beside the chain, not inside it: the hashed
+-- payload is still `{action, userId, detail}`, so adding the column leaves every existing chain
+-- verifiable (the reason V6, V7, V11 and V13 give for the columns they added).
+--
+-- The key is stored for joining inside the database only. It is **not** on the frozen wire — no
+-- `ai-audit-log-row` v6 and no new `trace-step` — because the question it answers is asked of the
+-- two tables, not of a console.
+--
+-- 一次执行，三行：尝试、它的结果、以及它产出的副作用。
+--
+-- 一次调用会在工具跑之前留下 intent 行、跑之后留下结果行，一次写会在账本里留下副作用行。此前没有任何东西
+-- 把这三行串起来：读的人只有会话、工具名与时间戳，于是同一条会话里同一个工具的两次执行 —— 或接连两次执行、
+-- 或一次根本没有会话的调用 —— 只能靠猜来分辨。`execution_id` 就是那条链。它按**每次尝试**生成，不按会话、
+-- 也不按 effect：同一次调用做两遍会拿到两个 id；即使一次调用复用了它此前产出的 effect，它自己也仍有一个
+-- （effect 行保留**真正写下它**的那次执行的 id）。
+--
+-- 每张表各一列，于是同一次执行的 intent / 结果 / 副作用三行共享一个值。可空、加性：本列存在之前写下的行，
+-- 以及不属于任何执行的那些治理行（拦截、待决、批准、否决）都为 null —— 那是诚实的，因为并没有一次执行产出它们。
+-- 存在链**旁边**、不在链**里面**：哈希载荷仍是 `{action, userId, detail}`，故加一列不破坏任何既有链
+--（V6、V7、V11、V13 为它们加的那些列给的就是这个理由）。
+--
+-- 这个键只存在库里、供库内 join 使用。它**不**上冻结线缆 —— 不升 `ai-audit-log-row` v6、也不新增 `trace-step` 版本 ——
+-- 因为它回答的问题问的是这两张表，不是控制台。
+ALTER TABLE ai_audit_logs ADD COLUMN execution_id VARCHAR(64);
+ALTER TABLE side_effects ADD COLUMN execution_id VARCHAR(64);

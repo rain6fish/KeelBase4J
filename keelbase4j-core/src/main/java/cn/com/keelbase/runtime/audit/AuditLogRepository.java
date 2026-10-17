@@ -29,4 +29,12 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long>,
      * 先后发出。
      */
     List<AuditLog> findByConversationIdOrderByIdAsc(String conversationId);
+
+    /**
+     * The rows of one execution, oldest first — the intent row and the result row of a single
+     * attempt, paired by a key that no other execution shares.
+     *
+     * 一次执行的那些行，最早的在前 —— 单次尝试的 intent 行与结果行，用一条没有别的执行会共享的键配对。
+     */
+    List<AuditLog> findByExecutionIdOrderByIdAsc(String executionId);
 }
