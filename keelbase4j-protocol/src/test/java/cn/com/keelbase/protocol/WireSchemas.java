@@ -2,9 +2,11 @@
 package cn.com.keelbase.protocol;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -20,13 +22,14 @@ import java.util.stream.Stream;
  * already read {@link Vectors} through it) — so a conformance check written once is a check every
  * module can apply, rather than one copy per module drifting apart.
  *
- * <p><b>The check is deliberately small and dependency-free.</b> It enforces the four things a
- * contract violation actually looks like on this wire: every {@code required} property is present; an
- * object declared {@code additionalProperties:false} carries <em>no property the schema does not
- * declare</em>; a value is drawn from the schema's {@code enum}; and a value offered a choice
- * ({@code oneOf} / {@code anyOf}) satisfies at least one branch. Anything the schema leaves open
- * stays open here too. This repository takes no JSON-schema dependency, and this is why it does not
- * need one — see {@code AppContractTest}, which says the same thing from the runtime's side.
+ * <p><b>The check is deliberately small and dependency-free.</b> It enforces the five things a
+ * contract violation actually looks like on this wire: a value is of the kind its schema's
+ * {@code type} names ({@code null} only where the schema admits it); every {@code required} property
+ * is present; an object declared {@code additionalProperties:false} carries <em>no property the
+ * schema does not declare</em>; a value is drawn from the schema's {@code enum}; and a value offered
+ * a choice ({@code oneOf} / {@code anyOf}) satisfies at least one branch. Anything the schema leaves
+ * open stays open here too. This repository takes no JSON-schema dependency, and this is why it does
+ * not need one — see {@code AppContractTest}, which says the same thing from the runtime's side.
  *
  * <p><b>What it cannot see is worth stating.</b> A value that is <em>inside</em> the vocabulary but
  * <em>wrong for the occasion</em> passes here; that class of mistake is only visible to a person
@@ -39,11 +42,11 @@ import java.util.stream.Stream;
  * test-jar，而 `keelbase4j-runtime` 的测试已经经它读 {@link Vectors}）—— 于是**写一次的符合性检查，
  * 每个模块都能用**，而不是一模块一份、各自漂移。
  *
- * <p><b>这个检查刻意很小、且零依赖。</b>它只强制契约在**这条 wire 上**真会出现的**四种**违反：`required`
- * 的属性齐全 · 声明 `additionalProperties:false` 的对象**不得多出未声明的属性** · 取值落在 schema 的
- * `enum` 内 · 给了备选（`oneOf` / `anyOf`）的取值**至少满足一个分支**。schema 留白的，这里同样留白。
- * 本仓**不引 JSON-schema 依赖**，而这就是它不需要依赖的缘故 —— 见 `AppContractTest`，它从运行时那一侧
- * 说的是同一件事。
+ * <p><b>这个检查刻意很小、且零依赖。</b>它强制契约在**这条 wire 上**真会出现的**五种**违反：取值的**种类**
+ * 就是 schema 的 `type` 所说的那一种（`null` 只在 schema 允许处放行）· `required` 的属性齐全 · 声明
+ * `additionalProperties:false` 的对象**不得多出未声明的属性** · 取值落在 schema 的 `enum` 内 · 给了备选
+ * （`oneOf` / `anyOf`）的取值**至少满足一个分支**。schema 留白的，这里同样留白。本仓**不引 JSON-schema
+ * 依赖**，而这就是它不需要依赖的缘故 —— 见 `AppContractTest`，它从运行时那一侧说的是同一件事。
  *
  * <p><b>它看不见什么，值得说清。</b>一个**在词表之内**、但**用错了场合**的取值，在这里是**通过**的；
  * 那一类错误只有**读契约说明文字的人**看得见。它抓的是相反的那一类：**已经越出冻结词表**的取值 ——
@@ -213,6 +216,17 @@ public final class WireSchemas {
                     document);
             return;
         }
+        // The kind of value the schema names, checked before anything else the schema says. Without
+        // this, a `string` property carrying an object passed every rule below — none of them looks
+        // at a Map's own kind — which is how `confirmation-request.summary` stayed green while the
+        // server sent an object (JV-68). `type` is a single name or a list of names; a `null` is
+        // accepted only where the schema lists `null`, since that is exactly what the keyword says.
+        //
+        // 先看 schema 说的**种类**。没有这一段，一个声明 `string` 的属性**实发对象**会从下面每一条规则
+        // 底下通过 —— 没有一条看 Map 自身的种类 —— 这正是 `confirmation-request.summary` 在服务端发对象
+        // 时仍然为绿的原因（JV-68）。`type` 可能是单个名字、也可能是名字列表；`null` 只在 schema 列出
+        // `null` 处放行，那正是这个关键字的意思。
+        assertTypeMatches(value, schema);
         // A schema that offers alternatives has to be tried, not skimmed. Without this the check
         // found no `required` and no `properties`, and therefore passed everything that reached it —
         // a green that says nothing, which is the one outcome a conformance check must not have.
@@ -302,6 +316,90 @@ public final class WireSchemas {
             }
         }
         return Vectors.map(node);
+    }
+
+    /**
+     * Assert the value's kind is one the schema's {@code type} names.
+     *
+     * <p>A schema with no {@code type} constrains nothing here, as before. A name this check does
+     * not know is a loud failure rather than a silent pass — the rule the rest of this class holds:
+     * no green that says nothing. JSON numbers arrive as {@link Double} through {@link Json}, so
+     * {@code integer} is decided by whether the number has a fractional part.
+     *
+     * 断言取值的**种类**是 schema 的 `type` 所说的那一种。
+     *
+     * <p>没有 `type` 的 schema，在这里照旧什么都不强制。本检查**不认识**的类型名会**响亮地失败**、
+     * 而不是静默通过 —— 与本类其余部分同一条规则：不要一个什么都不说的绿。JSON 的数字经 {@link Json}
+     * 一律是 {@link Double}，故 `integer` 按「有没有小数部分」来定。
+     */
+    private static void assertTypeMatches(Object value, Map<String, Object> schema) {
+        Object declared = schema.get("type");
+        if (declared == null) {
+            return;
+        }
+        if (declared instanceof String single) {
+            assertTrue(isOfType(value, single),
+                    "type mismatch: the schema declares `" + single + "`, the wire carries `"
+                            + wireKind(value) + "`: " + value);
+            return;
+        }
+        if (declared instanceof List<?> names) {
+            for (Object name : names) {
+                if (isOfType(value, String.valueOf(name))) {
+                    return;
+                }
+            }
+            fail("type mismatch: the schema declares one of " + names
+                    + ", the wire carries `" + wireKind(value) + "`: " + value);
+        }
+        throw new IllegalStateException("schema carries a `type` this check cannot read: " + declared);
+    }
+
+    /** Whether a value is of one of JSON Schema's primitive kinds. */
+    private static boolean isOfType(Object value, String declared) {
+        return switch (declared) {
+            case "null" -> value == null;
+            case "boolean" -> value instanceof Boolean;
+            case "string" -> value instanceof String;
+            case "number" -> value instanceof Number;
+            case "integer" -> value instanceof Number number && isIntegral(number);
+            case "object" -> value instanceof Map;
+            case "array" -> value instanceof List;
+            default -> throw new IllegalStateException(
+                    "the schema names a type this check cannot read: " + declared);
+        };
+    }
+
+    /** Numbers read by {@link Json} are {@link Double}; a value with no fraction is an integer. */
+    private static boolean isIntegral(Number number) {
+        if (number instanceof Integer || number instanceof Long || number instanceof BigInteger) {
+            return true;
+        }
+        double value = number.doubleValue();
+        return Double.isFinite(value) && value == Math.rint(value);
+    }
+
+    /** The JSON kind of a parsed wire value, for a message a person can act on. */
+    private static String wireKind(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        if (value instanceof Map) {
+            return "object";
+        }
+        if (value instanceof List) {
+            return "array";
+        }
+        if (value instanceof String) {
+            return "string";
+        }
+        if (value instanceof Boolean) {
+            return "boolean";
+        }
+        if (value instanceof Number) {
+            return "number";
+        }
+        return value.getClass().getSimpleName();
     }
 
     /**
