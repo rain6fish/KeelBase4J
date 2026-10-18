@@ -177,23 +177,64 @@ public class ChatStreamController {
         AiTool tool = tools.require(turn.plan().tool());
         Map<String, Object> start = new LinkedHashMap<>();
         start.put("name", tool.name());
-        // The frozen `toolStart` requires `summary`, and this runtime was not sending it at all — a
-        // required field of a frozen object, absent for as long as the event has existed. The reference
-        // renders a sentence about *this call* for a write and a name-keyed one for a read; this runtime
-        // has no presentation layer, so it uses the tool's own description — a name-keyed sentence — for
-        // both, and says so here rather than inventing a way to arrange the arguments into prose.
+        // The frozen `toolStart` requires `summary`, and it is a `presentationText` — a `key` plus an
+        // English `fallback` (and optional `params`) — not a bare string. This runtime has no
+        // presentation layer, so the fallback is the tool's own name-keyed description and the key is
+        // derived from the tool name in the shape the contract's samples use
+        // (`ai.present.write.createFollowupTask`): `ai.present.` + `write`/`read` + the tool name in
+        // camel case. No `params`: the runtime does not arrange arguments into prose, and inventing
+        // placeholders here would promise a rendering it cannot produce.
         //
-        // 冻结的 `toolStart` **要求** `summary`，而本运行时**根本没发过它** —— 一个冻结对象的**必填字段**，
-        // 在该事件存在期间一直缺着。参照实现对**写**渲染一句关于**这次调用**的话、对**读**渲染一句**按名字**的话；
-        // 本运行时没有那一层「呈现」，故两者都用**工具自己的描述**（一句按名字的话），并在这里说出来，而不是
-        // 去发明一种「把参数排成散文」的写法。
-        start.put("summary", tool.description());
+        // 冻结的 `toolStart` **要求** `summary`，而它是一行 **`presentationText`** —— `key` 加英文
+        // `fallback`（以及可选 `params`），**不是裸字符串**。本运行时没有「呈现」层，故 `fallback` 仍是
+        // 工具自己那句**按名字**的描述，`key` 则按契约样例的形状（`ai.present.write.createFollowupTask`）
+        // 从**工具名**派生：`ai.present.` + `write`/`read` + 工具名的骆驼写法。**不带 `params`**：运行时
+        // 不把参数排成散文，在这里编占位符，等于许诺一个它渲染不出来的东西。
+        start.put("summary", presentationText(tool));
         start.put("arguments", turn.plan().args());
         start.put("isWrite", tool.resultType() != null);
         // The risk level does belong on this channel: it goes to the user's own console, not to a
         // model. The rule about withholding it is about prompts.
         start.put("riskLevel", tool.riskLevel());
         return start;
+    }
+
+    /**
+     * The one line of presentation text a {@code tool_start} carries: a semantic key and the English
+     * fallback this runtime can actually fill in.
+     *
+     * <p>The contract does not fix the key vocabulary; its samples derive it from the action
+     * ({@code ai.present.write.createFollowupTask}). This runtime follows that shape, taking the
+     * write/read half from the same switch that decides {@code isWrite}:
+     * {@code ai.present.<write|read>.<toolNameCamel>}.
+     *
+     * 一个 `tool_start` 携带的那一行呈现文案：语义 key，以及本运行时**真能**填上的英文 fallback。
+     *
+     * <p>契约没有定死 key 的词表；它的样例从**动作**派生（`ai.present.write.createFollowupTask`）。
+     * 本运行时照这个形状走，write/read 那一半取的是与 `isWrite` 同一条判据：
+     * `ai.present.<write|read>.<工具名骆驼写法>`。
+     */
+    private Map<String, Object> presentationText(AiTool tool) {
+        Map<String, Object> text = new LinkedHashMap<>();
+        text.put("key", "ai.present." + (tool.resultType() != null ? "write." : "read.")
+                + camelCase(tool.name()));
+        text.put("fallback", tool.description());
+        return text;
+    }
+
+    /** {@code create_followup} → {@code createFollowup}, the shape the contract's sample keys use. */
+    private static String camelCase(String name) {
+        StringBuilder camel = new StringBuilder();
+        boolean capitalise = false;
+        for (char c : name.toCharArray()) {
+            if (c == '_') {
+                capitalise = true;
+            } else {
+                camel.append(capitalise ? Character.toUpperCase(c) : c);
+                capitalise = false;
+            }
+        }
+        return camel.toString();
     }
 
     private Map<String, Object> confirmation(ChatTurnService.Turn turn) {
