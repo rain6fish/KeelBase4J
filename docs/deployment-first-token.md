@@ -48,6 +48,20 @@ Either way the minting code is **the deployment's**, not core's.
 
 Adding `POST /auth/login` to core would make core **hold identity infrastructure** — the thing D4 refuses. That road (option **B** in the ruling) was considered and **not taken**. If it is ever revisited, the ADR's wording moves **first**; the code does not move alone.
 
+## 7. Evidence packages: where they come from
+
+> **`JV-64`, decision **乙** (2026-10-17): this page states an absence rather than closing it.** No
+> evidence-export endpoint is added, here or on this line.
+
+This deployment keeps an audit chain and answers `GET /audit/verify`, which recomputes and verifies that
+chain over the rows this runtime recorded. It does **not** export an evidence package or an evidence
+root: there is no such endpoint here, and none is planned on this line. If a Java host deployment needs
+an evidence package, obtain it from the **TypeScript governance console**, not from this runtime.
+
+Any coverage statement that accompanies such a package must also carry one more fact (`D28 ④`): where
+the runtime is embedded in a host that owns the business write, that write and its audit row are not
+written in one transaction, so a crash between them leaves an executed write unaudited.
+
 ---
 
 # 拿到第一枚令牌 —— 部署方要做什么
@@ -99,3 +113,15 @@ Adding `POST /auth/login` to core would make core **hold identity infrastructure
 ## 6. 这一页没有开启什么
 
 给 core 加 `POST /auth/login`，等于让 core **开始持有身份基础设施**——正是 D4 拒绝的那件事。那条路（裁决里的 **B**）**考虑过、没有走**。若将来重开，**先**动 ADR 的措辞，**代码不单独先动**。
+
+## 7. 证据包从哪来
+
+> **`JV-64`，裁决 **乙**（2026-10-17）：这一页把一处**缺席**写明白，而不是去补上它。**
+> 这里**不**新增任何证据导出端点，本线也不加。
+
+本部署持有一条审计链，并对外提供 `GET /audit/verify`——它重算并校验这条链在**本运行时记下的行**上的
+完整性。它**不**导出证据包或证据根：这里没有这样的端点，本线当前也**没有**计划加。Java 宿主部署若需要
+证据包，请从 **TypeScript 治理控制台**取得，**不是**从本运行时取得。
+
+随这类证据包给出的覆盖声明还必须带上另一件事（`D28 ④`）：当运行时被嵌入一个**自己持有业务写**的宿主时，
+那次写与它的审计行**不在同一个事务里**写，两者之间崩溃会留下一条**已执行、未审计**的写。

@@ -17,6 +17,9 @@ endings and indentation are not drift, a changed statement or predicate is).
 
 **Do not hand-edit it.** Edit the module and refresh.
 
+**`coverage-gaps.json` is mirror only.** It is a mirrored snapshot for third parties and the drift
+check; no code in this repository consumes it.
+
 ---
 
 # 不属于协议契约的快照
@@ -35,3 +38,5 @@ endings and indentation are not drift, a changed statement or predicate is).
 陈述或谓词算）。
 
 **禁止手改。** 改模块，然后刷新。
+
+**`coverage-gaps.json` 只是镜像。** 它是一份供第三方与漂移检查使用的镜像快照；本仓没有任何代码消费它。

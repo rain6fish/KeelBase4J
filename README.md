@@ -195,6 +195,14 @@ Read this section before quoting anything above.
 7. **Its positioning is not decided here.** Whether and how this line becomes a product is settled
    in internal decision records, not in this repository. What this repository holds is the Java
    carrier and the evidence that it reproduces the protocol.
+8. **Not an evidence-package exporter.** The runtime keeps a tamper-evident audit chain and answers
+   `GET /audit/verify`, which recomputes and verifies that chain over its own rows. It does **not**
+   export an evidence package or an evidence root: there is no such endpoint here, and none is
+   planned on this line. Under a Java host deployment, evidence packages are obtained from the
+   TypeScript governance console, not from this runtime. A coverage statement that accompanies such
+   a package must also carry one more fact (`D28 ④`): where the runtime is embedded in a host that
+   owns the business write, that write and its audit row are not written in one transaction, so a
+   crash between them leaves an executed write unaudited.
 
 ---
 

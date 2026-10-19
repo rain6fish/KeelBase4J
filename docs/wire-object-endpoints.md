@@ -165,12 +165,16 @@ asserts.)
 | wire object | why not |
 |---|---|
 | `permission-decision` | the frozen decision is computed (`PermissionAuthorizer.decide`) but only the capability list is on the wire — there is no decision-over-action×subject endpoint |
-| `evidence-package` | no evidence-root export exists here |
+| `evidence-package` | no evidence-root export exists here — under a Java host deployment, evidence packages are obtained from the TypeScript governance console, not from this runtime (`JV-64`, decision 乙, 2026-10-17). See [README "What this is not"](../README.md#what-this-is-not) item 8 and `docs/deployment-first-token.md` §7 |
 | `side-effect-revoke` read as the **governance view** | no governance-view endpoint; and this runtime's only local target type is `follow_up`, so a `resultType` of `crm_task` could not hold even if there were one |
 | the reference application's tools — `delete_customer` · `create_event` · `query_events` | a tool **inventory** belongs to the **application**, not the contract: this runtime registers `analyze_customer_risk` and `create_followup`. The packs declare the tools they assume (the pack's `tools`), so "this runtime lacks that tool" is readable off the corpus. **⚠ 2026-10-13, corrected in place (original kept):** the reason as written — "a tool inventory belongs to the application, not the contract" — **no longer holds literally**, because the contract **freezes** an `ai-tool-inventory` **object** and this runtime now **serves** it (see the table above). **What still holds is the other half**: *which tools exist* is the application's, and the contract freezes the **shape**, not the **list** |
 | `confirm-decision-body` | a **request** body — the corpus names it for callers. There is nothing here to *produce*, so "does this runtime serve it" is not a question with a yes or a no |
 | `api-error-code` | a **vocabulary**, not a payload. No endpoint emits it; the check it would support is a different one (are the codes this runtime *does* emit inside the list), which is not conformance to an object |
 | `mcp-tool-list` | nothing is emitted here: `keelbase4j-mcp`'s `McpServerTools.listTools()` is this runtime **consuming** a tool list from an external server, not publishing one |
+
+**The `evidence-package` row is a declaration, not a gap to close.** This runtime keeps an audit chain and serves `GET /audit/verify`, but it has **no** evidence-package / evidence-root export, and none is planned on this line — under a Java host deployment, evidence packages are obtained from the TypeScript governance console (`JV-64`, option 乙). Any coverage statement for such a package must also carry `D28 ④`: a host that owns the business write does not write that write and its audit row in one transaction.
+
+**`evidence-package` 这一行是一份声明，不是一个待补的缺口。** 本运行时持有一条审计链、也服务 `GET /audit/verify`，但**没有**证据包 / 证据根导出，本线当前也没有计划加——Java 宿主部署下的证据包从 TypeScript 治理控制台取得（`JV-64`，乙案）。这类证据包的任何覆盖声明还必须带上 `D28 ④`：自己持有业务写的宿主，不会把那次写与它的审计行写在同一个事务里。
 
 **These three were moved out of "the objects this runtime produces" by decision, not discovered to be missing.** The map in `KeelBase-Private/KeelBase4J/JV-46-覆盖图_2026-10-09.md` had listed them as remaining positions to read (§9.4); reading each one showed that the registry sources the objects this runtime *does* answer at the reference implementation — so a row saying "not produced here" is the honest form, and the alternative (making this runtime emit them) is a product change this runtime has not chosen.
 
