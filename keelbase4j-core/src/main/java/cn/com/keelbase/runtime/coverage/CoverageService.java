@@ -79,12 +79,15 @@ public class CoverageService {
         long effectRows = effects.count(effectWhere);
         long chatRows = auditLogs.count(auditWhere.and(
                 (root, query, cb) -> cb.equal(root.get("action"), "chat")));
-        // Either side missing means the change was never captured — the pair is what REV-6 is about.
-        // 任一侧缺失都算「变更没被捕获」—— 这一对正是 REV-6 说的东西。
+        // A create legitimately has no `beforeSnapshot` (there was no row), so only a missing
+        // `afterSnapshot` is unambiguous evidence that the change was never captured. An update
+        // whose tool omitted its `beforeSnapshot` cannot be told apart from a create from the row
+        // alone, so it is not counted — a caveat that cannot be checked is worse than a narrower one.
+        // 新建的 effect 本来就没有 `beforeSnapshot`（那时没有行），故只有缺 `afterSnapshot` 才是
+        // 「变更没被捕获」的**无歧义**证据。工具漏交 `beforeSnapshot` 的更新，从这一行上分不出它与新建，
+        // 故**不计入** —— 一条无法核实的告诫比一条更窄的告诫更糟。
         long withoutSnapshot = effects.count(effectWhere.and(
-                (root, query, cb) -> cb.or(
-                        cb.isNull(root.get("beforeSnapshot")),
-                        cb.isNull(root.get("afterSnapshot")))));
+                (root, query, cb) -> cb.isNull(root.get("afterSnapshot"))));
         // This runtime records no dispute state on an effect; `packageHasOpenDispute` is therefore
         // always false here, and the corresponding registry condition remains for the runtime that
         // does record it.
