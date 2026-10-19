@@ -182,6 +182,20 @@ asserts.)
 `ai-tool-inventory` **对象**，而本运行时现在也**服务它**（见上面那张表）。**仍然成立的是另一半**：**哪些工具存在**
 是应用的，契约冻的是**形状**、不是**清单** —— 所以那一行说的「参照实现的这几个工具名在这里没有」仍然对。
 
+## This runtime's own surface (not a wire object)
+
+`GET /api/v1/keelbase/status` is **not** a frozen wire object and the corpus does not assert it. It is
+this runtime's integration-health report: registered tools by read/write and risk, the effective R3/R4
+gate read from the engine's own `GovernanceService.decide` call, audit row counts and timestamps plus
+chain verification, and a local delegation sign-then-verify probe. Each dimension carries its own status
+and the reading behind it; a dimension that cannot be measured reports `unknown` or `not_applicable`
+rather than green. It is authenticated and guarded by `read` on `IntegrationStatus`.
+
+**本运行时自己的面（不是 wire 对象）。** `GET /api/v1/keelbase/status` **不是**冻结 wire 对象，语料也不断言它。
+它是本运行时的接入健康度报告：按读/写与风险统计的已注册工具、从引擎自己的 `GovernanceService.decide` 读出的
+生效 R3/R4 门控、审计行条数与时刻加链校验、以及本地委托签发/验签探针。每个维度带自己的状态与状态背后的读数；
+测不到的维度报 `unknown` 或 `not_applicable`，而不是绿色。它已认证，由 `IntegrationStatus` 上的 `read` 把关。
+
 ## Scope
 
 The table covers the objects the corpus asserts about. It is deliberately not the whole registry — a

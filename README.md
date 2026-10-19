@@ -247,6 +247,7 @@ per-runtime branch:
 | POST | `/auth/login-stats` | the login page's visit ping, answered `ok: false` on purpose: there is no sink to record it |
 | GET | `/customers` | row-scoped by the caller's range |
 | GET | `/app/capabilities` · `/app/provenance` | what this deployment declares about itself |
+| GET | `/keelbase/status` | integration health in four dimensions — registered tools, the effective R3/R4 gate, audit rows, delegation — **administrators or a read-only audit reader** (`read` on `IntegrationStatus`); a dimension that cannot be measured reports `unknown` / `not_applicable` rather than green |
 
 Component-by-component detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

@@ -193,6 +193,7 @@ bash scripts/demo-springai-task.sh    # 真模型驱动框架自己的多步循�
 | POST | `/auth/login-stats` | 登录页的访问上报，故意答 `ok:false`：没有落点可记 |
 | GET | `/customers` | 按调用方的数据范围收窄 |
 | GET | `/app/capabilities` · `/app/provenance` | 这个部署对自己声明了什么 |
+| GET | `/keelbase/status` | 四维接入健康度——已注册工具、生效的 R3/R4 门控、审计行、委托——**管理员或只读审计读者**（`IntegrationStatus` 上的 `read`）；测不到的维度报 `unknown` / `not_applicable`，而不是绿色 |
 
 逐组件细节：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 

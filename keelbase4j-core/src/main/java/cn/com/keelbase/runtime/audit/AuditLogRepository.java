@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.audit;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -37,4 +38,16 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long>,
      * 一次执行的那些行，最早的在前 —— 单次尝试的 intent 行与结果行，用一条没有别的执行会共享的键配对。
      */
     List<AuditLog> findByExecutionIdOrderByIdAsc(String executionId);
+
+    /**
+     * How many rows were written at or after {@code since} — the "is the chain receiving anything"
+     * reading the integration-health surface reports. It is a count, not a freshness verdict: an
+     * idle deployment legitimately writes none in a day, so the reading is shown next to the most
+     * recent row rather than turned into a pass/fail by itself.
+     *
+     * 在 `since` 之后（含）写下的行数 —— 接入健康度面报告的「这条链还收不收东西」读数。它是**条数**、
+     * 不是新鲜度判决：一个闲置的部署一天不写是正当的，故这个读数与最近一行的时刻并排显示，而不是由它
+     * 单独变成通过/失败。
+     */
+    long countByCreatedAtAfter(Instant since);
 }

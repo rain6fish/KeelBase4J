@@ -10,6 +10,30 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [Unreleased]
+
+**English**
+
+### Added
+
+- **`GET /keelbase/status` — the integration-health report.** Four dimensions, each with its own
+  status and the reading behind it: registered tools (total, read/write, risk distribution, invalid
+  declarations), the effective R3/R4 gate read from the same `GovernanceService.decide` call the
+  execution engine makes, audit rows (count, last-24h count, latest time and id, chain verification),
+  and a local delegation sign-then-verify probe kept separate from the inbound token. A dimension that
+  cannot be measured reports `unknown` or `not_applicable` rather than green. Authenticated, and
+  guarded by `read` on `IntegrationStatus`.
+
+**中文**
+
+### 新增
+
+- **`GET /keelbase/status` —— 接入健康度报告。** 四个维度，每个维度带自己的状态与状态背后的读数：
+  已注册工具（总数、读/写、风险分布、非法声明）、从执行引擎所做的同一次 `GovernanceService.decide`
+  调用读出的生效 R3/R4 门控、审计行（条数、近 24 小时条数、最近时刻与 id、链校验），以及与入站令牌
+  **分开**记录的本地委托签发/验签探针。测不到的维度报 `unknown` 或 `not_applicable`，而不是绿色。
+  已认证，由 `IntegrationStatus` 上的 `read` 把关。
+
 ## [0.1.9] - 2026-10-18
 
 **English**

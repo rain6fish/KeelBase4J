@@ -46,9 +46,18 @@ public final class GovernanceReadSubjects {
     /** Confirmation records, read-only across callers — deciding is a different entry and a different mode. */
     public static final String CONFIRMATION = "Confirmation";
 
+    /**
+     * The integration-health surface: what this deployment registered, whether its gates are in force,
+     * whether audit rows are landing, and whether the delegation chain can be exercised.
+     *
+     * 接入健康度面：本部署注册了什么、门控是否在生效、审计行是否在落库、委托链路是否能被实际走一遍。
+     */
+    public static final String INTEGRATION_STATUS = "IntegrationStatus";
+
     /** Every subject above, for callers that ask "is this one of the governance read faces". */
     public static final List<String> ALL = List.of(
-            AUDIT_LOG, OPERATION_AUDIT, TOOL_INVENTORY, GOVERNANCE_POLICY, TOOL_EFFECT, CONFIRMATION);
+            AUDIT_LOG, OPERATION_AUDIT, TOOL_INVENTORY, GOVERNANCE_POLICY, TOOL_EFFECT, CONFIRMATION,
+            INTEGRATION_STATUS);
 
     private GovernanceReadSubjects() {
     }

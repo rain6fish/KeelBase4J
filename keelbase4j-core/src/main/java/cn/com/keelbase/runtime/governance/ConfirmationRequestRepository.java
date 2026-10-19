@@ -16,6 +16,16 @@ public interface ConfirmationRequestRepository extends JpaRepository<Confirmatio
     Optional<ConfirmationRequest> findByToken(String token);
 
     /**
+     * How many confirmation records currently carry {@code status} — the integration-health surface
+     * uses {@code pending} to show that the queue is reachable and to say how much is waiting on a
+     * human. It is a count of rows this deployment wrote, not a claim that a decision will arrive.
+     *
+     * 当前有多少条确认记录带着 `status` —— 接入健康度面用 `pending` 证明队列可达，并说出有多少在等人。
+     * 它是本部署写下的行数，不是「决定会到达」的主张。
+     */
+    long countByStatus(String status);
+
+    /**
      * This operator's own confirmation records, newest first — the Action Center's discovery face
      * (ADR-0016). Narrowed to the operator here rather than in a caller: whose rows these are is part
      * of the question, not a filter applied afterwards.
