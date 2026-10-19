@@ -62,10 +62,12 @@ import org.springframework.transaction.annotation.Transactional;
  * the injection makes the gap disappear.
  *
  * <p><b>Coverage declaration.</b> This drill supports declaring {@code
- * host-write-not-in-same-transaction} as a <em>known, detectable residual</em>: a landed write is
- * always accompanied by an effect row, and the absence of a terminal audit row under the same
- * {@code execution_id} names exactly the writes that were executed but not audited. It does not
- * remove the window; it makes the window observable after the fact.
+ * host-write-not-in-same-transaction} as a <em>known, detectable residual</em>, in this exact sense:
+ * a landed write whose effect row also landed is detectable — the effect names an
+ * {@code execution_id}, and the absence of any non-{@code attempted} row under that id names it. The
+ * narrower window between the tool's own commit and the effect insert leaves no row to join on, so
+ * it stays unobservable from the tables alone. The drill does not remove the window; it makes the
+ * larger part of it observable after the fact.
  *
  * <p>**D28④ 的崩溃演练：宿主写落了地，而审计 append 没有。**
  *
@@ -83,8 +85,10 @@ import org.springframework.transaction.annotation.Transactional;
  * 反方向——拿掉注入，缺口就消失。
  *
  * <p><b>覆盖声明。</b>本演练支持把 {@code host-write-not-in-same-transaction} 声明为**已知、可检测的
- * 残余**：落地的写总会带着一条 effect 行，而在同一个 {@code execution_id} 下**缺少终局审计行**，正好点名了
- * 那些「已执行未审计」的写。它不消除这个窗口；它让窗口在事后**可观测**。
+ * 残余**，口径正好是：**effect 行也已落地**的那类写是可检测的 —— effect 点名了 {@code execution_id}，
+ * 而该 id 下**缺少任何非 {@code attempted} 的行**，正好点名了那些「已执行未审计」的写。工具自己的提交与
+ * effect 插入之间那个**更窄**的窗口不留任何可连接的行，只靠表**观测不到**。它不消除这个窗口；它让窗口的
+ * **较大那一半**在事后**可观测**。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
