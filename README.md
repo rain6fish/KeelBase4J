@@ -89,12 +89,13 @@ mvn test
 
 **The suite is green** — `mvn test` covers the protocol library, the runtime, the generator and the
 adapter, and the CI badge above is where the live state lives rather than a number written here. Then
-watch each claim in the next section actually happen — five scripts, no model required for the first three:
+watch each claim in the next section actually happen — six scripts, no model required for the first four:
 
 ```bash
 bash scripts/demo-generated-app.sh    # generate → build → run → walk the trust loop
 bash scripts/demo-changeability.sh    # change → regenerate → hand edit survives → new rule enforced
 bash scripts/demo-migration.sh        # change → additive migration → existing rows carry over
+bash scripts/demo-pm-reference.sh     # the PM reference project's whole governance loop
 
 export DEEPSEEK_API_KEY=...           # the demo module also builds with -Popenai or -Pollama
 bash scripts/demo-springai.sh         # a real model on the planner seam
@@ -157,6 +158,7 @@ column is where to look; the last column is the honest boundary of the claim.
 | A caller cannot state who it is or what it may do | `AuthenticationTest` | identity is a thin SPI; the default adapter maps a subject to declared local facts |
 | Capability decision and row range stay separate | `PermissionWireTest` · `AuthorizationMappingTest` · `ScopeFilterTest` | rules are declared in code (delivery tier A) |
 | A write is not executed until a human approves | `TrustLoopTest` | — |
+| The same trust loop runs over a second domain (PM) | `PmReferenceLoopTest` · `demo-pm-reference.sh` | R1 auto / R3 confirm / R4 second-person approval / R5 blocked / local revoke; milestones and members are not in this reference yet |
 | One confirmation token executes the tool exactly once | `ConfirmationConcurrencyTest` (written red first) · the eight-at-once check in `demo-generated-app.sh` | — |
 | The audit chain is tamper-evident and appended under a row lock | `AuditChainConcurrencyTest` · `GET /audit/verify` | the spike's datastore is in-memory, so it is per-process |
 | The generated application runs standalone | `demo-generated-app.sh` | the generator handles the CRM-shaped request it was built for |

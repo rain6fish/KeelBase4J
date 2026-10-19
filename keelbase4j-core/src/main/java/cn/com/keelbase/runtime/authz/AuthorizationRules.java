@@ -52,7 +52,9 @@ public class AuthorizationRules {
                         new Rule(PermissionCapabilityList.SUBJECT_ALL, PermissionCapabilityList.MANAGE, null)),
                 PermissionCapabilityList.ROLE_USER, List.of(
                         new Rule("Customer", PermissionCapabilityList.MANAGE, "ownerUserId"),
-                        new Rule("FollowUp", PermissionCapabilityList.MANAGE, "userId"))));
+                        new Rule("FollowUp", PermissionCapabilityList.MANAGE, "userId"),
+                        new Rule("PmProject", PermissionCapabilityList.MANAGE, "ownerUserId"),
+                        new Rule("PmTask", PermissionCapabilityList.MANAGE, "ownerUserId"))));
     }
 
     /**

@@ -146,7 +146,7 @@ class AuthorizationMappingTest {
         PermissionCapabilityList user = authorizer.describe(ALICE);
         assertEquals(PermissionCapabilityList.ROLE_USER, user.role());
         assertEquals(PermissionCapabilityList.BASIS_USER, user.basis());
-        assertEquals(List.of("Customer", "FollowUp"),
+        assertEquals(List.of("Customer", "FollowUp", "PmProject", "PmTask"),
                 user.resources().stream().map(PermissionCapabilityList.Resource::subject).toList(),
                 "resources are sorted by subject");
         for (PermissionCapabilityList.Resource resource : user.resources()) {

@@ -88,18 +88,22 @@ class IntegrationStatusTest {
                 "tools");
 
         assertEquals("ok", tools.get("status"));
-        assertEquals(3, IntegrationStatusProbe.number(tools, "total"));
-        assertEquals(1, IntegrationStatusProbe.number(tools, "read"), "analyze_customer_risk is the reader");
-        assertEquals(2, IntegrationStatusProbe.number(tools, "write"), "create_followup and escalate_customer write");
+        assertEquals(7, IntegrationStatusProbe.number(tools, "total"));
+        assertEquals(2, IntegrationStatusProbe.number(tools, "read"),
+                "analyze_customer_risk and analyze_project_risk are the readers");
+        assertEquals(5, IntegrationStatusProbe.number(tools, "write"),
+                "the two CRM writes, the two PM writes and the irreversibly blocked PM delete");
         assertEquals(List.of(), tools.get("invalidRiskLevels"));
-        assertEquals(List.of(), tools.get("writeWithoutRevoke"));
+        assertEquals(List.of(), tools.get("writeWithoutRevoke"),
+                "the R5 delete declares no local compensation, and a write that can never run is not a warning");
 
         @SuppressWarnings("unchecked")
         Map<String, Object> distribution = (Map<String, Object>) tools.get("riskDistribution");
-        assertEquals(Set.of("R1", "R3", "R4"), distribution.keySet());
-        assertEquals(1, ((Number) distribution.get("R1")).intValue());
-        assertEquals(1, ((Number) distribution.get("R3")).intValue());
-        assertEquals(1, ((Number) distribution.get("R4")).intValue());
+        assertEquals(Set.of("R1", "R3", "R4", "R5"), distribution.keySet());
+        assertEquals(2, ((Number) distribution.get("R1")).intValue());
+        assertEquals(2, ((Number) distribution.get("R3")).intValue());
+        assertEquals(2, ((Number) distribution.get("R4")).intValue());
+        assertEquals(1, ((Number) distribution.get("R5")).intValue());
     }
 
     @Test
@@ -113,10 +117,12 @@ class IntegrationStatusTest {
         assertEquals("ok", confirmation.get("status"));
         assertEquals("GovernanceService.decide (the execution engine's own gate)",
                 confirmation.get("evidence"));
-        assertEquals(2, IntegrationStatusProbe.number(confirmation, "declaredRequired"),
-                "create_followup (R3) and escalate_customer (R4) declare a human decision");
-        assertEquals(1, IntegrationStatusProbe.number(confirmation, "effectiveConfirm"));
-        assertEquals(1, IntegrationStatusProbe.number(confirmation, "effectiveApproval"));
+        assertEquals(4, IntegrationStatusProbe.number(confirmation, "declaredRequired"),
+                "the two R3 writes and the two R4 writes declare a human decision");
+        assertEquals(2, IntegrationStatusProbe.number(confirmation, "effectiveConfirm"));
+        assertEquals(2, IntegrationStatusProbe.number(confirmation, "effectiveApproval"));
+        assertEquals(1, IntegrationStatusProbe.number(confirmation, "effectiveBlocked"),
+                "delete_project declares R5, which the gate refuses on the risk level alone");
         assertEquals(List.of(), confirmation.get("ungated"),
                 "no R3/R4 tool may reach the engine ungated on a clean deployment");
         assertEquals(Boolean.TRUE, confirmation.get("storeReachable"));

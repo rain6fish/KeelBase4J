@@ -31,7 +31,7 @@ public class ApplicationProfileProperties {
      * Feature switches, key → on/off. Open by design: the key set grows with the modules, which is
      * why the contract types it as an open boolean map rather than a fixed list.
      */
-    private Map<String, Boolean> features = new LinkedHashMap<>(Map.of("crm", true));
+    private Map<String, Boolean> features = new LinkedHashMap<>(Map.of("crm", true, "pm", true));
 
     private Ai ai = new Ai();
 
@@ -46,7 +46,9 @@ public class ApplicationProfileProperties {
      * to override these can do so, but must write any non-ASCII value as {@code \\uXXXX} escapes.
      */
     private List<BusinessModule> businessModules =
-            new ArrayList<>(List.of(new BusinessModule("crm", "AI CRM", "客户、跟进与风险分析")));
+            new ArrayList<>(List.of(
+                    new BusinessModule("crm", "AI CRM", "客户、跟进与风险分析"),
+                    new BusinessModule("pm", "AI Project", "项目、任务与延期风险分析")));
 
     public String getPreset() {
         return preset;

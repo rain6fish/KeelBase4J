@@ -67,11 +67,11 @@ class IntegrationStatusConfirmationFailureTest {
 
         Map<String, Object> confirmation = IntegrationStatusProbe.block(report, "confirmation");
         assertEquals("error", confirmation.get("status"));
-        assertEquals(2, IntegrationStatusProbe.number(confirmation, "declaredRequired"),
-                "create_followup (R3) and escalate_customer (R4) both declare a human decision; "
+        assertEquals(4, IntegrationStatusProbe.number(confirmation, "declaredRequired"),
+                "the two R3 writes and the two R4 writes all declare a human decision; "
                         + "the override relaxes the gate, not the declaration");
-        assertEquals(2, IntegrationStatusProbe.number(confirmation, "effectiveAuto"),
-                "the reader (R1) plus the relaxed R3 tool are the two auto tools");
+        assertEquals(3, IntegrationStatusProbe.number(confirmation, "effectiveAuto"),
+                "the two R1 readers plus the relaxed R3 tool are the auto tools");
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> ungated = (List<Map<String, Object>>) confirmation.get("ungated");

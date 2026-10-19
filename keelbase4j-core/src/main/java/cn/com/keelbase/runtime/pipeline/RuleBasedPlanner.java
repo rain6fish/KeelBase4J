@@ -28,20 +28,49 @@ public class RuleBasedPlanner implements ToolCallPlanner {
     @Override
     public Optional<IntentPlan> plan(String message, Map<String, Object> context) {
         String text = message == null ? "" : message;
-        // Every tool this router knows acts on a customer, and the caller has already resolved which
-        // one this conversation is about (see ChatTurnService.mentionedCustomer). Without it there is
-        // nothing to propose: saying so is the honest answer, where handing a tool a null id fails at
-        // the tool and reaches the caller as a server error they cannot act on.
+        // Every tool this router knows acts on a customer or a project, and the caller has already
+        // resolved which row this conversation is about (see ChatTurnService.mentionedCustomer).
+        // Without it there is nothing to propose: saying so is the honest answer, where handing a
+        // tool a null id fails at the tool and reaches the caller as a server error they cannot act on.
         //
-        // The context key is the generic slot; the argument name below is this sample tool's own.
+        // The context key is the generic slot; the argument names below belong to each sample tool.
         //
-        // 上下文那个键是**通用槽位**；下面那个**参数名**是这个样例工具自己的。
-        if (!(context.get("targetId") instanceof Number customer)) {
+        // 本路由器认识的每个工具都作用于一个客户或一个项目，而这条会话说的是哪一行，调用方已经解析好了
+        // （见 `ChatTurnService.mentionedCustomer`）。没有它就无从提议：如实说出来才是对的答案，而把 null
+        // id 交给工具会在工具处失败、以调用方无法处置的服务器错误到达。上下文那个键是**通用槽位**；
+        // 下面的参数名各属对应的样例工具。
+        if (!(context.get("targetId") instanceof Number target)) {
+            return Optional.empty();
+        }
+        long targetId = target.longValue();
+
+        // "项目" is what tells the two sample domains apart. The CRM messages the console sends do
+        // not carry it, and a PM message that did not carry it would be routed as CRM — which is the
+        // honest limit of a deterministic router, stated here rather than hidden behind a guess.
+        //
+        // 「项目」是把两个示例域分开的那个词。控制台发的 CRM 消息不带它，而不带它的 PM 消息会被当成 CRM
+        // 路由 —— 这是确定性路由器诚实的边界，写在这里，不藏在猜测后面。
+        if (text.contains("项目")) {
+            Map<String, Object> pmArgs = new LinkedHashMap<>();
+            pmArgs.put("projectId", targetId);
+            if (text.contains("删除")) {
+                return Optional.of(new IntentPlan("delete_project", pmArgs));
+            }
+            if (text.contains("升级") || text.contains("上报")) {
+                return Optional.of(new IntentPlan("escalate_project", pmArgs));
+            }
+            if (text.contains("任务") || text.contains("创建") || text.contains("跟进")) {
+                pmArgs.put("title", text);
+                return Optional.of(new IntentPlan("create_pm_task", pmArgs));
+            }
+            if (text.contains("风险") || text.contains("分析") || text.contains("延期")) {
+                return Optional.of(new IntentPlan("analyze_project_risk", pmArgs));
+            }
             return Optional.empty();
         }
 
         Map<String, Object> args = new LinkedHashMap<>();
-        args.put("customerId", customer.longValue());
+        args.put("customerId", targetId);
         if (text.contains("风险") || text.contains("分析")) {
             return Optional.of(new IntentPlan("analyze_customer_risk", args));
         }

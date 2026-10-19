@@ -101,7 +101,7 @@ class IntegrationStatusToolsFailureTest {
         Map<String, Object> tools = IntegrationStatusProbe.block(report, "tools");
         assertEquals("error", tools.get("status"));
         assertTrue(((List<?>) tools.get("invalidRiskLevels")).contains("broken_tool"));
-        assertEquals(4, IntegrationStatusProbe.number(tools, "total"), "the bad tool is still registered");
+        assertEquals(8, IntegrationStatusProbe.number(tools, "total"), "the bad tool is still registered");
 
         @SuppressWarnings("unchecked")
         List<String> errors = (List<String>) IntegrationStatusProbe.block(report, "health").get("errors");

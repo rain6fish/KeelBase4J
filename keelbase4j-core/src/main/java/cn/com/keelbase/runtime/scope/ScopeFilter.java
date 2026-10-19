@@ -43,7 +43,9 @@ public class ScopeFilter {
      * this registry is not scope-filterable at all — see {@link #restrict}.
      */
     private static final Map<String, ScopeColumns> SCOPE_COLUMNS = Map.of(
-            "Customer", new ScopeColumns("ownerUserId", "orgId", "deptId"));
+            "Customer", new ScopeColumns("ownerUserId", "orgId", "deptId"),
+            "PmProject", new ScopeColumns("ownerUserId", "orgId", "deptId"),
+            "PmTask", new ScopeColumns("ownerUserId", "orgId", "deptId"));
 
     private final DataScopeRules levels;
     private final Departments departments;

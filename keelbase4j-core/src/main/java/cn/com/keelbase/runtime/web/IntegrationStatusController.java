@@ -169,10 +169,19 @@ public class IntegrationStatusController {
             names.add(tool.name());
             String level = tool.riskLevel();
             distribution.merge(level == null ? "(null)" : level, 1L, Long::sum);
-            if (level == null || !RiskLevel.RISK_STRATEGY.containsKey(level)) {
+            boolean invalid = level == null || !RiskLevel.RISK_STRATEGY.containsKey(level);
+            if (invalid) {
                 invalidLevels.add(tool.name());
             }
-            if (tool.resultType() != null && !"local_compensate".equals(tool.revokeClass())) {
+            // A tool the risk policy always blocks never executes, so it has no side effect to leave
+            // uncompensated. Warning about its revoke class would describe a write that cannot happen
+            // — and a permanent warning is one an operator learns to ignore.
+            //
+            // 一个始终被风险策略阻断的工具**从不执行**，故它没有会留下的未补偿副作用。为它的撤销档位告警，
+            // 等于描述一次**不可能发生**的写 —— 而一条恒久的告警，是操作者会学会忽略的那种。
+            boolean alwaysBlocked = !invalid && "block".equals(RiskLevel.strategy(level));
+            if (tool.resultType() != null && !"local_compensate".equals(tool.revokeClass())
+                    && !alwaysBlocked) {
                 writeWithoutRevoke.add(tool.name());
             }
         }

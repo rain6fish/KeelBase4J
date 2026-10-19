@@ -77,12 +77,13 @@ KeelBase4J 是**载体**，不是第二个产品：它的存在，是让 Java/Sp
 mvn test
 ```
 
-**测试全绿**——`mvn test` 覆盖协议库、运行时、生成器与适配器；实时状态看上方 CI 徽章，而不是写在这里的一个数字。下面每个主张都能真跑出来——五个脚本，前三个不需要模型：
+**测试全绿**——`mvn test` 覆盖协议库、运行时、生成器与适配器；实时状态看上方 CI 徽章，而不是写在这里的一个数字。下面每个主张都能真跑出来——六个脚本，前四个不需要模型：
 
 ```bash
 bash scripts/demo-generated-app.sh    # 生成 → 构建 → 运行 → 走一遍信任闭环
 bash scripts/demo-changeability.sh    # 变更 → 再生成 → 手改存活 → 新规则生效
 bash scripts/demo-migration.sh        # 变更 → 加性迁移 → 存量数据跟着走
+bash scripts/demo-pm-reference.sh     # PM 参考项目的完整治理闭环
 
 export DEEPSEEK_API_KEY=...           # demo 模块也可用 -Popenai 或 -Pollama 构建
 bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
@@ -130,6 +131,7 @@ bash scripts/demo-springai-task.sh    # 真模型驱动框架自己的多步循�
 | 调用方不能自称身份或权限 | `AuthenticationTest` | 身份是薄 SPI；默认适配器把主体映射到已声明的本地事实 |
 | 能力决策与数据范围彼此分离 | `PermissionWireTest` · `AuthorizationMappingTest` · `ScopeFilterTest` | 规则是代码里声明的（交付档 A） |
 | 没有人批准，写操作不执行 | `TrustLoopTest` | — |
+| 同一条信任闭环能跑在第二个域（PM）上 | `PmReferenceLoopTest` · `demo-pm-reference.sh` | R1 自动 / R3 确认 / R4 双人审批 / R5 阻断 / 本地撤销；本参考项目尚未包含里程碑与成员 |
 | 一个确认令牌恰好执行一次工具 | `ConfirmationConcurrencyTest`（先写会红的测试）· `demo-generated-app.sh` 里的八并发检查 | — |
 | 审计链防篡改，且串行追加在行锁上 | `AuditChainConcurrencyTest` · `GET /audit/verify` | spike 的存储是内存库，故为进程内 |
 | 生成物可独立运行 | `demo-generated-app.sh` | 生成器处理的是它所针对的 CRM 形状请求 |
