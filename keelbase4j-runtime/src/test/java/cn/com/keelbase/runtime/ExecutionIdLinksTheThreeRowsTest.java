@@ -46,6 +46,16 @@ import org.springframework.test.context.ActiveProfiles;
  * behind is ambiguous, and that the new key splits it. The reverse control is the point — an id that
  * is merely written everywhere would pass a "the rows have an id" assertion and prove nothing.
  *
+ * <p><b>Measured reverse control, 2026-10-19.</b> Replacing the minted id with {@code null} in
+ * {@code GovernedExecutionEngine#run} — one line, no schema change — turns all four tests below red,
+ * and every failure is the correlation assertion rather than an incidental one: the concurrent case
+ * reports "the execution id is what splits the cohort into exactly two attempts"
+ * ({@code expected: <2> but was: <1>}); the same-tool case reports the result row's id is null; the
+ * no-conversation case reports "the id is the only link they carry" ({@code expected: not <null>});
+ * and the reuse case reports "the attempts are two, with different ids"
+ * ({@code expected: <2> but was: <1>}). Restoring the line returns all four to green. The tests
+ * therefore measure that the key is load-bearing, not merely that a column gets filled.
+ *
  * <p>一次执行的三行 —— intent、结果、副作用 —— 带同一个 id，且恰好用在那三种「会话与时钟分不开两次执行」
  * 的情形上。
  *
@@ -53,6 +63,13 @@ import org.springframework.test.context.ActiveProfiles;
  * 调用**并发**、同一个工具**连调两次**、或一次**根本没有会话**的调用（任务运行、MCP 调用方）时不够。下面每个
  * 测试因此不止数 id：它先显示旧键留下的那一批行是**有歧义**的，再显示新键把它**分开**。反向对照才是要点 ——
  * 一个「到处都写了个 id」的实现能通过「这些行有 id」的断言，却什么都没证明。
+ *
+ * <p><b>2026-10-19 实测的反向对照。</b>把 `GovernedExecutionEngine#run` 里生成的 id 换成 `null` —— 一行、
+ * 不动 schema —— 下面四个测试**全红**，且每一条失败都是**关联断言**、不是顺带的别处：并发那条报「the execution
+ * id is what splits the cohort into exactly two attempts」（`expected: <2> but was: <1>`）；同工具两次那条报
+ * 结果行的 id 为 null；无会话那条报「the id is the only link they carry」（`expected: not <null>`）；复用那条报
+ * 「the attempts are two, with different ids」（`expected: <2> but was: <1>`）。把那一行改回去，四个**全部
+ * 转绿**。因此这些测试度量的是**这个键确实承重**，而不只是「某一列被填上了」。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
