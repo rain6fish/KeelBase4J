@@ -62,6 +62,27 @@ Any coverage statement that accompanies such a package must also carry one more 
 the runtime is embedded in a host that owns the business write, that write and its audit row are not
 written in one transaction, so a crash between them leaves an executed write unaudited.
 
+## 8. The coverage statement this deployment can answer
+
+`GET /audit/coverage?since=&until=&userId=` answers what a window was read from and what reading it
+cannot show. It is gated by `read` on `AuditLog`, so administrators and a deployment-declared audit
+reader reach it and an ordinary caller does not; it defaults to the last 30 days. The response names
+the registry revision it was judged against, the scope, the sources actually read, a **derived**
+verdict and the applicable gaps — every gap comes from the vendored registry, not from this page.
+
+Declare the deployment facts under `keelbase.coverage.*`:
+
+| setting | standalone | embedded host |
+|---|---|---|
+| `host` | `none` | `yudao` or `ruoyi` |
+| `host-owns-business-write` | `false` | `true` when the host, not the runtime, writes the business row |
+| `host-own-ai-path` | `false` | `true` when the host runs an AI path of its own |
+
+With those set, a host deployment's statement declares `host-write-not-in-same-transaction`, and —
+when the host has its own AI path — `host-ai-path-not-governed`. The delivery acceptance form must
+carry the applicable gap ids from this statement; an acceptance form that cannot be read for its
+coverage is not a completed delivery.
+
 ---
 
 # 拿到第一枚令牌 —— 部署方要做什么
@@ -125,3 +146,22 @@ written in one transaction, so a crash between them leaves an executed write una
 
 随这类证据包给出的覆盖声明还必须带上另一件事（`D28 ④`）：当运行时被嵌入一个**自己持有业务写**的宿主时，
 那次写与它的审计行**不在同一个事务里**写，两者之间崩溃会留下一条**已执行、未审计**的写。
+
+## 8. 本部署能答出的覆盖声明
+
+`GET /audit/coverage?since=&until=&userId=` 答出一个时间窗是从什么读来的、以及这么读**看不了**什么。
+闸是 `AuditLog` 上的 `read`，故管理员与部署方点名的审计读者够得到、普通调用方够不到；默认最近 30 天。
+响应点名判断所依据的登记表版本、口径、真的读过的源、**算出来**的结论、以及适用的缺口 —— 每一条缺口都来自
+vendored 的登记表，不是这一页写的。
+
+部署事实在 `keelbase.coverage.*` 下声明：
+
+| 设置 | 独立运行时 | 嵌入宿主 |
+|---|---|---|
+| `host` | `none` | `yudao` 或 `ruoyi` |
+| `host-owns-business-write` | `false` | 业务那一行由**宿主**写、不由运行时写时为 `true` |
+| `host-own-ai-path` | `false` | 宿主有自己的一条 AI 路径时为 `true` |
+
+设好之后，宿主部署的声明会带上 `host-write-not-in-same-transaction`；宿主另有自己的 AI 路径时还要带上
+`host-ai-path-not-governed`。交付验收单必须携带这份声明里**实际适用**的缺口 id；一份读不到覆盖声明的
+验收单，不算一次已完成的交付。

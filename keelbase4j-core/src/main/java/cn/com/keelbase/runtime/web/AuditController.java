@@ -176,15 +176,21 @@ public class AuditController {
      * 参照实现用 {@code new Date(...)} 解析它，日期与日期时间都收；一个**差了一天**的部署比一个**说明自己
      * 读不懂输入**的部署更糟。
      */
-    private static Instant instant(String since) {
+    static Instant instant(String since) {
+        return instant("since", since);
+    }
+
+    /** The same parser, naming the field it is refusing — the coverage endpoint reads two boundaries. */
+    /** 同一个解析器，并点名它拒绝的是哪个字段 —— 覆盖声明端点读两个边界。 */
+    static Instant instant(String field, String value) {
         try {
-            return Instant.parse(since);
+            return Instant.parse(value);
         } catch (DateTimeParseException notAnInstant) {
             try {
-                return LocalDate.parse(since).atStartOfDay(ZoneOffset.UTC).toInstant();
+                return LocalDate.parse(value).atStartOfDay(ZoneOffset.UTC).toInstant();
             } catch (DateTimeParseException notADateEither) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "since must be an ISO-8601 instant or date, such as 2026-10-09 or "
+                        field + " must be an ISO-8601 instant or date, such as 2026-10-09 or "
                                 + "2026-10-09T00:00:00Z");
             }
         }

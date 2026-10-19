@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
 import cn.com.keelbase.runtime.governance.ConfirmationSweeper;
 import cn.com.keelbase.runtime.web.ChatController;
+import cn.com.keelbase.runtime.web.CoverageController;
 import cn.com.keelbase.runtime.web.WireErrorController;
 import org.springframework.boot.webmvc.error.ErrorController;
 import java.util.Arrays;
@@ -96,6 +97,9 @@ class CoreAssemblyTest {
     void theWebSurfaceCameWithIt() {
         assertTrue(context.getBeansOfType(ChatController.class).size() == 1,
                 "and so do the endpoints — a host adds a jar, not a scan");
+        assertTrue(context.getBeansOfType(CoverageController.class).size() == 1,
+                "the host-side coverage statement comes with the same jar: "
+                        + context.getBeansOfType(CoverageController.class));
     }
 
     @Test

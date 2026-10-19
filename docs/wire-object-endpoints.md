@@ -191,10 +191,31 @@ chain verification, and a local delegation sign-then-verify probe. Each dimensio
 and the reading behind it; a dimension that cannot be measured reports `unknown` or `not_applicable`
 rather than green. It is authenticated and guarded by `read` on `IntegrationStatus`.
 
+`GET /api/v1/audit/coverage` is the **host-side coverage statement** (AW-3): what a window was read
+from, and what reading it cannot show. It answers the same shape the TypeScript console renders —
+`registryRevision`, `scope`, `sources` (only the sources actually read), a **derived** verdict
+(`complete` / `partial` / `unknown`), and the applicable gaps — and every gap comes from the
+vendored registry, so adding one there makes it appear here with no code change. It defaults to the
+last 30 days and is gated by `read` on `AuditLog`, the same as the rest of the audit reads: an audit
+reader reaches it, an ordinary caller does not. Deployment facts (`host`, whether the host owns the
+business write, whether it runs an AI path of its own) are declared under `keelbase.coverage.*`; a
+standalone runtime answers `none` / `false` / `false`, and the two host gaps then correctly do not
+apply. This statement is **not** a package: it is what must accompany one, and it is what a delivery
+acceptance form must carry.
+
 **本运行时自己的面（不是 wire 对象）。** `GET /api/v1/keelbase/status` **不是**冻结 wire 对象，语料也不断言它。
 它是本运行时的接入健康度报告：按读/写与风险统计的已注册工具、从引擎自己的 `GovernanceService.decide` 读出的
 生效 R3/R4 门控、审计行条数与时刻加链校验、以及本地委托签发/验签探针。每个维度带自己的状态与状态背后的读数；
 测不到的维度报 `unknown` 或 `not_applicable`，而不是绿色。它已认证，由 `IntegrationStatus` 上的 `read` 把关。
+
+`GET /api/v1/audit/coverage` 是**宿主侧的覆盖声明**（AW-3）：一个时间窗是从什么读来的，以及这么读
+**看不了**什么。它答的就是 TypeScript 控制台渲染的那个形状 —— `registryRevision`、`scope`、
+`sources`（只列**真的读过**的源）、**算出来**的结论（`complete` / `partial` / `unknown`）、以及适用的
+缺口 —— 每一条缺口都来自 vendored 的登记表，故在那里加一条就会出现在这里、代码一字不改。默认最近
+30 天，闸是 `AuditLog` 上的 `read`，与其余审计读面相同：审计读者够得到，普通调用方够不到。部署事实
+（`host`、宿主是否拥有业务写、是否有自己的一条 AI 路径）在 `keelbase.coverage.*` 下声明；独立运行时答
+`none` / `false` / `false`，两条宿主缺口于是**正确地不适用**。这份声明**不是**一个包：它是**必须随包
+给出**的东西，也是交付验收单必须携带的字段。
 
 ## Scope
 

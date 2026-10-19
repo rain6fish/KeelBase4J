@@ -205,6 +205,13 @@ Read this section before quoting anything above.
    a package must also carry one more fact (`D28 ④`): where the runtime is embedded in a host that
    owns the business write, that write and its audit row are not written in one transaction, so a
    crash between them leaves an executed write unaudited.
+9. **Not silent about its coverage.** `GET /audit/coverage` answers what a window was read from and
+   what reading it cannot show, in the same shape the TypeScript console renders. Every gap comes
+   from the vendored registry, so adding one there makes it appear here with no code change. The
+   deployment declares its own facts under `keelbase.coverage.*` — a standalone runtime answers "no
+   host", and an embedded host that owns the business write (or runs an AI path of its own) gets the
+   corresponding gap. The statement is a read for administrators and audit readers, like the rest of
+   the audit chain.
 
 ---
 

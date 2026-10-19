@@ -6,8 +6,10 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-public interface SideEffectRepository extends JpaRepository<SideEffect, Long> {
+public interface SideEffectRepository extends JpaRepository<SideEffect, Long>,
+        JpaSpecificationExecutor<SideEffect> {
 
     Optional<SideEffect> findByIdempotencyKey(String idempotencyKey);
 

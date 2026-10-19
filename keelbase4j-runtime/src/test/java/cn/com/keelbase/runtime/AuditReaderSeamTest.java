@@ -201,12 +201,31 @@ class AuditReaderSeamTest {
 
     @Test
     void theAuditReaderReachesEveryGovernanceReadFace() {
-        for (String path : List.of("/audit/verify", "/audit/logs?limit=5",
+        for (String path : List.of("/audit/verify", "/audit/logs?limit=5", "/audit/coverage",
                 "/audit/operations/logs", "/ai/tools", "/ai/governance/policy",
                 "/ai/tool-effects?limit=100", "/ai/confirmations?limit=100")) {
             assertEquals(200, get(path, AUDITOR).getStatusCode().value(),
                     "an audit reader must reach " + path);
         }
+    }
+
+    /**
+     * AW-3 on the host side: the statement is a data object, not prose — it names the registry it
+     * was judged against, the scope it was read over, and the gaps that apply.
+     *
+     * <p>宿主侧 AW-3：声明是**数据对象**、不是散文 —— 它点名判断所依据的登记表、读过的口径、以及适用的缺口。
+     */
+    @Test
+    void theCoverageStatementDeclaresItsRegistryScopeAndGaps() {
+        Map<String, Object> statement = Envelopes.data(body(get("/audit/coverage", AUDITOR)));
+
+        assertEquals("period", ((Map<?, ?>) statement.get("scope")).get("kind"),
+                "a period read is declared as one: " + statement);
+        assertTrue(((String) statement.get("registryRevision")).length() == 12,
+                "the statement is pinned to a registry revision: " + statement);
+        assertTrue(((List<?>) statement.get("gaps")).stream()
+                        .anyMatch(gap -> "chain-tail-deletion".equals(((Map<?, ?>) gap).get("id"))),
+                "a chain without an external anchor must say so: " + statement);
     }
 
     @Test
@@ -255,8 +274,8 @@ class AuditReaderSeamTest {
         assertEquals(200, get("/audit/logs", AUDITOR).getStatusCode().value(), "granted first");
 
         GRANTED.set(false);
-        for (String path : List.of("/audit/verify", "/audit/logs", "/audit/operations/logs",
-                "/ai/tools", "/ai/governance/policy", "/ai/confirmations")) {
+        for (String path : List.of("/audit/verify", "/audit/logs", "/audit/coverage",
+                "/audit/operations/logs", "/ai/tools", "/ai/governance/policy", "/ai/confirmations")) {
             assertEquals(403, get(path, AUDITOR).getStatusCode().value(),
                     "without the grant `read` is not held, so " + path + " must refuse");
         }
@@ -300,8 +319,9 @@ class AuditReaderSeamTest {
                     "the administrator reaches " + path + " as before the seam");
         }
 
-        for (String path : List.of("/audit/verify", "/audit/logs", "/audit/operations/logs",
-                "/ai/tools", "/ai/governance/policy", "/ai/confirmations")) {
+        for (String path : List.of("/audit/verify", "/audit/logs", "/audit/coverage",
+                "/audit/operations/logs", "/ai/tools", "/ai/governance/policy",
+                "/ai/confirmations")) {
             assertEquals(403, get(path, "alice").getStatusCode().value(),
                     "an ordinary caller is still refused " + path);
         }

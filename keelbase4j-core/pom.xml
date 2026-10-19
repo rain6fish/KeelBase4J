@@ -125,4 +125,30 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <!--
+      The coverage-gap registry is a mirror, not a source: its single home is the reference
+      repository's `Server-NestJS/src/ai/audit/coverage-gaps.ts`, and this build copies the vendored
+      `conformance/coverage-gaps.json` onto the classpath rather than keeping a second file beside the
+      code. A copy authored here would drift; a build-time copy cannot. The cross-repository gate
+      (`check-coverage-gaps-sync.mjs`) compares the mirror with the source.
+
+      —— 覆盖缺口登记表是**镜像**、不是源：它的单一真源在主仓的
+      `Server-NestJS/src/ai/audit/coverage-gaps.ts`，而本构建把 vendored 的
+      `conformance/coverage-gaps.json` 铺到 classpath 上，而不是在代码旁边再放一份。在这里另写一份会漂；
+      构建期拷贝不会。跨仓闸（`check-coverage-gaps-sync.mjs`）比对镜像与源。
+    -->
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+      <resource>
+        <directory>${project.basedir}/../conformance</directory>
+        <includes>
+          <include>coverage-gaps.json</include>
+        </includes>
+      </resource>
+    </resources>
+  </build>
 </project>
