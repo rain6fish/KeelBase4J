@@ -17,8 +17,10 @@ endings and indentation are not drift, a changed statement or predicate is).
 
 **Do not hand-edit it.** Edit the module and refresh.
 
-**`coverage-gaps.json` is mirror only.** It is a mirrored snapshot for third parties and the drift
-check; no code in this repository consumes it.
+**`coverage-gaps.json` is read-only to this repository.** It is a mirrored snapshot for third parties,
+the drift check, and the runtime's coverage statement: the core build copies it onto the classpath,
+and `CoverageGaps` reads it to decide which caveats a statement must declare. Nothing here writes it
+— the TypeScript module remains the only source, and hand-editing the mirror is still forbidden.
 
 ---
 
@@ -39,4 +41,6 @@ check; no code in this repository consumes it.
 
 **禁止手改。** 改模块，然后刷新。
 
-**`coverage-gaps.json` 只是镜像。** 它是一份供第三方与漂移检查使用的镜像快照；本仓没有任何代码消费它。
+**`coverage-gaps.json` 对本仓是只读输入。** 它是一份供第三方、漂移检查与运行时的覆盖声明使用的镜像快照：
+core 的构建把它拷到 classpath，`CoverageGaps` 读它来决定一份声明必须交代哪些告诫。本仓没有任何东西**写**它
+—— TypeScript 模块仍是唯一真源，手改镜像依旧禁止。
