@@ -12,9 +12,11 @@
 #      `PG_ENV=1`, that the same artifact runs on PostgreSQL instead of the file-backed H2 it ships with;
 #   4. every javadoc block reads English and then Chinese;
 #   5. the publish set still builds the way a release builds it — sources and javadoc included — and is
-#      still exactly four modules.
+#      still exactly four modules;
+#   6. the provider-bearing deployment still walks the governance chain with no model key when local
+#      debug is on — and cannot start without the switch (the reverse proof).
 #
-# Three things are deliberately out of the default run, each for a reason rather than for time:
+# Four things are deliberately out of the default run, each for a reason rather than for time:
 #   * `demo-golden-path.sh` needs the main repository's Web-Admin-Vue checkout. A gate that depends on a
 #     neighbouring repository's working tree would fail on a machine that legitimately does not have one,
 #     and a gate that fails for a reason unrelated to this repository is a gate people learn to ignore.
@@ -23,6 +25,8 @@
 #   * the PostgreSQL demo (`demo-generated-app-pg.sh`) needs Docker and a spare port to stand a
 #     `postgres:17` up. It sits behind `PG_ENV=1` for the same reason the adapter demos sit behind
 #     `LLM_ENV`: a gate that fails because a machine has no Docker is a gate people learn to ignore.
+#   * `demo-pm-reference.sh` is a reference-project demonstration, not a capability assertion; it stays
+#     manual by decision, so the gate does not grow a dimension that only re-shows a sample app.
 #
 # The contract pin is *read* from `.github/workflows/ci.yml` rather than written here a third time: a
 # hand-copied version rots the moment the workflows move, and this repository has already paid for that
@@ -46,9 +50,10 @@
 #   3. 生成物是真实、可独立运行的源码：生成 → 构建 → 独立运行 → 对它走信任闭环，变更与迁移各再来一遍 ——
 #      以及（在 `PG_ENV=1` 之后）**同一个产物起在 PostgreSQL** 上，而不是它自带的文件版 H2；
 #   4. 每个 javadoc 块英文在前、中文在后；
-#   5. 发布集合仍按发布的方式构建得出来（含 sources 与 javadoc），且仍恰为四个模块。
+#   5. 发布集合仍按发布的方式构建得出来（含 sources 与 javadoc），且仍恰为四个模块；
+#   6. 带 provider 的部署在打开本地调试、且**没有模型 key** 时仍走完整条治理链 —— 去掉开关则起不来（反向证明）。
 #
-# 有三件事**有意**不在默认跑，理由各有其理、不是省时间：
+# 有四件事**有意**不在默认跑，理由各有其理、不是省时间：
 #   * `demo-golden-path.sh` 需要主仓的 Web-Admin-Vue 检出。门禁若依赖相邻仓库的工作树，就会在本就没有它
 #     的机器上失败 —— 而一个因与本仓无关的原因变红的门禁，是会被人们学会忽略的那种门禁。
 #   * 适配器 demo（`demo-springai*.sh`）需要模型 key。它们放在 `LLM_ENV=1` 之后，与主仓门禁对待自己那条
@@ -56,6 +61,7 @@
 #   * PostgreSQL demo（`demo-generated-app-pg.sh`）需要 Docker 与一个空端口，好起一个 `postgres:17`。它放在
 #     `PG_ENV=1` 之后，理由与适配器 demo 放在 `LLM_ENV` 之后相同：一个因为机器上没有 Docker 就变红的门禁，
 #     是会被人们学会忽略的那种门禁。
+#   * `demo-pm-reference.sh` 是参考项目演示，不是能力断言；按决定保持手动，门禁不再长出一条只重复展示样例应用的维度。
 #
 # 契约的 pin 是**读**自 `.github/workflows/ci.yml`，不在这里写第三份：手抄的版本会在工作流变动的那一刻烂掉，
 # 而本仓已经为这条教训付过一次账。`release.yml` 也读，两者不一致即判失败。
@@ -180,6 +186,10 @@ echo "→ [Generated] 变更：再生成 → 手改存活 → 新规则生效"
 run_demo "Generated(变更后手改存活 + 新规则生效)" ./scripts/demo-changeability.sh
 echo "→ [Generated] 迁移：加性变更 → 存量数据跟着走"
 run_demo "Generated(迁移带着存量数据走)" ./scripts/demo-migration.sh
+
+# ── Local debug：带 provider 的部署在没有 key 时也走完治理链 ──────────────────
+echo "→ [Local debug] 本地调试模式：无模型 key 时治理链仍完整，去掉开关则起不来"
+run_demo "Local debug(无 key 走完治理链 + 反向证明)" ./scripts/demo-local-debug.sh
 
 # ── Release：发布集合仍按发布的方式构建 ──────────────────────────────────────
 echo "→ [Release] 发布集合（release profile，含 sources 与 javadoc）"

@@ -52,20 +52,25 @@ stop_app() {
   kill "${APP_PID:-}" 2>/dev/null || true
   # No `| head -1` here on purpose: under `set -o pipefail` the SIGPIPE it causes can make the whole
   # pipeline report failure, which would exit the script in the middle of cleanup.
-  local owner=""
-  owner="$(netstat -ano 2>/dev/null | awk -v p=":$PORT " 'index($0,p) && /LISTENING/ {print $NF; exit}')" || owner=""
-  if [ -n "$owner" ] && command -v taskkill >/dev/null 2>&1; then
-    taskkill //PID "$owner" //F >/dev/null 2>&1 || true
-  fi
-  wait "${APP_PID:-}" 2>/dev/null || true
-  local attempt
+  #
+  # `//T` kills the whole tree, not only the listener: on Windows the JVM can exit while a child keeps
+  # the port, and the next run then collides with it. The owner is re-read every second, so a listener
+  # that reappears (or was replaced) is killed too.
+  # `//T` 杀的是**整棵进程树**、不只是监听者：Windows 上 JVM 退出后仍可能有子进程占着端口，下一次跑就会
+  # 撞上它。每次循环都重新读一次属主，故重新出现（或被替换）的监听者也会被杀掉。
+  local attempt owner=""
   for attempt in $(seq 1 20); do
+    owner="$(netstat -ano 2>/dev/null | awk -v p=":$PORT " 'index($0,p) && /LISTENING/ {print $NF; exit}')" || owner=""
+    if [ -n "$owner" ] && command -v taskkill >/dev/null 2>&1; then
+      taskkill //PID "$owner" //T //F >/dev/null 2>&1 || true
+    fi
     if netstat -ano 2>/dev/null | grep -q ":$PORT .*LISTENING"; then
       sleep 1
     else
       break
     fi
   done
+  wait "${APP_PID:-}" 2>/dev/null || true
 }
 
 echo "== 4/4 run and exercise the trust loop =="
