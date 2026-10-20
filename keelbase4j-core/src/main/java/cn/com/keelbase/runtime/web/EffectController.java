@@ -97,24 +97,37 @@ public class EffectController {
         String conversation = conversationId == null || conversationId.isBlank() ? null : conversationId;
 
         // A manager sees the whole ledger; so does an audit reader — an identity whose every grant is
-        // `read` and that was granted `read` on this subject (JV-63 B5). The projection is exactly the
-        // one a manager already sees: no field is added for the reader, and the field whitelist itself
-        // (whether `userId` / `beforeSnapshot` should be narrower for a read-only reader) is still
-        // awaiting a decision, so this change neither widens nor narrows what is exposed.
+        // `read` and that was granted `read` on this subject (JV-63 B5). **Decided 2026-10-20
+        // (candidate ②): the read-only reader's rows omit `userId` and `conversationId`.** Nothing
+        // else is narrowed — the snapshots are required by the frozen `traceItem`, so narrowing them
+        // is a contract change (v6), which this decision did not take. The administrator's and an
+        // ordinary caller's own view keep both keys exactly as before. This is a **separate question**
+        // from the confirmation queue's `arguments`, which that reader still receives in full and
+        // which remains undecided.
         //
         // 管理员看整本账；审计读者也看整本账 —— 那个身份的每一条授予都只有 `read`，且在该 subject 上被授予了
-        // `read`（JV-63 B5）。**投影就是管理员今天看到的那一份**：不为读者新增任何字段，而字段白名单本身
-        // （`userId` / `beforeSnapshot` 对只读读者是否该更窄）**仍待裁**，故本次改动既不扩大也不缩小暴露面。
+        // `read`（JV-63 B5）。**2026-10-20 已裁（候选 ②）：只读读者的每一行去掉 `userId` 与
+        // `conversationId`。** 其余一律不收窄 —— 快照是冻结 `traceItem` 的必需字段，动它等于契约升 v6，而本次
+        // 裁定没有走那条路。管理员与普通调用方**本人**的视图两项照旧都在。这与确认队列的 `arguments` 是
+        // **两件事**：那个面该读者今天仍读到全部实参，而那条**仍未裁**。
         // The grant must cover **all** rows, not merely allow the action: a tier-B rule may declare
         // `read` with an owner field, and treating that as global would return every caller's rows.
         // 授予必须覆盖**全部行**，而不只是允许该动作：档 B 规则可以带 owner 字段声明 `read`，
         // 把它当作全局读就会返回所有人的行。
         PermissionCapabilityList.Resource effectRead =
                 authorizer.capabilityFor(principal, GovernanceReadSubjects.TOOL_EFFECT);
-        boolean globalRead = principal.isManager()
+        boolean manager = principal.isManager();
+        boolean globalRead = manager
                 || (effectRead != null
                     && PermissionCapabilityList.SCOPE_ALL.equals(effectRead.scope())
                     && effectRead.actions().contains(PermissionAuthorizer.ACTION_READ));
+        // One criterion decides whether the caller linkage is projected: the manager and every caller
+        // reading their own rows keep it, the read-only reader who reaches every row through the seam
+        // does not (JV-63 B5 ②). It is the same `globalRead` decision, not a second one.
+        //
+        // 调用方关联投不投影，只由**同一个判据**决定：管理员与**读自己那些行**的调用方都带它；只读读者经缝读到
+        // 全部行、则不带（JV-63 B5 ②）。用的是同一个 `globalRead` 判据，不是又判一次。
+        boolean callerLinkage = manager || !globalRead;
 
         Page<SideEffect> found;
         if (!globalRead) {
@@ -137,7 +150,9 @@ public class EffectController {
             found = repository.findAll(pageable);
         }
 
-        List<Map<String, Object>> items = found.getContent().stream().map(this::view).toList();
+        List<Map<String, Object>> items = found.getContent().stream()
+                .map(effect -> view(effect, callerLinkage))
+                .toList();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("total", found.getTotalElements());
         body.put("page", page);
@@ -162,7 +177,7 @@ public class EffectController {
     }
 
     /** A {@link LinkedHashMap}, not {@code Map.of}: several of these fields are legitimately null. */
-    private Map<String, Object> view(SideEffect e) {
+    private Map<String, Object> view(SideEffect e, boolean callerLinkage) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", e.getId());
         m.put("toolName", e.getToolName());
@@ -183,15 +198,24 @@ public class EffectController {
         // **这一列里住着两套词表**，用它之前值得知道：运行时自己那条 chat 路上的调用带的是**会话 id**，而一个宿主经
         // 自己的 agent 会话发出的调用带的是**那条会话的** id。两者都是字符串；trace 端点对第二种答 404，因为它没有
         // 那个 id 的会话。
-        m.put("conversationId", e.getConversationId());
+        // The caller linkage keys are the ones the read-only reader does not receive (JV-63 B5 ②);
+        // the manager and a caller's own list keep both. See the `list()` comment for the decision.
+        //
+        // 调用方关联这两键是只读读者**不收**的（JV-63 B5 ②）；管理员与本人清单两者都在。裁定见 `list()` 的注释。
+        if (callerLinkage) {
+            m.put("conversationId", e.getConversationId());
+        }
         // Who the write was for. The column has been non-null since it was added; what was missing was
         // the wire field that lets a console answer "who", which is why the contract now declares it
-        // (optional there, so a v4-shaped payload stays valid — this runtime always sends it).
+        // (optional there, so a v4-shaped payload stays valid). A manager and a caller reading their
+        // own rows always receive it; the read-only global reader does not (JV-63 B5 ②).
         //
         // 这次写是**为谁**写的。这一列自加进来起就非空；缺的是让控制台答得出「谁」的那个 wire
-        // 字段，故契约现在声明了它（在契约里是**可选**的，好让 v4 形态的载荷继续合法——而本运行时
-        // 总是发它）。
-        m.put("userId", e.getUserId());
+        // 字段，故契约现在声明了它（在契约里是**可选**的，好让 v4 形态的载荷继续合法）。管理员与
+        // **读自己那些行**的调用方总是收到它；只读的全局读者**不**收（JV-63 B5 ②）。
+        if (callerLinkage) {
+            m.put("userId", e.getUserId());
+        }
         m.put("resultType", e.getResultType());
         m.put("resultId", e.getResultId());
         m.put("argsHash", e.getArgsHash());

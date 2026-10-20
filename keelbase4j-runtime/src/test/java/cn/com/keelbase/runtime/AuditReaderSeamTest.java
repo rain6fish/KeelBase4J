@@ -22,8 +22,10 @@ import cn.com.keelbase.runtime.identity.IdentityResolver;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
@@ -159,6 +161,8 @@ class AuditReaderSeamTest {
     /** The rows this run put there, so the assertions are about them and not about a shared table. */
     private String effectOwnerA;
     private String effectOwnerB;
+    private Long effectAId;
+    private Long effectBId;
     private String confirmOwnerA;
     private String confirmOwnerB;
     private String confirmationToken;
@@ -169,10 +173,10 @@ class AuditReaderSeamTest {
         String run = UUID.randomUUID().toString();
         effectOwnerA = "effect-a-" + run;
         effectOwnerB = "effect-b-" + run;
-        sideEffects.record(new Principal(effectOwnerA, Principal.ROLE_USER), "create_followup",
-                "follow_up", 1L, "{\"run\":\"" + run + "-a\"}", "local_compensate");
-        sideEffects.record(new Principal(effectOwnerB, Principal.ROLE_USER), "create_followup",
-                "follow_up", 2L, "{\"run\":\"" + run + "-b\"}", "local_compensate");
+        effectAId = sideEffects.record(new Principal(effectOwnerA, Principal.ROLE_USER), "create_followup",
+                "follow_up", 1L, "{\"run\":\"" + run + "-a\"}", "local_compensate").getId();
+        effectBId = sideEffects.record(new Principal(effectOwnerB, Principal.ROLE_USER), "create_followup",
+                "follow_up", 2L, "{\"run\":\"" + run + "-b\"}", "local_compensate").getId();
 
         confirmOwnerA = "confirm-a-" + run;
         confirmOwnerB = "confirm-b-" + run;
@@ -231,9 +235,14 @@ class AuditReaderSeamTest {
     @Test
     void theAuditReaderSeesEveryCallersEffectsAndConfirmations() {
         Map<String, Object> effects = Envelopes.data(body(get("/ai/tool-effects?limit=100", AUDITOR)));
-        List<String> effectOwners = userIds((List<?>) effects.get("items"));
-        assertTrue(effectOwners.contains(effectOwnerA) && effectOwners.contains(effectOwnerB),
-                "the global read covers every caller's effects: " + effectOwners);
+        // ⚠ B5 ②: the auditor no longer receives `userId`, so the cross-caller assertion moves to `id` —
+        // the two rows were written by two different callers, and both being on this page proves "global".
+        //
+        // ⚠ B5 ②：审计读者**不再**收到 `userId`，故跨调用方的断言改按 `id` 做 —— 两行各由不同的
+        // 调用方写下，两行都在这一页里就证明了「全局」。
+        List<Long> pageEffectIds = effectIds((List<?>) effects.get("items"));
+        assertTrue(pageEffectIds.contains(effectAId) && pageEffectIds.contains(effectBId),
+                "the global read covers every caller's effects: " + pageEffectIds);
 
         Map<String, Object> queue = Envelopes.data(body(get("/ai/confirmations?limit=100", AUDITOR)));
         List<?> tokens = ((List<?>) queue.get("items")).stream()
@@ -241,6 +250,42 @@ class AuditReaderSeamTest {
                 .toList();
         assertTrue(tokens.contains(confirmationToken),
                 "the queue is read across callers, not narrowed to the reader: " + tokens);
+    }
+
+    /**
+     * JV-63 B5 ② (decided 2026-10-20): a read-only reader's rows omit the caller linkage, the
+     * administrator's keep every one of the 19 fields, and nothing else moves.
+     *
+     * <p>JV-63 B5 ②（2026-10-20 裁）：只读读者的每一行**不收**调用方关联；管理员的 19 个字段一个不少；
+     * 其余一律不动。
+     */
+    @Test
+    void theReadOnlyReaderGetsNoCallerLinkageAndTheAdministratorKeepsEveryField() {
+        Map<String, Object> readerPage = Envelopes.data(body(get("/ai/tool-effects?limit=100", AUDITOR)));
+        Map<String, Object> adminPage = Envelopes.data(body(get("/ai/tool-effects?limit=100", "carol")));
+
+        Map<?, ?> readerItem = itemWithId((List<?>) readerPage.get("items"), effectAId);
+        Map<?, ?> adminItem = itemWithId((List<?>) adminPage.get("items"), effectAId);
+
+        assertFalse(readerItem.containsKey("userId"),
+                "the read-only reader gets no caller identity: " + readerItem);
+        assertFalse(readerItem.containsKey("conversationId"),
+                "nor the conversation the write belongs to: " + readerItem);
+
+        assertEquals(effectOwnerA, adminItem.get("userId"),
+                "the administrator still sees who the write was for");
+        assertTrue(adminItem.containsKey("conversationId"),
+                "and the conversation key is still there: " + adminItem);
+
+        Set<Object> expectedReaderKeys = new LinkedHashSet<>(adminItem.keySet());
+        expectedReaderKeys.remove("userId");
+        expectedReaderKeys.remove("conversationId");
+        assertEquals(expectedReaderKeys, new LinkedHashSet<>(readerItem.keySet()),
+                "only the caller linkage is removed — no other field moves");
+
+        assertEquals(19, adminItem.size(),
+                "the administrator's projection is still the 19 fields of the frozen traceItem");
+        assertEquals(17, readerItem.size(), "and the reader's is the same 17");
     }
 
     /**
@@ -342,6 +387,25 @@ class AuditReaderSeamTest {
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────────────────────────
+
+    private static List<Long> effectIds(List<?> rows) {
+        List<Long> ids = new ArrayList<>();
+        for (Object row : rows) {
+            ids.add(((Number) ((Map<?, ?>) row).get("id")).longValue());
+        }
+        return ids;
+    }
+
+    /** One item by effect id; absent is a failure, not a null the caller could mistake for a reading. */
+    private static Map<?, ?> itemWithId(List<?> rows, Long id) {
+        for (Object row : rows) {
+            Map<?, ?> item = (Map<?, ?>) row;
+            if (id.equals(((Number) item.get("id")).longValue())) {
+                return item;
+            }
+        }
+        throw new AssertionError("no effect item with id " + id + " on the page: " + rows);
+    }
 
     private static List<String> userIds(List<?> rows) {
         List<String> owners = new ArrayList<>();
