@@ -325,14 +325,19 @@ public class AuditService {
      * writers fill in. A row that is not about one tool carries null there rather than an invented
      * name. **Not every `append` fills them:** the three- and four-argument overloads are kept because
      * published artifacts carry them, and a caller that uses one writes null on both — which is why
-     * the vocabulary's grouping is a claim about the tool actions, not about every row.
+     * the vocabulary's grouping is a claim about the tool actions, not about every row. v6 adds
+     * {@code executionId}, the correlation key of the governed execution the row belongs to; it is
+     * read, not derived, because the column has held it since {@code V14__execution_link} and the
+     * same value sits on the side-effect row that execution wrote.
      *
      * 一行，按冻结的 {@code ai-audit-log-row} 形状 —— 本运行时**有的那些字段**，此外什么都没有
      * （{@code additionalProperties} 是 false，故**猜一个**是违规、不是好意）。原先六个；C-3 加了
      * {@code outcome} 与 {@code tool}，由本运行时**自己的写入点**填。**不是关于某一个工具的行**在那里是
      * null，而不是编出来的名字。**⚠ 不是每一个 `append` 都填**：三参与四参重载**因已发布的 artifact 带着
      * 它们**而保留，走它们的人两列都写 null —— 这也正是「词表的分组是对**工具动作**的声明、不是对每一行的
-     * 声明」的原因。
+     * 声明」的原因。v6 加了 {@code executionId} —— 本行所属那一次受治理执行的关联键；它是**读出来的**、
+     * 不是推出来的，因为这一列自 {@code V14__execution_link} 起就在存它，而那次执行写下的副作用行上
+     * 带的是**同一个值**。
      */
     private static Map<String, Object> row(AuditLog log) {
         Map<String, Object> m = new LinkedHashMap<>();
@@ -344,6 +349,7 @@ public class AuditService {
         m.put("createdAt", log.getCreatedAt().toString());
         m.put("outcome", log.getOutcome());
         m.put("tool", log.getTool());
+        m.put("executionId", log.getExecutionId());
         m.put("authorization", log.getAuthorization());
         return m;
     }

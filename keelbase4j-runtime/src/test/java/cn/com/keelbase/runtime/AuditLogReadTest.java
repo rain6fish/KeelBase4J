@@ -2,6 +2,7 @@
 package cn.com.keelbase.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.protocol.Json;
@@ -173,6 +174,35 @@ class AuditLogReadTest {
         assertEquals(1, errors.size(), "only the row recorded as an error may come back");
         assertEquals("the call did not", ((Map<?, ?>) errors.get(0)).get("detail"));
         assertEquals(Boolean.TRUE, ((Map<?, ?>) errors.get(0)).get("isError"));
+    }
+
+    /**
+     * A row that belongs to no governed execution answers the optional field with null.
+     *
+     * <p>v6 made {@code executionId} optional, and this runtime writes the column for tool
+     * executions only; a non-tool row (a chat turn here) has nothing to correlate and must not
+     * borrow an id from a neighbouring row. The field is still projected so a client can read the
+     * absence rather than guess at it.
+     *
+     * 不属于任何一次受治理执行的行，对这个可选字段答 null。
+     *
+     * <p>v6 把 {@code executionId} 定为可选，而本运行时只为工具执行写这一列；非工具行（这里是一轮 chat）
+     * 没有可关联的东西，不得向相邻的行借一个 id。字段**仍然投影出来**，好让客户端读到的是**缺席本身**、
+     * 而不是靠猜。
+     */
+    @Test
+    void aRowThatBelongsToNoExecutionCarriesNoId() {
+        String who = "no-exec-" + UUID.randomUUID();
+        audit.append("chat", who, "a chat turn, not a tool execution");
+
+        List<?> found = rows("?userId=" + who, ADMIN);
+
+        assertEquals(1, found.size(), "the filter must narrow the chain to this caller's row");
+        Map<?, ?> row = (Map<?, ?>) found.get(0);
+        assertTrue(row.containsKey("executionId"),
+                "the projection answers the field even when there is no execution to name");
+        assertNull(row.get("executionId"), "a chat row belongs to no governed execution");
+        WireSchemas.assertConformsTo(row, "ai-audit-log-row");
     }
 
     @Test

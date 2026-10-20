@@ -114,13 +114,63 @@ class ToolEffectsContractTest {
                 "a caller cannot ask for the whole table by asking for a big limit");
     }
 
+    /**
+     * One governed execution is one correlation key, and both surfaces carry it with the same value.
+     *
+     * <p>The effect list and the audit chain are written by the same call, but they are read through
+     * two different projections; a client pairs them by {@code executionId} only if both project the
+     * column. The contract made the field optional (v6), so a projection that forgot it would still
+     * validate — which is why this asserts the pairing itself rather than the field's presence alone.
+     *
+     * 一次受治理执行就是一个关联键，而两个面带的是**同一个值**。
+     *
+     * <p>副作用清单与审计链由同一次调用写下，却经**两个不同的投影**读出；只有当两边都投影了那一列，
+     * 客户端才能按 {@code executionId} 把它们配起来。契约把该字段定为可选（v6），故**漏掉它**的投影照样
+     * 能通过校验 —— 这正是这里断言**配对本身**、而不只是字段存在的原因。
+     */
+    @Test
+    void theEffectAndItsAuditRowCarryTheSameExecutionId() {
+        Principal alice = new Principal("alice", "user");
+        Long customerId = customers.save(new Customer("Execution Id Co", "low", "alice")).getId();
+        ExecutionOutcome pending = engine.execute("create_followup",
+                Map.of("customerId", customerId, "note", "execution id pairing"), alice);
+        engine.approve(pending.token(), alice);
+
+        Map<?, ?> effect = null;
+        for (Object item : (List<?>) get("/ai/tool-effects?page=1&limit=100").get("items")) {
+            if ("execution id pairing".equals(((Map<?, ?>) item).get("targetTitle"))) {
+                effect = (Map<?, ?>) item;
+                break;
+            }
+        }
+        assertNotNull(effect, "the effect just written should be listed");
+        Object executionId = effect.get("executionId");
+        assertNotNull(executionId, "an effect written by a tool execution carries its execution id");
+
+        // Read as the administrator, because the chain is not a roster every caller may read.
+        // 以管理员身份读，因为这条链不是每个调用方都能读的花名册。
+        List<?> auditRows = Envelopes.data(getAs("/audit/logs?userId=alice&limit=100", "carol"));
+        long matching = auditRows.stream()
+                .map(row -> (Map<?, ?>) row)
+                .filter(row -> executionId.equals(row.get("executionId")))
+                .count();
+        assertEquals(2, matching,
+                "the attempted and executed audit rows of that execution both carry the same key — "
+                        + "and no other row does");
+    }
+
     private Map<String, Object> get(String path) {
+        return Envelopes.data(getAs(path, "alice"));
+    }
+
+    /** The raw envelope; a caller unwraps the {@code data} it expects with {@link Envelopes}. */
+    private Object getAs(String path, String user) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(TestTokens.forUser("alice", delegationSecret));
+        headers.setBearerAuth(TestTokens.forUser(user, delegationSecret));
         ResponseEntity<Map> res = rest.exchange(path, org.springframework.http.HttpMethod.GET,
                 new HttpEntity<>(headers), Map.class);
         assertEquals(200, res.getStatusCode().value(), path);
-        return Envelopes.data(res.getBody());
+        return res.getBody();
     }
 }

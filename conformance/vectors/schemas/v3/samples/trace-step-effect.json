@@ -1,0 +1,17 @@
+{
+  "id": "effect-42",
+  "type": "effect",
+  "time": "2026-10-20T09:12:04Z",
+  "toolName": "create_crm_task",
+  "effect": {
+    "effectId": 42,
+    "resultType": "crm_task",
+    "resultId": 7,
+    "targetTitle": "Follow up with Aurora Tech",
+    "revocable": true,
+    "status": "executed",
+    "before": null,
+    "after": "{\"title\":\"Follow up with Aurora Tech\",\"customerId\":9}"
+  },
+  "agentId": "local"
+}

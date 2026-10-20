@@ -254,10 +254,13 @@ class AuditReaderSeamTest {
 
     /**
      * JV-63 B5 ② (decided 2026-10-20): a read-only reader's rows omit the caller linkage, the
-     * administrator's keep every one of the 19 fields, and nothing else moves.
+     * administrator's keep every field of the frozen {@code traceItem}, and nothing else moves.
+     * The count moved from 19 to 20 with contract v6, which added the optional {@code executionId}
+     * to both the administrator's and the reader's row — it is not caller linkage.
      *
-     * <p>JV-63 B5 ②（2026-10-20 裁）：只读读者的每一行**不收**调用方关联；管理员的 19 个字段一个不少；
-     * 其余一律不动。
+     * <p>JV-63 B5 ②（2026-10-20 裁）：只读读者的每一行**不收**调用方关联；冻结 {@code traceItem} 的
+     * 字段管理员的每一行一个不少；其余一律不动。契约 v6 把计数从 19 抬到 20 —— 它在管理员与读者的行上
+     * **都**加了可选的 {@code executionId}，而它不属于调用方关联。
      */
     @Test
     void theReadOnlyReaderGetsNoCallerLinkageAndTheAdministratorKeepsEveryField() {
@@ -283,9 +286,11 @@ class AuditReaderSeamTest {
         assertEquals(expectedReaderKeys, new LinkedHashSet<>(readerItem.keySet()),
                 "only the caller linkage is removed — no other field moves");
 
-        assertEquals(19, adminItem.size(),
-                "the administrator's projection is still the 19 fields of the frozen traceItem");
-        assertEquals(17, readerItem.size(), "and the reader's is the same 17");
+        assertEquals(20, adminItem.size(),
+                "the administrator's projection is the 20 fields of the frozen traceItem");
+        assertEquals(18, readerItem.size(), "and the reader's is the same 18");
+        assertTrue(adminItem.containsKey("executionId"),
+                "the correlation key is carried on both rows, since it names an execution not a caller");
     }
 
     /**

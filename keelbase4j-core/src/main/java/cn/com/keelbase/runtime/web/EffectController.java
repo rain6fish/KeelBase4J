@@ -218,6 +218,15 @@ public class EffectController {
         }
         m.put("resultType", e.getResultType());
         m.put("resultId", e.getResultId());
+        // The governed execution that wrote this row, and the key that pairs it with that execution's
+        // audit row (contract v6, optional there). Read from the column, never derived from tool +
+        // user + time. It is not caller linkage, so the read-only reader receives it too: a UUID
+        // names an execution, not a person.
+        //
+        // 写下本行的那一次受治理执行，也是把它与那次执行的审计行配成对的键（契约 v6，在那里是**可选**的）。
+        // 读自这一列，绝不靠 tool + user + 时间推。它不属于调用方关联，故只读读者**也**收到它：
+        // 一个 UUID 命名的是**一次执行**、不是一个人。
+        m.put("executionId", e.getExecutionId());
         m.put("argsHash", e.getArgsHash());
         m.put("createdAt", e.getCreatedAt().toString());
 

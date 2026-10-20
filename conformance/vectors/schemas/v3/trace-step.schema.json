@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v3/trace-step.schema.json",
+  "title": "Conversation Trace Step — v3",
+  "description": "GET /ai/conversations/:id/trace data.steps[]. The `type` enum stays frozen — widening it breaks front-end predicates. v3 (2026-10-20, A4): `traceEffect` now declares `status` — the server-normalized lifecycle reading (`executed` / `revoked` / `revoking_external` / `revoke_failed`) that `EffectProjection.normalizeStatus` has always supplied and `decision-trace.service.ts` has always passed through, but which the schema never named. Additive: every v2 field and its semantics are unchanged, no value set moves, and the field is required because the trace always emits it (there is no \"absent\" reading). Source: src/ai/trace/decision-trace.service.ts. v2 (2026-10-03, T.9 F2): `outcome` gains `pending_approval` — R4 high-impact actions are referred to human approval instead of inlining a confirmation; additive for the same reason. / GET /ai/conversations/:id/trace 的 data.steps[] 元素（TraceStep）。type 枚举若扩会破坏前端判据——冻结敏感点。v3（2026-10-20，A4）：`traceEffect` 补上 `status` —— 服务端归一的生命周期读数（`executed` / `revoked` / `revoking_external` / `revoke_failed`），`EffectProjection.normalizeStatus` 一直下发、`decision-trace.service.ts` 一直原样透传，只是 schema 从未命名它。**加性**：v2 的全部字段与其语义一字未动、取值集合不变；该字段列为 required，因为轨迹恒下发它（不存在「缺席」这个读数）。来源：src/ai/trace/decision-trace.service.ts。",
+  "type": "object",
+  "required": ["id", "type", "time"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "enum": ["input", "assistant", "tool_call", "confirmation", "effect", "notice"] },
+    "time": { "type": "string", "format": "date-time" },
+    "toolName": { "type": "string" },
+    "args": { "type": "string" },
+    "success": { "type": "boolean" },
+    "errorMessage": { "type": ["string", "null"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "ok"],
+        "properties": { "name": { "type": "string" }, "ok": { "type": "boolean" }, "note": { "type": "string" } }
+      }
+    },
+    "outcome": { "enum": ["approve", "decline", "timeout", "pending_approval"] },
+    "trusted": { "type": "boolean" },
+    "content": { "type": "string" },
+    "detail": { "type": ["string", "null"] },
+    "model": { "type": "string" },
+    "provider": { "type": "string" },
+    "tokens": { "type": "number" },
+    "effect": {
+      "$ref": "#/definitions/traceEffect"
+    },
+    "agentId": { "type": "string" },
+    "callerAgentId": { "type": "string" },
+    "businessEvent": { "type": ["string", "null"] },
+    "evidence": { "type": ["string", "null"] }
+  },
+  "definitions": {
+    "traceEffect": {
+      "type": "object",
+      "required": ["effectId", "resultType", "resultId", "revocable", "status"],
+      "additionalProperties": true,
+      "properties": {
+        "effectId": { "type": "number" },
+        "resultType": { "type": "string" },
+        "resultId": { "type": "number" },
+        "targetTitle": { "type": ["string", "null"] },
+        "revocable": { "type": "boolean" },
+        "status": {
+          "type": "string",
+          "enum": ["executed", "revoked", "revoking_external", "revoke_failed"],
+          "description": "The projection's normalized lifecycle reading, passed through unchanged; the trace never derives a second one. / 投影归一的生命周期读数，原样透传；轨迹不自算第二套。"
+        },
+        "before": { "type": ["string", "null"] },
+        "after": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

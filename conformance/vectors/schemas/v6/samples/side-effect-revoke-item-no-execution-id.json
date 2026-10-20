@@ -1,0 +1,19 @@
+{
+  "id": 9310,
+  "toolName": "create_followup_task",
+  "conversationId": "conv-42-support",
+  "userId": "42",
+  "resultType": "crm_task",
+  "resultId": 42,
+  "createdAt": "2026-09-11T09:12:55.000Z",
+  "targetExists": true,
+  "targetSoftDeleted": false,
+  "targetTitle": "回访客户 17",
+  "revokeClass": "local_compensate",
+  "revokeStatus": null,
+  "status": "executed",
+  "revocable": true,
+  "change": { "kind": "created", "fields": [] },
+  "compensationGroup": null,
+  "parentEffectId": null
+}

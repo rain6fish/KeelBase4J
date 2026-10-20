@@ -95,7 +95,16 @@ jobs:
           # 2026-10-12 再抬到 v1.8.0：它带着 `wire-schema-registry-v2.json`，而本仓现在读的就是它
           # （ADR-0007 §3 的 `Q10`）。pin 用的是**版本**，这本身也就是那份文件**能被 vendor 进来**的原因
           # —— 快照取自一个版本，从不取自 `main`。
-          ref: v1.12.0
+          #
+          # Raised to v1.14.0 on 2026-10-20 for the v6 schema generation: it declares the optional
+          # `executionId` on the audit row and on the side-effect `item`/`traceItem`, which this
+          # runtime now sends so a side effect can be paired with the audit row of the same governed
+          # execution. The snapshot was refreshed from that version and matches it exactly.
+          #
+          # 2026-10-20 抬到 v1.14.0，对应 v6 这一代 schema：它在审计行与副作用的 `item`/`traceItem`
+          # 上声明了**可选**的 `executionId`，本运行时现在会发出它，好让一条副作用能与写下它的那一次
+          # 受治理执行的审计行**精确配成对**。快照正是从该版本刷新、且与之逐字节一致。
+          ref: v1.14.0
           path: contract-repo
       # Scenario packs are not part of the contract, so they are still taken from where they live.
       - name: Check out the main repo's scenario packs

@@ -258,6 +258,16 @@ public class ConversationController {
         traceEffect.put("resultType", effect.getResultType());
         traceEffect.put("resultId", effect.getResultId());
         traceEffect.put("revocable", !"none".equals(effect.getRevokeClass()));
+        // The frozen v3 `traceEffect` requires `status` — the projection's normalized lifecycle
+        // reading, passed through rather than derived a second time. The trace applies the same
+        // normalization the effect list applies: one stored column says where the revoke is, and the
+        // effect's own status stays `executed` until a compensation finishes.
+        //
+        // 冻结的 v3 `traceEffect` 要求 `status` —— 投影归一的生命周期读数，原样透传、不另算一套。轨迹
+        // 施加的是副作用清单所施加的**同一个**归一：一条存储列说撤销走到哪，而 effect 自己的 status
+        // 在补偿结束前**仍是 `executed`**。
+        traceEffect.put("status",
+                "revoked".equals(effect.getRevokeStatus()) ? "revoked" : "executed");
         traceEffect.put("before", effect.getBeforeSnapshot());
         traceEffect.put("after", effect.getAfterSnapshot());
         Map<String, Object> step = new LinkedHashMap<>();
