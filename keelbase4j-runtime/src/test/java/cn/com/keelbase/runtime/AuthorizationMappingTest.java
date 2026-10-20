@@ -104,6 +104,11 @@ class AuthorizationMappingTest {
                 }
 
                 @Override
+                public String resultType() {
+                    return "wire_transfer";
+                }
+
+                @Override
                 public ToolResult execute(Map<String, Object> args, Principal principal) {
                     return ToolResult.ok(null);
                 }

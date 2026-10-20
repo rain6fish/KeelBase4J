@@ -2,9 +2,13 @@
 package cn.com.keelbase.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.runtime.audit.AuditService;
+import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
+import cn.com.keelbase.runtime.governance.ConfirmationRequestRepository;
 import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.tool.AiTool;
 import cn.com.keelbase.runtime.tool.ToolResult;
@@ -21,15 +25,16 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * A tool that declares a human-confirmation gate but no result type.
  *
  * <p>This is the declaration gap the runtime used to hide: {@code resultType} doubles as the
- * read/write switch, so a tool declaring R3 with no result type is counted as a read, never claimed,
- * and never recorded. A human can approve the confirmation and the write lands with no effect row to
- * audit or revoke. The health surface must call that out as a declaration error rather than count
- * the tool as a reader and move on.
+ * read/write switch, so a tool declaring R3 with no result type was counted as a read, never claimed,
+ * and never recorded. A human could approve the confirmation and the write landed with no effect row
+ * to audit or revoke. Registration now refuses the tool; the health surface must still name it as a
+ * declaration error rather than let the refusal live only in the startup log.
  *
  * <p>The defect belongs to the tools dimension only: the gate itself is intact (R3 still becomes
  * {@code confirm}), so the confirmation, audit and delegation dimensions stay green. That is what
@@ -38,8 +43,8 @@ import org.springframework.test.context.TestPropertySource;
  * 一个声明了人工确认闸、却没有声明结果类型的工具。
  *
  * <p>这就是运行时此前藏起来的声明缺口：`resultType` 同时是读写开关，故一个声明 R3、却没有结果类型的工具
- * 会被算作只读、从不占位、也从不记账。人可以批准确认，写落地了，却没有可供审计或撤销的副作用行。健康面
- * 必须把这报成声明错误，而不是把这个工具算作读工具然后继续。
+ * 会被算作只读、从不占位、也从不记账。人可以批准确认，写落地了，却没有可供审计或撤销的副作用行。现在注册
+ * 会拒绝它；健康面仍必须把它报成声明错误，而不是让这次拒绝只留在启动日志里。
  *
  * <p>缺陷只属于工具维度：闸本身完好（R3 仍然变成 `confirm`），故确认、审计与委托三维保持绿。这正是报告
  * **外科式**、而不是一律拉响警报的原因。
@@ -59,10 +64,11 @@ class IntegrationStatusResultTypeFailureTest {
     static class MissingResultTypeDeployment {
 
         /**
-         * A write by its gate (R3), but it never declares what it produced. The registry accepts it;
-         * only a reading of the declaration catches the gap.
+         * A write by its gate (R3), but it never declares what it produced. The registry refuses it;
+         * the status surface must keep naming it so the refusal is visible after startup.
          *
-         * 按闸算是写（R3），却从不说它产出了什么。注册表接受它；只有读一遍声明才抓得住这个缺口。
+         * 按闸算是写（R3），却从不说它产出了什么。注册表拒绝它；状态面仍必须点名它，好让这次拒绝在启动
+         * 之后依然可见。
          */
         @Bean
         AiTool gatedWriteWithoutResult() {
@@ -96,6 +102,12 @@ class IntegrationStatusResultTypeFailureTest {
     @Autowired
     AuditService audit;
 
+    @Autowired
+    GovernedExecutionEngine engine;
+
+    @Autowired
+    ConfirmationRequestRepository confirmations;
+
     @Value("${keelbase.delegation.secret}")
     String secret;
 
@@ -111,6 +123,10 @@ class IntegrationStatusResultTypeFailureTest {
                 "the reading must name the tool whose declaration is incomplete");
         assertEquals(List.of(), tools.get("invalidRiskLevels"),
                 "this is not an invalid level; it is a missing result type");
+        assertEquals(7, IntegrationStatusProbe.number(tools, "total"),
+                "registration refused the tool, so the registry holds the seven valid tools");
+        assertFalse(((List<?>) tools.get("names")).contains(TOOL),
+                "a refused tool is not registered and is not offered to a model");
 
         @SuppressWarnings("unchecked")
         List<String> errors = (List<String>) IntegrationStatusProbe.block(report, "health").get("errors");
@@ -129,5 +145,21 @@ class IntegrationStatusResultTypeFailureTest {
         assertEquals("ok", IntegrationStatusProbe.block(report, "audit").get("status"));
         assertEquals("ok", IntegrationStatusProbe.block(report, "delegation").get("status"));
         assertEquals("error", IntegrationStatusProbe.block(report, "health").get("status"));
+    }
+
+    @Test
+    void theRefusedToolCannotReachTheGateOrCreateAConfirmationRow() {
+        long rowsBefore = confirmations.count();
+
+        ResponseStatusException refused = assertThrows(ResponseStatusException.class,
+                () -> engine.execute(TOOL, Map.of(), new Principal(ADMIN, "admin")),
+                "an unregistered tool must be refused before the gate, not proposed to a person");
+
+        assertEquals(500, refused.getStatusCode().value(), "a refused declaration is a deployment error");
+        assertTrue(refused.getReason() != null && refused.getReason().contains(TOOL)
+                        && refused.getReason().contains("resultType"),
+                "the refusal names the tool and the missing declaration: " + refused.getReason());
+        assertEquals(rowsBefore, confirmations.count(),
+                "no confirmation row exists for a tool registration refused");
     }
 }

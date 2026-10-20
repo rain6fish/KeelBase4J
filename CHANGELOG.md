@@ -24,6 +24,14 @@ Each version is written in two blocks — English first, then Chinese — marked
   cannot be measured reports `unknown` or `not_applicable` rather than green. Authenticated, and
   guarded by `read` on `IntegrationStatus`.
 
+### Fixed
+
+- **A governed write that declares no `resultType` is refused registration.** R3/R4/R5 tools (or any
+  tool overriding `requiresConfirmation`) are no longer registered as reads: they are not offered to
+  a model and cannot be executed, the refusal is logged at startup, `keelbase/status` names it under
+  `missingResultTypes`, and `ToolRegistry.require` returns the same diagnosis. R0–R2 reads are
+  unaffected.
+
 **中文**
 
 ### 新增
@@ -33,6 +41,13 @@ Each version is written in two blocks — English first, then Chinese — marked
   调用读出的生效 R3/R4 门控、审计行（条数、近 24 小时条数、最近时刻与 id、链校验），以及与入站令牌
   **分开**记录的本地委托签发/验签探针。测不到的维度报 `unknown` 或 `not_applicable`，而不是绿色。
   已认证，由 `IntegrationStatus` 上的 `read` 把关。
+
+### 修复
+
+- **没有声明 `resultType` 的受治理写被拒绝注册。** R3/R4/R5 工具（或任何覆写
+  `requiresConfirmation` 的工具）不再被登记成只读：它们不会被交给模型、也无法执行，启动日志记下
+  拒绝，`keelbase/status` 在 `missingResultTypes` 里点名，`ToolRegistry.require` 交回同一份诊断。
+  R0–R2 的读不受影响。
 
 ## [0.1.9] - 2026-10-18
 

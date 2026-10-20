@@ -58,6 +58,11 @@ class GovernedToolCallbacksTest {
             }
 
             @Override
+            public String resultType() {
+                return "follow_up";
+            }
+
+            @Override
             public ToolResult execute(Map<String, Object> args, Principal principal) {
                 ranTools.add(name);
                 return ToolResult.ok(Map.of("id", 1));
@@ -91,6 +96,11 @@ class GovernedToolCallbacksTest {
             @Override
             public String riskLevel() {
                 return "R4";
+            }
+
+            @Override
+            public String resultType() {
+                return "follow_up";
             }
 
             @Override

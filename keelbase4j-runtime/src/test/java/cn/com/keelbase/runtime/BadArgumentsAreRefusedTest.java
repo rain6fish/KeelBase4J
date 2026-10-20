@@ -89,6 +89,11 @@ class BadArgumentsAreRefusedTest {
                 }
 
                 @Override
+                public String resultType() {
+                    return "probe_record";
+                }
+
+                @Override
                 public List<ToolParameter> parameters() {
                     return List.of(
                             ToolParameter.required("content", ToolParameter.STRING, "the note to keep"),
@@ -119,6 +124,11 @@ class BadArgumentsAreRefusedTest {
                 @Override
                 public String riskLevel() {
                     return "R3";
+                }
+
+                @Override
+                public String resultType() {
+                    return "probe_record";
                 }
 
                 @Override

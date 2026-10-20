@@ -44,6 +44,11 @@ public interface AiTool {
      * <p>A tool that names none is never claimed and never recorded, which makes this the read/write
      * switch as much as a label.
      *
+     * <p><b>A governed write (R3–R5, or a tool that overrides {@link #requiresConfirmation()} to
+     * true) that names none is refused registration.</b> It is not offered to a model and cannot be
+     * executed; {@code keelbase/status} names it. A read at R0–R2 keeps the old behaviour and needs
+     * nothing here.
+     *
      * 本工具创建的业务结果类型（例如 {@code follow_up}）；读则返回 null。
      *
      * <p><b>声明一个，就是就「结果」许下一个承诺。</b>点名了结果类型的工具，其执行会记进副作用账本；而账本
@@ -54,6 +59,10 @@ public interface AiTool {
      * 运行时**无从知道**一张它从未被展示过的行。
      *
      * <p>什么都不点名的工具**从不占位、也从不记账** —— 故这个方法是**读/写开关**，不只是一个标签。
+     *
+     * <p><b>一个受治理的写（R3–R5，或覆写 {@link #requiresConfirmation()} 为真的工具）什么都不点名时，
+     * 会被拒绝注册。</b>它不会被交给模型、也无法执行；`keelbase/status` 会点名它。R0–R2 的读保持旧行为，
+     * 这里不需要改。
      */
     default String resultType() {
         return null;

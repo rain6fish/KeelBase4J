@@ -133,6 +133,11 @@ class SpringAiToolCallPlannerTest {
             }
 
             @Override
+            public String resultType() {
+                return "R1".equals(riskLevel) ? null : "follow_up";
+            }
+
+            @Override
             public ToolResult execute(Map<String, Object> args, Principal principal) {
                 throw new AssertionError("a planner proposes; it must never execute " + name);
             }

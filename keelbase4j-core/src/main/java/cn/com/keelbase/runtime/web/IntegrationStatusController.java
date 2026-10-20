@@ -18,6 +18,7 @@ import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.security.CallerAuthenticator;
 import cn.com.keelbase.runtime.security.DelegationTokenAuthenticator;
 import cn.com.keelbase.runtime.tool.AiTool;
+import cn.com.keelbase.runtime.tool.ToolDeclaration;
 import cn.com.keelbase.runtime.tool.ToolRegistry;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -169,7 +170,7 @@ public class IntegrationStatusController {
         Map<String, String> levelByName = new LinkedHashMap<>();
         List<String> invalidLevels = new ArrayList<>();
         List<String> writeWithoutRevoke = new ArrayList<>();
-        List<String> missingResultTypes = new ArrayList<>();
+        Map<String, AiTool> missingResultTypeTools = new LinkedHashMap<>();
         List<String> names = new ArrayList<>();
         for (AiTool tool : all) {
             names.add(tool.name());
@@ -191,17 +192,27 @@ public class IntegrationStatusController {
                     && !alwaysBlocked) {
                 writeWithoutRevoke.add(tool.name());
             }
-            // A tool that declares (or inherits) a human-confirmation gate is a write. Without a
-            // result type the runtime treats it as a read: the execution is never claimed or
-            // recorded, so an approved confirmation leaves no side-effect row to audit or revoke.
-            // That is a declaration gap, not a valid read.
+            // A governed write without a result type is refused registration (see `ToolDeclaration`
+            // and `ToolRegistry`): without one the runtime would treat it as a read, so an approved
+            // execution would leave no side-effect row to audit or revoke. That is a declaration
+            // gap, not a valid read.
             //
-            // 声明（或继承）了人工确认闸的工具是写。没有结果类型时，运行时把它当只读：这次执行从不占位、
-            // 也不记账，故一条被批准的确认留不下可审计、可撤销的副作用行。那是声明缺口，不是合法的只读。
-            if (!invalid && tool.requiresConfirmation() && tool.resultType() == null) {
-                missingResultTypes.add(tool.name());
+            // 受治理的写没有结果类型时会被拒绝注册（见 `ToolDeclaration` 与 `ToolRegistry`）：没有它，
+            // 运行时会把这次写当只读，故一条被批准的执行留不下可审计、可撤销的副作用行。那是声明缺口，
+            // 不是合法的只读。
+            if (ToolDeclaration.missingResultType(tool)) {
+                missingResultTypeTools.put(tool.name(), tool);
             }
         }
+        // Refused tools are not in `all()` — the registry does not pretend they are available — but
+        // this block must still name them, or the refusal would only be visible in the startup log.
+        //
+        // 被拒绝的工具不在 `all()` 里 —— 注册表不会假装它们可用 —— 但本块仍必须点名它们，否则拒绝
+        // 就只出现在启动日志里。
+        for (AiTool refused : tools.refusedDeclarations()) {
+            missingResultTypeTools.putIfAbsent(refused.name(), refused);
+        }
+        List<String> missingResultTypes = List.copyOf(missingResultTypeTools.keySet());
 
         Map<String, Object> block = new LinkedHashMap<>();
         // The runtime has no @KeelbaseTool export surface; its tools are AiTool beans. Saying which
@@ -221,13 +232,7 @@ public class IntegrationStatusController {
 
         List<IntegrationDiagnostic> found = new ArrayList<>();
         String status;
-        if (all.isEmpty()) {
-            status = ERROR;
-            found.add(IntegrationDiagnostic.error("tools", "TOOLS_NONE_REGISTERED", null,
-                    "未注册任何 AI 工具",
-                    "`ToolRegistry` 为空：应用上下文里没有任何 `AiTool` bean",
-                    "把工具声明为 `AiTool` 的 Spring bean，并确认组件扫描覆盖到工具所在包"));
-        } else if (!invalidLevels.isEmpty()) {
+        if (!invalidLevels.isEmpty()) {
             status = ERROR;
             for (String name : invalidLevels) {
                 String level = levelByName.get(name);
@@ -240,13 +245,21 @@ public class IntegrationStatusController {
             }
         } else if (!missingResultTypes.isEmpty()) {
             status = ERROR;
-            for (String name : missingResultTypes) {
-                found.add(IntegrationDiagnostic.error("tools", "TOOLS_MISSING_RESULT_TYPE", name,
-                        "工具 `" + name + "` 声明需要人工确认，却没有声明 `resultType`",
-                        "`resultType` 为空时运行时把它当只读：不占位、不记账；确认后执行也留不下副作用记录",
-                        "若它写数据，让 `resultType()` 返回业务结果类型，并让 `execute` 返回带数字 `id` 的结果；"
+            for (AiTool tool : missingResultTypeTools.values()) {
+                found.add(IntegrationDiagnostic.error("tools", "TOOLS_MISSING_RESULT_TYPE", tool.name(),
+                        "工具 `" + tool.name() + "` 声明 `" + tool.riskLevel()
+                                + "`，按治理是写，却没有声明 `resultType`",
+                        "注册时已被拒绝：没有结果类型，运行时会把这次写当成只读，批准后执行也落不下"
+                                + "可供审计或撤销的副作用行",
+                        "让 `resultType()` 返回业务结果类型，并让 `execute` 返回带数字 `id` 的结果；"
                                 + "若它只读，把风险级降到 R0–R2"));
             }
+        } else if (all.isEmpty()) {
+            status = ERROR;
+            found.add(IntegrationDiagnostic.error("tools", "TOOLS_NONE_REGISTERED", null,
+                    "未注册任何 AI 工具",
+                    "`ToolRegistry` 为空：应用上下文里没有任何 `AiTool` bean",
+                    "把工具声明为 `AiTool` 的 Spring bean，并确认组件扫描覆盖到工具所在包"));
         } else if (!writeWithoutRevoke.isEmpty()) {
             status = WARN;
             for (String name : writeWithoutRevoke) {

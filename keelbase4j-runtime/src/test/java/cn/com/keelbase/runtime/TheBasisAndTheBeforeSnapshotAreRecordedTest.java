@@ -94,6 +94,11 @@ class TheBasisAndTheBeforeSnapshotAreRecordedTest {
                 }
 
                 @Override
+                public String resultType() {
+                    return "probe_blocked";
+                }
+
+                @Override
                 public ToolResult execute(Map<String, Object> args, Principal principal) {
                     throw new AssertionError("a blocked call must never reach the tool");
                 }
