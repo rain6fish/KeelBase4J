@@ -2,7 +2,8 @@
 package cn.com.keelbase.runtime.web;
 
 import cn.com.keelbase.runtime.authz.RuleDeniedException;
-import java.util.LinkedHashMap;
+import cn.com.keelbase.runtime.security.CallerAuthenticationException;
+import cn.com.keelbase.runtime.security.CallerAuthenticationFailure;
 import java.util.Map;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -67,13 +68,26 @@ public class WireExceptionAdvice {
         String reason = denied.getReason() != null
                 ? denied.getReason()
                 : WireFailure.messageFor(HttpStatus.FORBIDDEN);
-        Map<String, Object> extra = new LinkedHashMap<>(WireFailure.guidanceFor(HttpStatus.FORBIDDEN));
-        extra.put("reason", reason);
-        if (denied.deniedBy() != null) {
-            extra.put("explanation", Map.of("deniedBy", denied.deniedBy(), "reason", reason));
-        }
+        Map<String, Object> extra = WireFailure.ruleDeniedGuidance(
+                reason, denied.deniedBy(), denied.subject(), denied.action(), denied.nextStep());
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(WireEnvelope.error(HttpStatus.FORBIDDEN.value(), reason, extra));
+    }
+
+    /**
+     * A 401 raised after the token verified — the subject has no local identity. Its failure record
+     * is the same one the entry point uses, so the caller reads the same three sentences whichever
+     * stage refused them.
+     *
+     * <p>令牌验过之后才发生的 401 —— 主体没有本地身份。它的失败记录与入口用的是同一份，故无论哪一阶段
+     * 拒绝，调用方读到的都是那三句话。
+     */
+    @ExceptionHandler(CallerAuthenticationException.class)
+    public ResponseEntity<Map<String, Object>> unauthenticated(CallerAuthenticationException refused) {
+        CallerAuthenticationFailure failure = refused.failure();
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(WireEnvelope.error(HttpStatus.UNAUTHORIZED.value(), failure.what(),
+                        WireFailure.authenticationGuidance(failure)));
     }
 
     /**

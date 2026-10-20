@@ -3,6 +3,7 @@ package cn.com.keelbase.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.runtime.audit.AuditService;
@@ -180,6 +181,15 @@ class IntegrationStatusTest {
                 dimensions);
         assertEquals(List.of(), health.get("errors"));
         assertEquals(List.of(), health.get("warnings"));
+        // The success half of the diagnostic pair: a clean deployment carries no structured finding,
+        // and no block pretends to have one.
+        //
+        // 诊断成对里成功的那一半：干净的部署不携带结构化发现，也没有哪个块假装有。
+        assertNull(health.get("diagnostics"), "a clean report carries no diagnostics");
+        for (String dimension : List.of("tools", "confirmation", "audit", "delegation")) {
+            assertNull(IntegrationStatusProbe.block(report, dimension).get("diagnostics"),
+                    dimension + " must not carry a diagnostic on a clean deployment");
+        }
     }
 
     @Test

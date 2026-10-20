@@ -105,8 +105,15 @@ class IntegrationStatusToolsFailureTest {
 
         @SuppressWarnings("unchecked")
         List<String> errors = (List<String>) IntegrationStatusProbe.block(report, "health").get("errors");
-        assertTrue(errors.stream().anyMatch(error -> error.contains("broken_tool")),
-                "the error must name the tool: " + errors);
+        assertTrue(errors.stream().anyMatch(error -> error.contains("broken_tool")
+                        && error.contains("R9") && error.contains("解决：")),
+                "the error must name the tool, quote R9 and carry the fix: " + errors);
+
+        IntegrationStatusProbe.assertDiagnostic(tools, "error", "TOOLS_INVALID_RISK_LEVEL",
+                "broken_tool", "风险级声明非法");
+        assertTrue(String.valueOf(IntegrationStatusProbe.diagnostic(tools,
+                        "TOOLS_INVALID_RISK_LEVEL").get("why")).contains("R9"),
+                "the why quotes the declaration that is illegal");
 
         assertEquals("ok", IntegrationStatusProbe.block(report, "confirmation").get("status"));
         assertEquals("ok", IntegrationStatusProbe.block(report, "audit").get("status"));

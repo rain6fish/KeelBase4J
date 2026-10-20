@@ -134,16 +134,20 @@ public class IntegrationStatusController {
         guard.requireAction(caller, GovernanceReadSubjects.INTEGRATION_STATUS,
                 PermissionAuthorizer.ACTION_READ);
 
-        List<String> errors = new ArrayList<>();
-        List<String> warnings = new ArrayList<>();
+        // One list feeds both the structured diagnostics and the flat errors/warnings: derived, not
+        // written twice. A finding that is not in this list is not reported anywhere.
+        //
+        // 一份列表同时喂结构化诊断与扁平 errors/warnings：派生出来的，不是写两遍。不在这份列表里的发现，
+        // 哪里都不会报。
+        List<IntegrationDiagnostic> diagnostics = new ArrayList<>();
 
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("provenance", provenance());
-        report.put("tools", toolsBlock(errors, warnings));
-        report.put("confirmation", confirmationBlock(caller, errors, warnings));
-        report.put("audit", auditBlock(errors, warnings));
-        report.put("delegation", delegationBlock(errors, warnings));
-        report.put("health", health(report, errors, warnings));
+        report.put("tools", toolsBlock(diagnostics));
+        report.put("confirmation", confirmationBlock(caller, diagnostics));
+        report.put("audit", auditBlock(diagnostics));
+        report.put("delegation", delegationBlock(diagnostics));
+        report.put("health", health(report, diagnostics));
         return report;
     }
 
@@ -157,17 +161,20 @@ public class IntegrationStatusController {
         return provenance;
     }
 
-    private Map<String, Object> toolsBlock(List<String> errors, List<String> warnings) {
+    private Map<String, Object> toolsBlock(List<IntegrationDiagnostic> diagnostics) {
         List<AiTool> all = tools.all();
         long writes = all.stream().filter(tool -> tool.resultType() != null).count();
 
         Map<String, Long> distribution = new TreeMap<>();
+        Map<String, String> levelByName = new LinkedHashMap<>();
         List<String> invalidLevels = new ArrayList<>();
         List<String> writeWithoutRevoke = new ArrayList<>();
+        List<String> missingResultTypes = new ArrayList<>();
         List<String> names = new ArrayList<>();
         for (AiTool tool : all) {
             names.add(tool.name());
             String level = tool.riskLevel();
+            levelByName.put(tool.name(), level);
             distribution.merge(level == null ? "(null)" : level, 1L, Long::sum);
             boolean invalid = level == null || !RiskLevel.RISK_STRATEGY.containsKey(level);
             if (invalid) {
@@ -184,6 +191,16 @@ public class IntegrationStatusController {
                     && !alwaysBlocked) {
                 writeWithoutRevoke.add(tool.name());
             }
+            // A tool that declares (or inherits) a human-confirmation gate is a write. Without a
+            // result type the runtime treats it as a read: the execution is never claimed or
+            // recorded, so an approved confirmation leaves no side-effect row to audit or revoke.
+            // That is a declaration gap, not a valid read.
+            //
+            // 声明（或继承）了人工确认闸的工具是写。没有结果类型时，运行时把它当只读：这次执行从不占位、
+            // 也不记账，故一条被批准的确认留不下可审计、可撤销的副作用行。那是声明缺口，不是合法的只读。
+            if (!invalid && tool.requiresConfirmation() && tool.resultType() == null) {
+                missingResultTypes.add(tool.name());
+            }
         }
 
         Map<String, Object> block = new LinkedHashMap<>();
@@ -199,32 +216,55 @@ public class IntegrationStatusController {
         block.put("names", names);
         block.put("riskDistribution", distribution);
         block.put("invalidRiskLevels", invalidLevels);
+        block.put("missingResultTypes", missingResultTypes);
         block.put("writeWithoutRevoke", writeWithoutRevoke);
 
+        List<IntegrationDiagnostic> found = new ArrayList<>();
         String status;
         if (all.isEmpty()) {
             status = ERROR;
-            errors.add("tools: no AI tools are registered");
+            found.add(IntegrationDiagnostic.error("tools", "TOOLS_NONE_REGISTERED", null,
+                    "未注册任何 AI 工具",
+                    "`ToolRegistry` 为空：应用上下文里没有任何 `AiTool` bean",
+                    "把工具声明为 `AiTool` 的 Spring bean，并确认组件扫描覆盖到工具所在包"));
         } else if (!invalidLevels.isEmpty()) {
             status = ERROR;
             for (String name : invalidLevels) {
-                errors.add("tools: `" + name + "` declares a risk level outside R0-R5");
+                String level = levelByName.get(name);
+                String why = level == null
+                        ? "风险级缺失（`null`）；治理闸按风险级决定门控，缺失的级别无法被门控"
+                        : "声明值 `" + level + "` 不在 R0–R5 内；治理闸按风险级决定门控，非法值无法被门控";
+                found.add(IntegrationDiagnostic.error("tools", "TOOLS_INVALID_RISK_LEVEL", name,
+                        "工具 `" + name + "` 的风险级声明非法", why,
+                        "把 `riskLevel()` 改为 R0–R5 之一"));
+            }
+        } else if (!missingResultTypes.isEmpty()) {
+            status = ERROR;
+            for (String name : missingResultTypes) {
+                found.add(IntegrationDiagnostic.error("tools", "TOOLS_MISSING_RESULT_TYPE", name,
+                        "工具 `" + name + "` 声明需要人工确认，却没有声明 `resultType`",
+                        "`resultType` 为空时运行时把它当只读：不占位、不记账；确认后执行也留不下副作用记录",
+                        "若它写数据，让 `resultType()` 返回业务结果类型，并让 `execute` 返回带数字 `id` 的结果；"
+                                + "若它只读，把风险级降到 R0–R2"));
             }
         } else if (!writeWithoutRevoke.isEmpty()) {
             status = WARN;
             for (String name : writeWithoutRevoke) {
-                warnings.add("tools: write tool `" + name + "` declares revokeClass "
-                        + "`none`, so its write has no local compensation");
+                found.add(IntegrationDiagnostic.warning("tools", "TOOLS_WRITE_WITHOUT_REVOKE", name,
+                        "写工具 `" + name + "` 没有本地补偿",
+                        "它声明了 `resultType`，但 `revokeClass` 不是 `local_compensate`，写操作不可撤销",
+                        "为写工具声明 `revokeClass=\"local_compensate\"`，或确认它确实不需要撤销并接受该告警"));
             }
         } else {
             status = OK;
         }
         block.put("status", status);
+        recordFindings(block, diagnostics, found);
         return block;
     }
 
-    private Map<String, Object> confirmationBlock(Principal caller, List<String> errors,
-                                                  List<String> warnings) {
+    private Map<String, Object> confirmationBlock(Principal caller,
+                                                  List<IntegrationDiagnostic> diagnostics) {
         int declaredRequired = 0;
         int confirm = 0;
         int approval = 0;
@@ -281,24 +321,37 @@ public class IntegrationStatusController {
         block.put("pending", storeReachable ? pending : null);
         block.put("storeReachable", storeReachable);
 
+        List<IntegrationDiagnostic> found = new ArrayList<>();
         String status;
         if (!storeReachable) {
             status = ERROR;
-            errors.add("confirmation: the confirmation store could not be read");
+            found.add(IntegrationDiagnostic.error("confirmation", "CONFIRMATION_STORE_UNREACHABLE",
+                    null,
+                    "确认队列不可读",
+                    "读取待确认计数时数据库抛出异常，当前读不到任何待确认动作",
+                    "检查数据库连通性与确认表是否存在；队列不可读时操作者无法知道有哪些动作在等人"));
         } else if (!ungated.isEmpty()) {
             status = ERROR;
             for (Map<String, Object> entry : ungated) {
-                errors.add("confirmation: `" + entry.get("tool") + "` declares "
-                        + entry.get("riskLevel") + " but the effective gate is auto ("
-                        + entry.get("reason") + ")");
+                String tool = String.valueOf(entry.get("tool"));
+                String level = String.valueOf(entry.get("riskLevel"));
+                found.add(IntegrationDiagnostic.error("confirmation", "CONFIRMATION_UNGATED", tool,
+                        "工具 `" + tool + "` 声明 `" + level + "`，实际门控是 `auto`",
+                        "治理策略覆盖放宽了风险绑定：" + entry.get("reason"),
+                        "检查治理策略对该工具的 `mode` / `requiresConfirmation` 覆盖；"
+                                + "若要保留人工确认，恢复为 `confirm` 或 `approval`"));
             }
         } else if (declaredRequired == 0) {
             status = NOT_APPLICABLE;
-            warnings.add("confirmation: no registered tool declares R3/R4, so there is no gate to read");
+            found.add(IntegrationDiagnostic.warning("confirmation", "CONFIRMATION_NONE_DECLARED", null,
+                    "没有声明 R3/R4 的工具",
+                    "当前注册表中没有需要人工确认的工具，因此没有门控可读",
+                    "若预期有确认门控，检查工具风险级声明是否被降到 R0–R2"));
         } else {
             status = OK;
         }
         block.put("status", status);
+        recordFindings(block, diagnostics, found);
         return block;
     }
 
@@ -320,7 +373,7 @@ public class IntegrationStatusController {
         return "the gate returned auto without a policy override — this is a code-level inconsistency";
     }
 
-    private Map<String, Object> auditBlock(List<String> errors, List<String> warnings) {
+    private Map<String, Object> auditBlock(List<IntegrationDiagnostic> diagnostics) {
         Map<String, Object> block = new LinkedHashMap<>();
         block.put("sink", "local hash-chained ai_audit_logs (this runtime has no external audit reporting)");
         String granularity = policy.granularity();
@@ -360,29 +413,45 @@ public class IntegrationStatusController {
         block.put("brokenIndex", brokenIndex);
         block.put("brokenRowId", brokenRowId);
 
+        List<IntegrationDiagnostic> found = new ArrayList<>();
         String status;
         if ("off".equals(granularity)) {
             status = NOT_APPLICABLE;
-            warnings.add("audit: granularity is off — no new audit rows are expected");
+            found.add(IntegrationDiagnostic.warning("audit", "AUDIT_GRANULARITY_OFF", null,
+                    "审计粒度为 `off`",
+                    "治理策略关闭了新的审计写入，因此没有新行是预期行为",
+                    "如需证据链，把治理策略的 `audit.granularity` 设为 `all` 或 `write`"));
         } else if (rows == 0) {
             status = ERROR;
-            errors.add("audit: no audit rows have landed (granularity=" + granularity + ")");
+            found.add(IntegrationDiagnostic.error("audit", "AUDIT_NO_ROWS", null,
+                    "没有任何审计行落库",
+                    "`granularity=" + granularity + "`，但 `ai_audit_logs` 为 0 行",
+                    "确认审计写入路径已接好（`AuditService.append`），并检查数据库写入权限"));
         } else if (Boolean.FALSE.equals(chainValid)) {
             status = ERROR;
-            errors.add("audit: the chain is broken"
-                    + (brokenRowId == null ? "" : " at row id " + brokenRowId)
-                    + (brokenIndex == null ? "" : " (index " + brokenIndex + ")"));
+            found.add(IntegrationDiagnostic.error("audit", "AUDIT_CHAIN_BROKEN",
+                    brokenRowId == null ? null : "row " + brokenRowId,
+                    "审计链在行 id " + (brokenRowId == null ? "未知" : brokenRowId) + " 处断裂",
+                    "该行内容与其哈希不再相符"
+                            + (brokenIndex == null ? "" : "（index " + brokenIndex + "）")
+                            + "；从这一行起，链无法证明未被改动",
+                    "按行 id 检查该条审计记录是否被直接改动；从可信备份恢复或把该段链标记为不可信，"
+                            + "不要只改哈希"));
         } else if (chainValid == null) {
             status = UNKNOWN;
-            warnings.add("audit: the chain was not verified — " + chainCheck);
+            found.add(IntegrationDiagnostic.warning("audit", "AUDIT_CHAIN_UNVERIFIED", null,
+                    "审计链未校验",
+                    "行数 " + rows + " 超过校验上限 " + CHAIN_CHECK_BOUND,
+                    "在维护窗口分段校验，或提高校验上限后重跑状态检查"));
         } else {
             status = OK;
         }
         block.put("status", status);
+        recordFindings(block, diagnostics, found);
         return block;
     }
 
-    private Map<String, Object> delegationBlock(List<String> errors, List<String> warnings) {
+    private Map<String, Object> delegationBlock(List<IntegrationDiagnostic> diagnostics) {
         Map<String, Object> block = new LinkedHashMap<>();
         block.put("provider", authenticator.getClass().getSimpleName());
         // The request carrying this report was authenticated by the same chain, so the inbound half is
@@ -393,6 +462,7 @@ public class IntegrationStatusController {
         // 令牌验过了；下面的探针补上配置的 secret 在本地能做什么。
         block.put("inboundVerified", true);
 
+        List<IntegrationDiagnostic> found = new ArrayList<>();
         String status;
         if (authenticator instanceof DelegationTokenAuthenticator tokenAuthenticator) {
             DelegationTokenAuthenticator.Probe probe = tokenAuthenticator.probe();
@@ -400,32 +470,69 @@ public class IntegrationStatusController {
             block.put("audienceConfigured", probe.audienceConfigured());
             block.put("audience", probe.audience());
             block.put("selfTest", probe.roundTrip());
+            // A refused inbound token never reaches this report: the report is only readable after one
+            // verifies. Saying that is the honest boundary, and the 401 at the entry carries the
+            // refusal's own diagnosis. This block reports the verifier's configuration, not the last
+            // refusal.
+            //
+            // 被拒的入站令牌到不了这份报告：报告只有在某枚令牌验过之后才读得到。把这件事写出来才是诚实的
+            // 边界，而入口的 401 带着那次拒绝自己的诊断。这个块报告的是验签器的配置，不是最近一次拒绝。
+            block.put("inboundFailureVisible", false);
+            block.put("verifies", List.of("signature", "iss", "aud", "exp"));
             block.put("note", "selfTest signs and verifies a locally minted token with the configured "
                     + "secret; it does not prove the upstream issuer shares that secret. "
-                    + "inboundVerified reports that this caller's own token was accepted.");
+                    + "inboundVerified reports that this caller's own token was accepted. "
+                    + "inboundFailureVisible is false because a refused token cannot reach this "
+                    + "report; that refusal is diagnosed at the entry.");
             if (probe.secretConfigured() && probe.audienceConfigured() && probe.roundTrip()) {
                 status = OK;
             } else {
                 status = ERROR;
-                errors.add("delegation: " + (probe.reason() == null
-                        ? "the local sign-then-verify probe failed" : probe.reason()));
+                if (!probe.secretConfigured()) {
+                    found.add(IntegrationDiagnostic.error("delegation", "DELEGATION_SECRET_BLANK",
+                            "keelbase.delegation.secret",
+                            "委托 secret 未配置",
+                            "`keelbase.delegation.secret` 为空，无法验签任何令牌",
+                            "把部署的 `keelbase.delegation.secret` 设为与签发方一致的 HMAC 密钥"));
+                } else if (!probe.audienceConfigured()) {
+                    found.add(IntegrationDiagnostic.error("delegation", "DELEGATION_AUDIENCE_BLANK",
+                            "keelbase.delegation.audience",
+                            "委托 audience 未配置",
+                            "`keelbase.delegation.audience` 为空；发给空 audience 的令牌也会通过，"
+                                    + "分不出一枚令牌是不是发给本系统的",
+                            "把 `keelbase.delegation.audience` 设为签发方使用的目标系统标识"));
+                } else {
+                    found.add(IntegrationDiagnostic.error("delegation", "DELEGATION_SELF_TEST_FAILED",
+                            "keelbase.delegation.secret",
+                            "委托自检失败",
+                            "配置的 secret 无法验证它自己签发的令牌："
+                                    + (probe.reason() == null ? "往返未通过" : probe.reason()),
+                            "检查 `keelbase.delegation.secret` 是否为合法 HMAC 密钥，并确认部署配置未被截断"));
+                }
             }
         } else {
             block.put("secretConfigured", null);
             block.put("audienceConfigured", null);
             block.put("audience", null);
             block.put("selfTest", null);
+            block.put("inboundFailureVisible", false);
+            block.put("verifies", List.of());
             block.put("note", "this deployment supplies its own CallerAuthenticator; KeelBase "
                     + "delegation verification is not in use, so no delegation reading is claimed");
             status = NOT_APPLICABLE;
-            warnings.add("delegation: the deployment authenticates callers itself — not applicable");
+            found.add(IntegrationDiagnostic.warning("delegation", "DELEGATION_NOT_APPLICABLE", null,
+                    "委托验签未启用",
+                    "部署自带 `CallerAuthenticator`，KeelBase 委托链路不在使用中",
+                    "如需 KeelBase 委托链路，移除自定义 `CallerAuthenticator`，并配置 "
+                            + "`keelbase.delegation.secret` 与 `keelbase.delegation.audience`"));
         }
         block.put("status", status);
+        recordFindings(block, diagnostics, found);
         return block;
     }
 
-    private Map<String, Object> health(Map<String, Object> report, List<String> errors,
-                                       List<String> warnings) {
+    private Map<String, Object> health(Map<String, Object> report,
+                                       List<IntegrationDiagnostic> diagnostics) {
         Map<String, String> dimensions = new LinkedHashMap<>();
         for (String dimension : List.of("tools", "confirmation", "audit", "delegation")) {
             @SuppressWarnings("unchecked")
@@ -436,6 +543,15 @@ public class IntegrationStatusController {
         boolean anyDegraded = dimensions.containsValue(WARN) || dimensions.containsValue(UNKNOWN);
         String status = anyError ? ERROR : (anyDegraded ? "degraded" : "healthy");
 
+        List<String> errors = diagnostics.stream()
+                .filter(finding -> IntegrationDiagnostic.ERROR.equals(finding.severity()))
+                .map(IntegrationDiagnostic::summary)
+                .toList();
+        List<String> warnings = diagnostics.stream()
+                .filter(finding -> IntegrationDiagnostic.WARNING.equals(finding.severity()))
+                .map(IntegrationDiagnostic::summary)
+                .toList();
+
         Map<String, Object> health = new LinkedHashMap<>();
         health.put("status", status);
         health.put("summary", switch (status) {
@@ -445,9 +561,37 @@ public class IntegrationStatusController {
             default -> "each dimension reports a reading and none is in error";
         });
         health.put("dimensions", dimensions);
-        health.put("errors", List.copyOf(errors));
-        health.put("warnings", List.copyOf(warnings));
+        health.put("errors", errors);
+        health.put("warnings", warnings);
+        // Absent on a clean deployment: a successful report does not carry empty diagnostic objects,
+        // and the flat errors/warnings above are still there for readers that predate this field.
+        //
+        // 干净的部署里不出现：成功报告不携带空诊断对象，而上面的扁平 errors/warnings 仍然在，供早于本字段
+        // 的读者使用。
+        if (!diagnostics.isEmpty()) {
+            health.put("diagnostics", List.copyOf(diagnostics));
+        }
         health.put("checkedAt", Instant.now().toString());
         return health;
+    }
+
+    /**
+     * Attach one dimension's findings to its block and to the report-wide list.
+     *
+     * <p>The block-level copy is what a reader of that dimension needs; the report-wide list is what
+     * {@code health} derives its flat errors/warnings from. Both come from the same objects.
+     *
+     * <p>把一个维度的发现挂到它的块上，同时并进全报告的列表。
+     *
+     * <p>块级副本是该维度读者要的东西；全报告列表是 {@code health} 派生扁平 errors/warnings 的来源。
+     * 两者来自同一批对象。
+     */
+    private static void recordFindings(Map<String, Object> block,
+                                       List<IntegrationDiagnostic> diagnostics,
+                                       List<IntegrationDiagnostic> found) {
+        if (!found.isEmpty()) {
+            block.put("diagnostics", List.copyOf(found));
+        }
+        diagnostics.addAll(found);
     }
 }

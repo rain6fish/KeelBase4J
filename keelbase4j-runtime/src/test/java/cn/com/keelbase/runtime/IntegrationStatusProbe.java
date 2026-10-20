@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.runtime.audit.AuditService;
 import java.net.URI;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -66,5 +71,41 @@ final class IntegrationStatusProbe {
     /** A numeric reading, whatever JSON number width the parser chose. */
     static int number(Map<String, Object> block, String key) {
         return ((Number) block.get(key)).intValue();
+    }
+
+    /**
+     * One structured finding of a block, by code — the object a reader acts on, not the flat string.
+     *
+     * 块里按 code 取一条结构化发现 —— 读者据以行动的那个对象，而不是扁平字符串。
+     */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> diagnostic(Map<String, Object> block, String code) {
+        Object raw = block.get("diagnostics");
+        assertTrue(raw instanceof List, "the block must carry structured diagnostics: " + block);
+        for (Object entry : (List<Object>) raw) {
+            Map<String, Object> finding = (Map<String, Object>) entry;
+            if (code.equals(finding.get("code"))) {
+                return finding;
+            }
+        }
+        throw new AssertionError("no diagnostic with code " + code + " in " + raw);
+    }
+
+    /**
+     * A finding must say what happened, why, and what to do — all three, not a bare label. The
+     * subject is asserted because a finding that cannot name the tool or row is not actionable.
+     *
+     * 一条发现必须说清发生了什么、为什么、怎么办 —— 三样都要，不能只是一个标签。断言 subject，因为一条
+     * 点不出工具或行的发现不可行动。
+     */
+    static void assertDiagnostic(Map<String, Object> block, String severity, String code,
+                                 String subject, String whatFragment) {
+        Map<String, Object> finding = diagnostic(block, code);
+        assertEquals(severity, finding.get("severity"));
+        assertEquals(subject, finding.get("subject"), "the finding names its subject: " + finding);
+        assertTrue(String.valueOf(finding.get("what")).contains(whatFragment),
+                "what must describe this cause: " + finding);
+        assertNotNull(finding.get("why"), "why must carry the reading: " + finding);
+        assertNotNull(finding.get("nextStep"), "nextStep must say what to do: " + finding);
     }
 }

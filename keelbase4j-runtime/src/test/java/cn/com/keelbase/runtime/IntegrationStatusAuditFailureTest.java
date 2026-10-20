@@ -77,8 +77,12 @@ class IntegrationStatusAuditFailureTest {
 
         @SuppressWarnings("unchecked")
         List<String> errors = (List<String>) IntegrationStatusProbe.block(report, "health").get("errors");
-        assertTrue(errors.stream().anyMatch(error -> error.contains("row id " + row.getId())),
-                "the error must name the row: " + errors);
+        assertTrue(errors.stream().anyMatch(error -> error.contains("行 id " + row.getId())
+                        && error.contains("解决：")),
+                "the error must name the row and carry the fix: " + errors);
+
+        IntegrationStatusProbe.assertDiagnostic(auditBlock, "error", "AUDIT_CHAIN_BROKEN",
+                "row " + row.getId(), "行 id " + row.getId());
 
         assertEquals("ok", IntegrationStatusProbe.block(report, "tools").get("status"));
         assertEquals("ok", IntegrationStatusProbe.block(report, "confirmation").get("status"));

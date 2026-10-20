@@ -202,6 +202,12 @@ business write, whether it runs an AI path of its own) are declared under `keelb
 standalone runtime answers `none` / `false` / `false`, and the two host gaps then correctly do not
 apply. This statement is **not** a package: it is what must accompany one, and it is what a delivery
 acceptance form must carry.
+Every finding is also carried as a structured diagnostic (`dimension`, `severity`, `code`, `subject`,
+`what`, `why`, `nextStep`): the dimension block and `health.diagnostics` both carry it, and
+`health.errors` / `health.warnings` are the same objects' one-line summaries rather than a second copy.
+A clean deployment carries no `diagnostics` key at all. The delegation block states
+`inboundFailureVisible: false`, because a refused inbound token cannot reach the report — that refusal
+is diagnosed on the 401 itself.
 
 **本运行时自己的面（不是 wire 对象）。** `GET /api/v1/keelbase/status` **不是**冻结 wire 对象，语料也不断言它。
 它是本运行时的接入健康度报告：按读/写与风险统计的已注册工具、从引擎自己的 `GovernanceService.decide` 读出的
@@ -216,6 +222,10 @@ acceptance form must carry.
 （`host`、宿主是否拥有业务写、是否有自己的一条 AI 路径）在 `keelbase.coverage.*` 下声明；独立运行时答
 `none` / `false` / `false`，两条宿主缺口于是**正确地不适用**。这份声明**不是**一个包：它是**必须随包
 给出**的东西，也是交付验收单必须携带的字段。
+每条发现同时以结构化诊断携带（`dimension`、`severity`、`code`、`subject`、`what`、`why`、`nextStep`）：
+维度块与 `health.diagnostics` 都带着它，而 `health.errors` / `health.warnings` 是同一批对象的一行摘要、
+不是第二份副本。干净的部署根本不含 `diagnostics` 键。委托块写明 `inboundFailureVisible: false`，因为被拒的
+入站令牌到不了这份报告 —— 那次拒绝在 401 本身上被诊断。
 
 ## Scope
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.security;
 
-import cn.com.keelbase.runtime.identity.AuthenticatedSubject;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,6 +35,24 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 public class CallerAuthenticationFilter extends OncePerRequestFilter {
 
+    /**
+     * Where the refusal reason is left for the error renderer. The filter does not refuse the request
+     * itself — the chain's {@code anyRequest().authenticated()} still decides that, once — but it
+     * knows <em>why</em> the authenticator proved nothing, and the entry point that answers 401 is a
+     * different component. The attribute is the one hand-off between them.
+     *
+     * <p>Request attributes survive the container's error dispatch, so {@code WireErrorController}
+     * can read it when the 401 is rendered.
+     *
+     * 拒绝理由留给错误渲染器的地方。过滤器不自己拒绝请求 —— 链上的 `anyRequest().authenticated()`
+     * 仍然只做一次那个决定 —— 但它知道认证器**为什么**什么都没证明，而答 401 的入口是另一个组件。
+     * 这个属性就是两者之间唯一的一次交接。
+     *
+     * <p>请求属性会穿过容器的 error dispatch，故 `WireErrorController` 在渲染 401 时读得到它。
+     */
+    public static final String AUTHENTICATION_FAILURE_ATTRIBUTE =
+            CallerAuthenticationFilter.class.getName() + ".failure";
+
     private final CallerAuthenticator callers;
 
     public CallerAuthenticationFilter(CallerAuthenticator callers) {
@@ -45,10 +62,13 @@ public class CallerAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
-        AuthenticatedSubject subject = callers.authenticate(request);
-        if (subject != null) {
+        CallerAuthentication authentication = callers.authenticateCaller(request);
+        if (authentication.authenticated()) {
             SecurityContextHolder.getContext().setAuthentication(
-                    new UsernamePasswordAuthenticationToken(subject, null, List.of()));
+                    new UsernamePasswordAuthenticationToken(
+                            authentication.subject(), null, List.of()));
+        } else if (authentication.failure() != null) {
+            request.setAttribute(AUTHENTICATION_FAILURE_ATTRIBUTE, authentication.failure());
         }
         chain.doFilter(request, response);
     }

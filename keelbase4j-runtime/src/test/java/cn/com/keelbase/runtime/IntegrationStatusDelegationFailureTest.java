@@ -96,8 +96,16 @@ class IntegrationStatusDelegationFailureTest {
 
         @SuppressWarnings("unchecked")
         List<String> errors = (List<String>) IntegrationStatusProbe.block(report, "health").get("errors");
-        assertTrue(errors.stream().anyMatch(error -> error.contains("audience is blank")),
-                "the error must say which setting is missing: " + errors);
+        assertTrue(errors.stream().anyMatch(error -> error.contains("keelbase.delegation.audience")
+                        && error.contains("解决：")),
+                "the error must say which setting is missing and how to fix it: " + errors);
+
+        IntegrationStatusProbe.assertDiagnostic(delegation, "error", "DELEGATION_AUDIENCE_BLANK",
+                "keelbase.delegation.audience", "audience 未配置");
+        assertEquals(Boolean.FALSE, delegation.get("inboundFailureVisible"),
+                "a refused inbound token cannot reach this report; the block says so");
+        assertEquals(List.of("signature", "iss", "aud", "exp"), delegation.get("verifies"),
+                "the block names the checks the configured verifier actually runs");
 
         assertEquals("ok", IntegrationStatusProbe.block(report, "tools").get("status"));
         assertEquals("ok", IntegrationStatusProbe.block(report, "confirmation").get("status"));

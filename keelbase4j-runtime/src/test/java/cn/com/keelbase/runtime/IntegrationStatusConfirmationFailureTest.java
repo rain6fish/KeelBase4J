@@ -81,6 +81,12 @@ class IntegrationStatusConfirmationFailureTest {
         assertTrue(String.valueOf(ungated.get(0).get("reason")).contains("policy mode=auto"),
                 "the report must quote the override that relaxed the gate");
 
+        IntegrationStatusProbe.assertDiagnostic(confirmation, "error", "CONFIRMATION_UNGATED",
+                "create_followup", "实际门控是 `auto`");
+        assertTrue(String.valueOf(IntegrationStatusProbe.diagnostic(confirmation,
+                        "CONFIRMATION_UNGATED").get("why")).contains("policy mode=auto"),
+                "the structured why quotes the same override as the flat reading");
+
         assertEquals("ok", IntegrationStatusProbe.block(report, "tools").get("status"));
         assertEquals("ok", IntegrationStatusProbe.block(report, "audit").get("status"));
         assertEquals("ok", IntegrationStatusProbe.block(report, "delegation").get("status"));

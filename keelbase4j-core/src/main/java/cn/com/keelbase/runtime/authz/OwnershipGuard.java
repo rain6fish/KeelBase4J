@@ -41,7 +41,9 @@ public class OwnershipGuard {
     public void requireAction(Principal principal, String subject, String action) {
         PermissionDecision decision = authorizer.decide(principal, action, subject);
         if (!decision.allowed()) {
-            throw new RuleDeniedException(decision.deniedBy(), decision.reason());
+            throw new RuleDeniedException(decision.deniedBy(), decision.reason(), subject, action,
+                    "当前身份对 `" + subject + "` 没有 `" + action + "` 权限；请联系管理员在授权规则中"
+                            + "授予 `" + subject + ":" + action + "`，或改用本人有权访问的资源");
         }
     }
 
@@ -64,7 +66,8 @@ public class OwnershipGuard {
             // that distinction as a separate check name (`user_scoped`), but that value is not part
             // of the frozen `deniedBy` set, so minting it here would be this runtime inventing
             // contract vocabulary. The reason goes on the wire; the basis stays unclaimed.
-            throw new RuleDeniedException(null, "该行不在你的数据范围内");
+            throw new RuleDeniedException(null, "该行不在你的数据范围内", subject, action,
+                    "该行不在你当前的数据范围内；请改用本人或被授权组织范围内的数据，或让管理员调整数据范围");
         }
     }
 }

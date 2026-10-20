@@ -3,6 +3,8 @@ package cn.com.keelbase.runtime.identity;
 
 import cn.com.keelbase.protocol.OrgMembershipScope;
 import cn.com.keelbase.runtime.scope.Departments;
+import cn.com.keelbase.runtime.security.CallerAuthenticationException;
+import cn.com.keelbase.runtime.security.CallerAuthenticationFailure;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -66,8 +68,8 @@ public class SecurityIdentityResolver implements IdentityResolver {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "no authenticated subject");
         }
         LocalIdentities.Entry entry = directory.lookup(subject)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                        "this deployment has no identity mapped to the presented subject"));
+                .orElseThrow(() -> new CallerAuthenticationException(
+                        CallerAuthenticationFailure.unknownSubject(subject)));
         return new Principal(entry.userId(), entry.role(),
                 evidence.attribute(IdentityEvidence.OIDC_SUBJECT), membershipOf(entry));
     }

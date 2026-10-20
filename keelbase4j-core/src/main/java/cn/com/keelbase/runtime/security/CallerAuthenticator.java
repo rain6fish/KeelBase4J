@@ -49,4 +49,24 @@ public interface CallerAuthenticator {
      * 无法验证拿到的东西，就返回 `null`，而不是返回一个它并未验证过的主体。
      */
     AuthenticatedSubject authenticate(HttpServletRequest request);
+
+    /**
+     * The same question as {@link #authenticate}, with the refusal reason kept.
+     *
+     * <p>The default wraps the older answer: an implementation that only returns {@code null} still
+     * works, and its refusals carry the generic reason rather than a narrower one it never supplied.
+     * The delegation-token implementation overrides this so the verifier's own code and readings
+     * reach the caller.
+     *
+     * <p>与 {@link #authenticate} 同一个问题，但**保留拒绝理由**。
+     *
+     * <p>默认实现包住旧的答案：只返回 `null` 的实现照样工作，它的拒绝带通用理由，而不是替它编一个更窄的。
+     * 委托令牌实现覆盖本方法，好让验签器自己的失败码与读数到达调用方。
+     */
+    default CallerAuthentication authenticateCaller(HttpServletRequest request) {
+        AuthenticatedSubject subject = authenticate(request);
+        return subject == null
+                ? CallerAuthentication.refused(CallerAuthenticationFailure.unverified())
+                : CallerAuthentication.authenticated(subject);
+    }
 }
