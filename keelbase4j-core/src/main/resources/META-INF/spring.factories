@@ -1,0 +1,7 @@
+# Local debug mode has to reach the environment before any auto-configuration is evaluated, because a
+# provider starter fails while its chat model is being created — before a planner is ever asked.
+#
+# 本地调试模式必须在任何自动配置被求值之前进入环境：provider starter 在创建 chat model 时就会失败 ——
+# 早于任何规划器被问到。
+org.springframework.boot.EnvironmentPostProcessor=\
+cn.com.keelbase.runtime.pipeline.LocalDebugEnvironmentPostProcessor

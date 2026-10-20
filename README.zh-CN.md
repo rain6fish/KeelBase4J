@@ -77,13 +77,14 @@ KeelBase4J 是**载体**，不是第二个产品：它的存在，是让 Java/Sp
 mvn test
 ```
 
-**测试全绿**——`mvn test` 覆盖协议库、运行时、生成器与适配器；实时状态看上方 CI 徽章，而不是写在这里的一个数字。下面每个主张都能真跑出来——六个脚本，前四个不需要模型：
+**测试全绿**——`mvn test` 覆盖协议库、运行时、生成器与适配器；实时状态看上方 CI 徽章，而不是写在这里的一个数字。下面每个主张都能真跑出来——七个脚本，前五个不需要模型：
 
 ```bash
 bash scripts/demo-generated-app.sh    # 生成 → 构建 → 运行 → 走一遍信任闭环
 bash scripts/demo-changeability.sh    # 变更 → 再生成 → 手改存活 → 新规则生效
 bash scripts/demo-migration.sh        # 变更 → 加性迁移 → 存量数据跟着走
 bash scripts/demo-pm-reference.sh     # PM 参考项目的完整治理闭环
+bash scripts/demo-local-debug.sh      # 带 provider 的部署离线跑：无 key，同一条闭环
 
 export DEEPSEEK_API_KEY=...           # demo 模块也可用 -Popenai 或 -Pollama 构建
 bash scripts/demo-springai.sh         # 真模型接在规划器接缝上
@@ -91,6 +92,10 @@ bash scripts/demo-springai-task.sh    # 真模型驱动框架自己的多步循�
 ```
 
 任一预期结果缺失，脚本即非零退出。它们没有一个是冒烟测试——每个脚本都是下面某一条主张的证据。
+
+`demo-local-debug.sh` 启动**带 provider** 的部署、且不配 key：`keelbase.local-debug.enabled=true`
+关掉所有 Spring AI chat 自动配置并接管确定性接缝，故可以在本地走确认门控与审计链。自由问答会被
+**明确回「不支持」**，绝不编造内容作答。该开关默认关；关着时，那个部署依旧要求它 provider 的 key。
 
 ---
 

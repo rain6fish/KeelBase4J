@@ -35,6 +35,16 @@
       <artifactId>keelbase4j-springai</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- LocalDebugModeTest proves the local debug switch on the only deployment that carries a
+         provider: without the switch this context cannot start without an API key.
+
+         LocalDebugModeTest 在**唯一带着 provider** 的部署上验证本地调试开关：没有这个开关，
+         该上下文没有 API key 就起不来。 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <!--

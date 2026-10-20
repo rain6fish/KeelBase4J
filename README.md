@@ -89,13 +89,14 @@ mvn test
 
 **The suite is green** — `mvn test` covers the protocol library, the runtime, the generator and the
 adapter, and the CI badge above is where the live state lives rather than a number written here. Then
-watch each claim in the next section actually happen — six scripts, no model required for the first four:
+watch each claim in the next section actually happen — seven scripts, no model required for the first five:
 
 ```bash
 bash scripts/demo-generated-app.sh    # generate → build → run → walk the trust loop
 bash scripts/demo-changeability.sh    # change → regenerate → hand edit survives → new rule enforced
 bash scripts/demo-migration.sh        # change → additive migration → existing rows carry over
 bash scripts/demo-pm-reference.sh     # the PM reference project's whole governance loop
+bash scripts/demo-local-debug.sh      # the provider-bearing deployment, offline: no key, same loop
 
 export DEEPSEEK_API_KEY=...           # the demo module also builds with -Popenai or -Pollama
 bash scripts/demo-springai.sh         # a real model on the planner seam
@@ -104,6 +105,12 @@ bash scripts/demo-springai-task.sh    # a real model driving the framework's own
 
 Every script exits non-zero if an expected outcome is missing. None of them is a smoke test: each
 one is the evidence for a specific claim below.
+
+`demo-local-debug.sh` starts the *provider-bearing* deployment with no key:
+`keelbase.local-debug.enabled=true` turns every Spring AI chat auto-configuration off and takes the
+deterministic seams, so the confirmation gate and the audit chain can be exercised locally. A
+free-form question is refused as unsupported, in as many words, rather than answered with invented
+content. The switch is off by default; with it off, that deployment still demands its provider's key.
 
 ---
 
