@@ -43,7 +43,7 @@ This copy exists so the Java project is self-contained and buildable offline.
   here. Scenario packs and the semantic-change checklist still live in the main repo.
 - The vector files intentionally contain **no timestamps** — deterministic and diff-able.
 
-**Corresponds to `keelbase-contract` `v1.12.0`** — every vendored file verified byte-identical against
+**Corresponds to `keelbase-contract` `v1.14.0`** — every vendored file verified byte-identical against
 that tag, which is the version CI checks out and compares against (`sync-vectors.sh --check` prints
 the current file count, which is why this line does not carry one).
 
@@ -51,7 +51,7 @@ the current file count, which is why this line does not carry one).
 
 | Vendored set | Source | Why there |
 |---|---|---|
-| `protocol/` — vectors, registry, schemas | the **contract repository**, at `v1.12.0` | it is the contract; this repository consumes it, and a version — not `main` — is what a consumer can be pinned to |
+| `protocol/` — vectors, registry, schemas | the **contract repository**, at `v1.14.0` | it is the contract; this repository consumes it, and a version — not `main` — is what a consumer can be pinned to |
 | `scenarios/` — scenario packs | the **main repository** (`Server-NestJS/specs/scenarios/`) | scenario packs are not contract content, so they are still taken from where they live |
 
 Whether scenario packs belong in the contract is an open question, and this snapshot does not answer
