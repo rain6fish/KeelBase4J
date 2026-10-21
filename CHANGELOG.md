@@ -10,7 +10,7 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
-## [Unreleased]
+## [0.1.10] - 2026-10-21
 
 **English**
 
@@ -23,6 +23,42 @@ Each version is written in two blocks — English first, then Chinese — marked
   and a local delegation sign-then-verify probe kept separate from the inbound token. A dimension that
   cannot be measured reports `unknown` or `not_applicable` rather than green. Authenticated, and
   guarded by `read` on `IntegrationStatus`.
+
+- **`GET /audit/coverage` — the host answers its own coverage statement.** The statement is assembled
+  from the vendored gap registry and the rows in the requested window: it declares the registry
+  revision, the sources actually read, a derived verdict and the applicable gaps, and it is gated by
+  `read` on `AuditLog`, so an audit reader reaches it and an ordinary caller does not. Deployment
+  facts (`host`, whether the host owns the business write, whether it has an AI path of its own) are
+  declared under `keelbase.coverage.*`; the registry is a build-time mirror of
+  `conformance/coverage-gaps.json`, never a second source.
+
+- **A PM reference project on the same governance chain.** `PmProject` and `PmTask` with four tools at
+  R1/R3/R4/R5 use the same gate, audit chain and local compensation as the CRM sample, with a
+  one-command demo of 36 assertions and schema V15 for H2, MySQL and PostgreSQL.
+
+- **An explicit offline local-debug mode.** `keelbase.local-debug.enabled` (default off) lets a
+  deployment that carries a provider start without a model key; without the switch the same
+  deployment still fails on the missing key.
+
+### Changed
+
+- **Both read projections carry `executionId`**, so a client pairs an effect with the audit row of the
+  same execution instead of matching tool, user and time; the vendored snapshot moves to contract
+  `v1.14.0`, and the trace effect step emits the `status` that v3 requires.
+- **The wire conformance check compares `type`**, not only presence.
+- **`tool_start` sends `presentationText`** (`{key, fallback}`) rather than a bare string.
+- **A read-only reader gets no caller linkage**: items omit `userId` and `conversationId`, while the
+  administrator's 19-key projection and an ordinary caller's own list are unchanged.
+- **The three refusals say what happened, why, and what to do**: the 401 distinguishes five causes
+  inside the frozen error body's existing keys, the 403 names the action and subject it refused, and
+  `keelbase/status` carries structured diagnostics (dimension, severity, code, subject, what, why,
+  nextStep) for every finding.
+- **Only a missing after-snapshot counts as an uncaptured change**, so a create is not reported as a
+  false coverage gap.
+- **Integration health no longer warns about an R5 tool's missing compensation**: a write that can
+  never run has no side effect to compensate.
+- **The release workflow checks out the contract tag the snapshot was built from** (`v1.14.0`), the
+  same pin `ci.yml` already carried, so a published tag verifies against the contract CI checks.
 
 ### Fixed
 
@@ -41,6 +77,34 @@ Each version is written in two blocks — English first, then Chinese — marked
   调用读出的生效 R3/R4 门控、审计行（条数、近 24 小时条数、最近时刻与 id、链校验），以及与入站令牌
   **分开**记录的本地委托签发/验签探针。测不到的维度报 `unknown` 或 `not_applicable`，而不是绿色。
   已认证，由 `IntegrationStatus` 上的 `read` 把关。
+
+- **`GET /audit/coverage` —— 宿主能答出自己的覆盖声明。** 声明由 vendored 的缺口登记表与时间窗内的行
+  组装：给出登记表版本、真的读过的源、算出的结论与适用的缺口；闸是 `AuditLog` 上的 `read`，故审计
+  读者够得到、普通调用方够不到。部署事实（`host`、宿主是否拥有业务写、是否有自己的一条 AI 路径）在
+  `keelbase.coverage.*` 下声明；登记表是 `conformance/coverage-gaps.json` 的构建期镜像，不是第二份源。
+
+- **PM 参考项目走同一条治理链。** `PmProject` 与 `PmTask` 的四个工具分处 R1/R3/R4/R5，闸、审计链与
+  本地补偿都与 CRM 样例同一条；附一条命令的演示（36 项断言）与 H2 / MySQL / PostgreSQL 三种方言的
+  schema V15。
+
+- **显式的离线本地调试模式。** `keelbase.local-debug.enabled`（默认关）让带着 provider 的部署在没有
+  模型 key 时也能启动；去掉开关后，同一个部署仍会因缺 key 失败。
+
+### 变更
+
+- **两个读投影都发出 `executionId`**，客户端可把一条副作用与同一次执行的审计行精确配对，而不必按
+  工具、用户和时间去凑；vendored 快照移到契约 `v1.14.0`，轨迹 effect 步也发出 v3 所要求的 `status`。
+- **线上形态一致性检查开始比较 `type`**，不再只看字段在不在。
+- **`tool_start` 改发 `presentationText`**（`{key, fallback}`），不再发裸字符串。
+- **只读读者不再收到调用方关联**：每一项去掉 `userId` 与 `conversationId`；管理员的 19 键投影与
+  普通调用方本人清单保持不变。
+- **三类拒绝说清发生了什么、为什么、怎么办**：401 在冻结错误体既有的键里区分五种原因，403 点名被拒
+  的动作与主体，`keelbase/status` 的每条发现都带结构化诊断（dimension、severity、code、subject、
+  what、why、nextStep）。
+- **只有缺 after 快照才算变更未被捕获**，故新建不会被报成假覆盖缺口。
+- **接入健康度不再为 R5 工具缺补偿告警**：一次永远跑不了的写，没有会补偿的副作用。
+- **发布工作流检出的契约 tag 与快照所依据的一致**（`v1.14.0`），与 `ci.yml` 早已携带的 pin 相同，
+  故发出去的 tag 校验的是 CI 校验的那份契约。
 
 ### 修复
 
