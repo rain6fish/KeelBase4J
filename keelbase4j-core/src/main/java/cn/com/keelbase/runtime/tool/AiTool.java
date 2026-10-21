@@ -28,6 +28,27 @@ public interface AiTool {
     }
 
     /**
+     * The protocol's {@code permissions.adminOnly}: this tool serves administrators only, so a
+     * non-administrator is refused at the gate before any confirmation is issued. The refusal is
+     * reported as the frozen {@code admin_only} check, which is what lets a deployment align a tool
+     * face with a REST endpoint that is likewise administrator-only.
+     *
+     * <p>Off by default, and that is not a weakening: a tool that says nothing keeps whatever the risk
+     * binding and the governance policy already decide, which is what every existing tool was written
+     * against. Declaring it is how a deployment opts into the narrower boundary.
+     *
+     * 协议里的 {@code permissions.adminOnly}：本工具只服务管理员，故非管理员会在**签发任何确认之前**被闸门拒绝。
+     * 拒绝以冻结的 {@code admin_only} 检查项报出 —— 那也是部署方把一个工具面与**同样仅限管理员**的 REST
+     * 端点对齐的凭据。
+     *
+     * <p>默认关，而这**不是**放宽：什么都没声明的工具，仍由风险绑定与治理策略决定，也就是**每一个既有工具写下时**
+     * 所依据的行为。声明它，才是部署方选择那道更窄的边界的方式。
+     */
+    default boolean adminOnly() {
+        return false;
+    }
+
+    /**
      * The business result type this tool creates (e.g. {@code follow_up}), or null for reads.
      *
      * <p><b>Declaring one is a promise about the result.</b> A tool that names a result type has its

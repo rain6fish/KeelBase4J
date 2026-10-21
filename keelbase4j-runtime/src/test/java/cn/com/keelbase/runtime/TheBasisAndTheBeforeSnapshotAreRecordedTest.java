@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.runtime.audit.AuditLog;
 import cn.com.keelbase.runtime.audit.AuditLogRepository;
+import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
@@ -66,6 +67,9 @@ class TheBasisAndTheBeforeSnapshotAreRecordedTest {
 
     @Autowired
     SideEffectRepository sideEffects;
+
+    @Autowired
+    AuditService auditService;
 
     @TestConfiguration
     static class Probe {
@@ -140,6 +144,42 @@ class TheBasisAndTheBeforeSnapshotAreRecordedTest {
                 }
             };
         }
+
+        /**
+         * R3, so the gate holds it for the operator — the path the M7 dry-run took when it wrote a
+         * customer from the assistant and then approved it.
+         *
+         * R3，故闸门把它扣给操作者 —— M7 dry-run 从助手写客户、再批准的那条路正是这一条。
+         */
+        @Bean
+        AiTool probeConfirmingTool() {
+            return new AiTool() {
+                @Override
+                public String name() {
+                    return "probe_confirming";
+                }
+
+                @Override
+                public String description() {
+                    return "test double: an allowed write that waits for the operator";
+                }
+
+                @Override
+                public String riskLevel() {
+                    return "R3";
+                }
+
+                @Override
+                public String resultType() {
+                    return "probe_row";
+                }
+
+                @Override
+                public ToolResult execute(Map<String, Object> args, Principal principal) {
+                    return ToolResult.ok(Map.of("id", 21));
+                }
+            };
+        }
     }
 
     @Test
@@ -177,5 +217,60 @@ class TheBasisAndTheBeforeSnapshotAreRecordedTest {
                 "the ledger must keep the row as it was, verbatim");
         assertTrue(effect.getAfterSnapshot() != null && effect.getAfterSnapshot().contains("\"after\""),
                 "and what it produced, which it already did: " + effect.getAfterSnapshot());
+    }
+
+    /**
+     * The M7 dry-run's breakpoint: a write that arrived through the confirmation path left its
+     * executed row with an empty basis, so "why was this allowed" had no answer on the row that
+     * actually wrote. The gate's verdict and the approval are two facts; the row must carry the one
+     * the gate produced, and the approval stays on the confirmation row.
+     *
+     * M7 dry-run 的那条断点：经确认路径执行的写，在**真正落了写的那一行**上依据为空，于是「凭什么放它」没有答案。
+     * 闸门的裁决与那次批准是两件事；这一行必须带上闸门产出的那份，而批准留在确认行上。
+     */
+    @Test
+    void aConfirmedWriteKeepsTheBasisOnItsExecutedRow() {
+        Principal caller = new Principal("dana", Principal.ROLE_USER);
+
+        ExecutionOutcome pending = engine.execute("probe_confirming", Map.of(), caller);
+        assertEquals("pending_confirmation", pending.status(), "R3 is held for the operator");
+        ExecutionOutcome executed = engine.approve(pending.token(), caller);
+        assertEquals("executed", executed.status(), "the operator's approval runs the write");
+
+        AuditLog last = auditLogs.findTopByOrderByIdDesc().orElseThrow(
+                () -> new AssertionError("the executed call left no audit row at all"));
+        assertEquals("executed", last.getOutcome());
+        String basis = last.getAuthorization();
+        assertNotNull(basis, "the executed row must keep why it was allowed, not only a cause word");
+        assertTrue(basis.contains("\"tool\":\"probe_confirming\""),
+                "the basis must name the tool it was decided for: " + basis);
+        assertTrue(basis.contains("\"riskLevel\":\"R3\""),
+                "and the risk the gate saw: " + basis);
+        assertTrue(basis.contains("\"requiresConfirmation\":true"),
+                "and that the gate's stance was to ask a person: " + basis);
+        assertTrue(auditService.verify().valid(),
+                "the basis is stored beside the chain; it must not break the hash chain");
+    }
+
+    /**
+     * The reuse branch is an execution that reports success, so it is a row a reader asks the same
+     * question about. It used to write null there while the executing path wrote the basis.
+     *
+     * 复用分支同样是一次报告成功的执行，故读者也会对它问同一个问题。它过去写 null，而执行路径写的是依据。
+     */
+    @Test
+    void aReusedCallKeepsTheBasisToo() {
+        Principal caller = new Principal("erin", Principal.ROLE_USER);
+
+        engine.execute("probe_updating", Map.of(), caller);
+        engine.execute("probe_updating", Map.of(), caller);
+
+        AuditLog last = auditLogs.findTopByOrderByIdDesc().orElseThrow(
+                () -> new AssertionError("the reused call left no audit row at all"));
+        assertEquals("executed", last.getOutcome());
+        assertTrue(last.getDetail().contains("reused"), "the second call reuses the effect: " + last.getDetail());
+        String basis = last.getAuthorization();
+        assertNotNull(basis, "a reused call must keep why it was allowed too");
+        assertTrue(basis.contains("\"tool\":\"probe_updating\""), "the basis names the tool: " + basis);
     }
 }

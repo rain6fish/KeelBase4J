@@ -22,8 +22,9 @@ import org.springframework.stereotype.Service;
  *
  * <p><b>The order matters, and it is the reference's.</b> R5 is decided first and the policy never sees
  * it: an irreversible or external tool is refused on its risk level, and a policy cannot relax that.
- * Then a disabled tool and an excluded role refuse; then an explicit gate mode overrides the risk
- * binding; then the legacy boolean, then the risk binding itself.
+ * Then a disabled tool and an excluded role refuse, and a tool declared administrator-only refuses a
+ * non-administrator; then an explicit gate mode overrides the risk binding; then the legacy boolean,
+ * then the risk binding itself.
  *
  * <p>**把工具声明的风险级 —— 以及生效中的治理策略 —— 变成门控决定。**
  *
@@ -32,8 +33,8 @@ import org.springframework.stereotype.Service;
  * —— 也正是「写下的策略在这里被**施加**、而不是仅仅被存着」的原因。
  *
  * <p><b>顺序要紧，且用的是参照实现的顺序。</b> R5 先定，策略根本见不到它：不可逆或对外动作的工具**按风险级被拒**，
- * 策略**不能**把它放宽。然后是禁用的工具与被排除的角色被拒；再是显式的门控档位覆盖风险绑定；最后才是 legacy 布尔、
- * 再是风险绑定本身。
+ * 策略**不能**把它放宽。然后是禁用的工具、被排除的角色，以及声明「仅限管理员」的工具拒绝非管理员；再是显式的门控档位
+ * 覆盖风险绑定；最后才是 legacy 布尔、再是风险绑定本身。
  */
 @Service
 public class GovernanceService {
@@ -62,6 +63,17 @@ public class GovernanceService {
         if (!allowedRoles.isEmpty() && !allowedRoles.contains(principal.role())) {
             return GateDecision.BLOCK;
         }
+        // The tool's own declaration, after the policy's role list and before any gate mode: a policy
+        // may narrow who reaches an admin-only tool, and may not widen it back to a non-administrator.
+        // The refusal is the frozen `admin_only` check, so a tool face and an administrator-only REST
+        // endpoint can answer the same way to the same caller.
+        //
+        // 工具自己的声明，排在策略的角色表之后、任何门控档位之前：策略可以把谁能到达一个仅限管理员的工具收得更窄，
+        // 却不能把它重新放宽到非管理员。拒绝用的是冻结的 `admin_only` 检查项，于是同一个工具面与一个仅限管理员的
+        // REST 端点，对同一个调用方能给出同样的回答。
+        if (tool.adminOnly() && !principal.isManager()) {
+            return GateDecision.BLOCK;
+        }
         String mode = gateMode(override);
         if (mode != null) {
             return switch (mode) {
@@ -86,17 +98,18 @@ public class GovernanceService {
      * Why the gate reached its verdict, in the frozen {@code authorization} vocabulary — so a
      * refusal reaches the caller as structured data rather than a bare sentence.
      *
-     * <p>Each check is one this runtime actually ran, so a refusal says which of the three refused it
-     * — the risk level, the tool switch or the role allowlist — and a caller reading a trace can tell
-     * "the policy disabled this" from "the risk level did". The governance-policy revision travels with
-     * it, because a decision is taken <em>under</em> a policy and a reader should be able to say which.
+     * <p>Each check is one this runtime actually ran, so a refusal says which of them refused it —
+     * the risk level, the tool switch, the role allowlist or the tool's own administrator-only
+     * declaration — and a caller reading a trace can tell "the policy disabled this" from "the risk
+     * level did". The governance-policy revision travels with it, because a decision is taken
+     * <em>under</em> a policy and a reader should be able to say which.
      *
      * 这道闸为什么得到它的结论，用冻结的 `authorization` 词表 —— 于是一次拒绝作为**结构化数据**到达调用方，
      * 而不是一句光秃秃的话。
      *
-     * <p>每条检查都是本运行时**真跑过**的那一条，故一次拒绝说得清是三者中哪一个拒的 —— 风险级、工具开关、还是
-     * 角色白名单 —— 读轨迹的人分得出「是策略禁用了它」与「是风险级」。治理策略的 revision 亦随之携带，因为一次
-     * 决定是在**某一份策略之下**做出的，读的人应当说得清是哪一份。
+     * <p>每条检查都是本运行时**真跑过**的那一条，故一次拒绝说得清是它们中哪一个拒的 —— 风险级、工具开关、
+     * 角色白名单、还是工具自己的「仅限管理员」声明 —— 读轨迹的人分得出「是策略禁用了它」与「是风险级」。治理
+     * 策略的 revision 亦随之携带，因为一次决定是在**某一份策略之下**做出的，读的人应当说得清是哪一份。
      */
     /**
      * The published pre-0.1.8 signature, kept so existing callers still compile.
@@ -127,6 +140,7 @@ public class GovernanceService {
         boolean enabled = !Boolean.FALSE.equals(override.get("enabled"));
         List<String> allowedRoles = allowedRoles(override);
         boolean roleAllowed = allowedRoles.isEmpty() || allowedRoles.contains(principal.role());
+        boolean adminAllowed = !tool.adminOnly() || principal.isManager();
 
         List<AuthorizationReasons.Check> checks = new ArrayList<>();
         checks.add(new AuthorizationReasons.Check(
@@ -143,6 +157,10 @@ public class GovernanceService {
                 GovernanceBinding.DENY_ROLE_ALLOWED,
                 roleAllowed,
                 roleAllowed ? null : "restricted to roles " + allowedRoles));
+        checks.add(new AuthorizationReasons.Check(
+                GovernanceBinding.DENY_ADMIN_ONLY,
+                adminAllowed,
+                adminAllowed ? null : "the tool is declared administrator-only"));
 
         GateDecision decision = decide(tool, principal);
         return new AuthorizationReasons(tool.name(), tool.riskLevel(), strategy,

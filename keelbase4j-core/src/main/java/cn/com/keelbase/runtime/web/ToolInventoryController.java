@@ -34,9 +34,11 @@ import org.springframework.web.bind.annotation.RestController;
  * about whether a tool is on or who may call it. With no policy written they answer their defaults
  * ({@code true} and an empty list), which is what "nothing was declared" looks like here.
  *
- * <p><b>{@code permissions} still has no source, and answers {@code null} rather than a guess.</b> The
- * reference fills it from a permission set this runtime does not have; a null the object does not demand
- * is the honest form, and inventing one would put a permission on a console nobody set.
+ * <p><b>{@code permissions} answers only what a tool actually declares.</b> A tool that declares
+ * {@link AiTool#adminOnly()} gets {@code {"adminOnly": true}}; one that declares nothing gets
+ * {@code null}, because the object does not demand it and inventing a permission would put a setting
+ * on a console nobody set. The value comes from the same declaration the gate reads, so the list and
+ * the gate cannot disagree about who may call a tool.
  *
  * <p>**工具清单**：这个运行时可以被要求做什么，以及治理对每个工具怎么说。
  *
@@ -48,8 +50,9 @@ import org.springframework.web.bind.annotation.RestController;
  * —— 故这张清单与那道闸**不可能**对「工具开没开、谁能调」各执一词。未写过策略时它们答默认值（{@code true} 与空表），
  * 那就是「什么都没声明」在这里的样子。
  *
- * <p><b>{@code permissions} 仍无来源，答 {@code null} 而不是猜一个。</b> 参照实现用一个本运行时没有的权限集去填它；
- * 该对象**不要求**的 null 是**诚实**的形态，而编一个出来等于把一项**没人设过**的权限显示到控制台上。
+ * <p><b>{@code permissions} 只回答工具**真声明**的东西。</b> 声明了 {@link AiTool#adminOnly()} 的工具得到
+ * {@code {"adminOnly": true}}；什么都没声明的得到 {@code null} —— 该对象**不要求**它，而编一项权限等于把一项
+ * **没人设过**的设置显示到控制台上。这个值取自**闸门读的同一份声明**，故清单与闸门不会对「谁能调它」各执一词。
  */
 @RestController
 public class ToolInventoryController {
@@ -119,7 +122,7 @@ public class ToolInventoryController {
         row.put("requiresApproval", decision == GateDecision.REQUIRE_APPROVAL);
         row.put("gateMode", mode);
         row.put("allowedRoles", override.getOrDefault("allowedRoles", List.of()));
-        row.put("permissions", null);
+        row.put("permissions", tool.adminOnly() ? Map.of("adminOnly", true) : null);
         row.put("riskLevel", tool.riskLevel());
         row.put("riskStrategy", RiskLevel.strategy(tool.riskLevel()));
         row.put("revokeClass", tool.revokeClass());

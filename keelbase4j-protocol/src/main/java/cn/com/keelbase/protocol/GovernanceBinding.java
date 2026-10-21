@@ -21,13 +21,16 @@ public final class GovernanceBinding {
     /** The check that refuses a caller whose role a governance policy's allowlist excludes. */
     public static final String DENY_ROLE_ALLOWED = "role_allowed";
 
+    /** The check that refuses a tool its own declaration reserves for administrators. */
+    public static final String DENY_ADMIN_ONLY = "admin_only";
+
     /** Closed set of denial reasons a gate may report. */
     public static final List<String> DENY_CHECKS = List.of(
             DENY_RISK_POLICY,
             DENY_TOOL_ENABLED,
             DENY_ROLE_ALLOWED,
             "feature_flag",
-            "admin_only",
+            DENY_ADMIN_ONLY,
             "agent_read_only");
 
     /** Gate outcome for a risk strategy. */

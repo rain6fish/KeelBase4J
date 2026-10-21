@@ -421,13 +421,17 @@ public class GovernedExecutionEngine {
         req.setExecutionClaimedAt(claimedAt);
         ExecutionOutcome outcome;
         try {
-            // No authorization snapshot on this path: the gate's verdict was "ask a person", and what
-            // let the write run was that person's answer — which the confirmation rows already record.
-            // Storing the gate's reasons here would name the wrong basis.
+            // The executed row carries the gate's structured verdict, the same snapshot the ALLOW path
+            // records: the gate's stance was "ask a person", and what let the write run was that
+            // person's answer — which stays on the confirmation row and the `approved` row beside this
+            // one. Leaving the basis empty made "why was this allowed" unanswerable from the row that
+            // actually wrote something; the two facts together, not the approval alone, are the basis.
             //
-            // 这条路上不带授权依据快照：闸门当时的裁决是「请人来问」，而让这次写跑起来的是**那个人的回答** ——
-            // 确认行早已记下它。把闸门的依据存进来等于点错了名。
-            outcome = run(tool, parseArgs(req.getArgsJson()), initiator, req.getConversationId(), null);
+            // 执行落下的那一行带着闸门的结构化裁决，与 ALLOW 路径记下的**同一份**快照：闸门的姿态是「请人来问」，
+            // 而让这次写跑起来的是**那个人的回答** —— 它留在确认行与旁边那条 `approved` 行上。依据留空，让「凭什么
+            // 放它」在**真正写了东西的那一行**上答不出来；依据是**两件事合起来**，不只是那次批准本身。
+            outcome = run(tool, parseArgs(req.getArgsJson()), initiator, req.getConversationId(),
+                    CanonicalJson.json(governance.reasons(tool, initiator).toWire()));
         } catch (RuntimeException failed) {
             // The tool threw instead of answering. The attempt is recorded as failed and keeps its
             // claim on purpose: clearing it would say the attempt never happened, and a claim with no
@@ -573,8 +577,8 @@ public class GovernedExecutionEngine {
         ToolResult result;
         boolean claimed = false;
         try {
-            ExecutionOutcome reused =
-                    reuseIfAlreadyExecuted(tool, args, principal, conversationId, executionId);
+            ExecutionOutcome reused = reuseIfAlreadyExecuted(tool, args, principal, conversationId,
+                    executionId, authorization);
             if (reused != null) {
                 return reused;
             }
@@ -769,7 +773,7 @@ public class GovernedExecutionEngine {
      */
     private ExecutionOutcome reuseIfAlreadyExecuted(AiTool tool, Map<String, Object> args,
                                                    Principal principal, String conversationId,
-                                                   String executionId) {
+                                                   String executionId, String authorization) {
         SideEffect existing = sideEffects
                 .existingFor(principal, tool.name(), CanonicalJson.json(args))
                 .orElse(null);
@@ -783,13 +787,16 @@ public class GovernedExecutionEngine {
         }
         // The intent row comes first here exactly as it does on the executing path: every execution
         // that writes a result writes an attempt before it, and this branch used to be the exception.
+        // Both rows carry the authorization basis for the same reason the executing path does: this is
+        // a row that says a call succeeded, and "why was it allowed" must have an answer on it too.
         //
         // intent 行在这里与在执行路径上一样先写：每一次写下结果的执行，都先写下尝试；这条分支过去正是那个例外。
+        // 两行都带着授权依据，理由与执行路径相同：这是一行「调用成功了」的记录，「凭什么放它」在上面也必须答得出。
         audit.append("tool_call", principal.userId(), tool.name() + " attempted", false, "attempted",
-                tool.name(), conversationId, null, executionId);
+                tool.name(), conversationId, authorization, executionId);
         audit.append("tool_call", principal.userId(),
                 tool.name() + " -> ok (effect " + existing.getId() + " reused: the same call)",
-                false, "executed", tool.name(), conversationId, null, executionId);
+                false, "executed", tool.name(), conversationId, authorization, executionId);
         return ExecutionOutcome.executed(
                 existing.getResultId() == null ? null : Map.of("id", existing.getResultId()),
                 existing.getId());
