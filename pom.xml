@@ -54,6 +54,7 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.release>17</maven.compiler.release>
     <spring-ai.version>2.0.1</spring-ai.version>
+    <jacoco-maven-plugin.version>0.8.13</jacoco-maven-plugin.version>
   </properties>
 
   <dependencyManagement>
@@ -163,4 +164,49 @@
       </build>
     </profile>
   </profiles>
+
+  <!--
+    Coverage is a measuring stick, not a gate. JaCoCo records execution data during the build and
+    writes per-module HTML/XML/CSV under `target/site/jacoco` at `verify`. There is deliberately no
+    `check` goal and no threshold: adding an untested line must not turn the build red, because that
+    is a different decision from installing a measuring tool.
+
+    覆盖率是量尺，不是闸门。JaCoCo 在构建期收集执行数据、在 `verify` 阶段为每个模块把 HTML/XML/CSV
+    写到 `target/site/jacoco`。这里**刻意**不加 `check` goal、不设阈值：新增一行没测到的代码不该让构建
+    变红 —— 那是与「装一把量尺」不同的另一个决定。
+  -->
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>${jacoco-maven-plugin.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <!-- Binds to `initialize`: the agent has to be in place before surefire forks its JVM. -->
+          <!-- 绑 `initialize`：agent 必须在 surefire 起 JVM 之前就位。 -->
+          <execution>
+            <id>jacoco-prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>jacoco-report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>
