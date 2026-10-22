@@ -101,7 +101,15 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: rain6fish/KeelBase
-          ref: main
+          # Pinned to a release tag rather than `main`: the scenario packs are read by the drift check
+          # below, and a floating branch would let a re-run of the same tag be checked against
+          # different packs — the reproducibility this release is supposed to have. Raise it the same
+          # way the contract pin above is raised: by editing this line, on purpose.
+          #
+          # 钉在发布 tag 上而不是 `main`：scenario packs 由下面的漂移检查读取，浮动的分支会让同一个 tag
+          # 重跑时校到不同的 packs —— 而这正是发布本该有的可复现性。抬它和抬上面那个契约 pin 同法：
+          # 显式改这一行。
+          ref: v1.2.0
           path: main-repo
 
       - name: Vendored snapshot must match its sources
