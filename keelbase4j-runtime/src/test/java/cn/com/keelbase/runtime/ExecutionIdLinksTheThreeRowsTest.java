@@ -9,6 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import cn.com.keelbase.runtime.audit.AuditLog;
 import cn.com.keelbase.runtime.audit.AuditLogRepository;
+import cn.com.keelbase.runtime.audit.ExecutionTraceHolder;
+import cn.com.keelbase.runtime.audit.ExecutionTraceLink;
+import cn.com.keelbase.runtime.audit.ExecutionTraceLinkRepository;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.engine.ExecutionOutcome;
@@ -95,9 +98,13 @@ class ExecutionIdLinksTheThreeRowsTest {
     @Autowired
     SideEffectRepository sideEffects;
 
+    @Autowired
+    ExecutionTraceLinkRepository traceLinks;
+
     @AfterEach
     void clearRendezvous() {
         RENDEZVOUS.set(null);
+        ExecutionTraceHolder.clear();
     }
 
     @TestConfiguration
@@ -351,5 +358,63 @@ class ExecutionIdLinksTheThreeRowsTest {
         assertNotNull(originalId, "the effect keeps the id of the execution that wrote it");
         assertNotEquals(reuseId, originalId, "not the reusing attempt's");
         assertEquals(first.effectId(), effect.getId());
+    }
+
+    /**
+     * The attempt's audit row and the host's trace are paired by the execution id. The holder is what
+     * the host sets; the audit sink reads it without the runtime growing a tracing dependency.
+     *
+     * 审计行与宿主 trace 由 execution id 配对。holder 由宿主设置，审计写入处读取它，运行时不因此长出一个
+     * 追踪依赖。
+     */
+    @Test
+    void theAttemptAndTheHostTraceAreLinkedByExecutionId() {
+        String caller = "exec-link-trace";
+        String conversation = "conv-exec-link-trace";
+        Principal principal = new Principal(caller, "user");
+        ExecutionTraceHolder.set("trace-exec-link-1");
+        try {
+            ExecutionOutcome outcome = engine.execute(TOOL, Map.of("slot", "trace"), principal,
+                    conversation);
+            assertEquals("executed", outcome.status());
+
+            String executionId = auditLogs.findByConversationIdOrderByIdAsc(conversation).stream()
+                    .filter(row -> TOOL.equals(row.getTool()))
+                    .map(AuditLog::getExecutionId)
+                    .findFirst().orElseThrow();
+            ExecutionTraceLink link = traceLinks.findById(executionId).orElseThrow();
+            assertEquals("trace-exec-link-1", link.getTraceId());
+            assertEquals(TOOL, link.getTool());
+            assertEquals(caller, link.getUserId());
+            assertEquals(conversation, link.getConversationId());
+        } finally {
+            ExecutionTraceHolder.clear();
+        }
+    }
+
+    /**
+     * No trace on the thread is a fact, not a guess: the link is still written, with a null trace,
+     * and a join on trace cannot match it to some other request.
+     *
+     * 线程上没有 trace 是一个事实、不是猜测：关联照写，trace 为 null，按 trace 的 join 不会把它误配到
+     * 别的请求。
+     */
+    @Test
+    void withoutAHostTraceTheLinkIsWrittenWithNull() {
+        String caller = "exec-link-no-trace";
+        String conversation = "conv-exec-link-no-trace";
+        Principal principal = new Principal(caller, "user");
+        ExecutionTraceHolder.clear();
+
+        ExecutionOutcome outcome = engine.execute(TOOL, Map.of("slot", "no-trace"), principal,
+                conversation);
+        assertEquals("executed", outcome.status());
+
+        String executionId = auditLogs.findByConversationIdOrderByIdAsc(conversation).stream()
+                .filter(row -> TOOL.equals(row.getTool()))
+                .map(AuditLog::getExecutionId)
+                .findFirst().orElseThrow();
+        ExecutionTraceLink link = traceLinks.findById(executionId).orElseThrow();
+        assertNull(link.getTraceId());
     }
 }

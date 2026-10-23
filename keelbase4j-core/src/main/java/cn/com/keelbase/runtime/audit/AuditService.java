@@ -9,6 +9,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -30,18 +33,30 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuditService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(AuditService.class);
+
     private final AuditLogRepository repository;
     private final AuditChainHeadRepository heads;
     private final GovernancePolicyStore policy;
     private final String chainKey;
+    private final ExecutionTraceLinkService traceLinks;
 
     public AuditService(AuditLogRepository repository, AuditChainHeadRepository heads,
                         GovernancePolicyStore policy,
                         @Value("${keelbase.audit.hmac-key}") String chainKey) {
+        this(repository, heads, policy, chainKey, null);
+    }
+
+    @Autowired
+    public AuditService(AuditLogRepository repository, AuditChainHeadRepository heads,
+                        GovernancePolicyStore policy,
+                        @Value("${keelbase.audit.hmac-key}") String chainKey,
+                        ExecutionTraceLinkService traceLinks) {
         this.repository = repository;
         this.heads = heads;
         this.policy = policy;
         this.chainKey = chainKey;
+        this.traceLinks = traceLinks;
     }
 
     /**
@@ -184,8 +199,32 @@ public class AuditService {
         payload.put("userId", userId);
         payload.put("detail", detail);
         String hash = AuditChain.hash(chainKey, prevHash, payload);
-        return repository.save(new AuditLog(action, userId, detail, prevHash, hash, isError, outcome,
-                tool, conversationId, authorization, executionId));
+        AuditLog saved = repository.save(new AuditLog(action, userId, detail, prevHash, hash, isError,
+                outcome, tool, conversationId, authorization, executionId));
+        recordTraceLink(executionId, tool, userId, conversationId);
+        return saved;
+    }
+
+    /**
+     * Records the host's trace id beside the attempt. It is deliberately best-effort: the audit row is
+     * the record of what happened, and a missing link must not turn that row into a failed append.
+     *
+     * 把宿主的 trace id 记在这次尝试旁边。它刻意是尽力而为：审计行才是「发生了什么」的记录，缺一条关联
+     * 不应把那行变成一次失败的追加。
+     */
+    private void recordTraceLink(String executionId, String tool, String userId, String conversationId) {
+        if (traceLinks == null || executionId == null || executionId.isBlank()) {
+            return;
+        }
+        try {
+            traceLinks.recordIfAbsent(executionId, ExecutionTraceHolder.current(), tool, userId,
+                    conversationId);
+        } catch (RuntimeException linkFailure) {
+            // The link is auxiliary; the row it describes is already saved.
+            // 关联是旁路；它所描述的那一行已经存下。
+            LOG.warn("execution trace link was not recorded for execution {}: {}", executionId,
+                    linkFailure.toString());
+        }
     }
 
     /** Walk the chain and recompute every hash. */
