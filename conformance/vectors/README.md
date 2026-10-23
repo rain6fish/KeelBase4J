@@ -58,6 +58,37 @@ Whether scenario packs belong in the contract is an open question, and this snap
 it by pretending they already do. The drift gate checks both sources, so neither half can rot
 unnoticed.
 
+## Moving the pin, and the weekly lag reminder
+
+- **Move it with one command:** `scripts/sync-vectors.sh --bump <tag>`. It rewrites the contract
+  `ref:` in `.github/workflows/ci.yml` and `.github/workflows/release.yml`, updates the pin
+  statement above, re-copies the snapshot from exactly `<tag>` (exported from the contract clone
+  with `git archive`, so the clone is not modified), and finishes by running `--check` — a bump that
+  does not verify exits 1. It does not commit, push, create tags, or touch the contract repository.
+  Bumping to the tag already pinned re-syncs and re-verifies, and says so.
+- **Pins move only at three moments** (CT-4): contract tag cut, consumer release prep, cross-repo
+  gate red — in the order contract push → consumer bump → consumer push, same day.
+- **The lag reminder only reports:** `bash scripts/check-pin-lag.sh` compares the pin with the
+  contract remote's newest tag and reminds you when the pin trails by more than `--lag` released
+  tags (default `1`, i.e. one release window is tolerated; two or more is a reminder). It edits
+  nothing and is not a push gate. Add `--contract ../keelbase-contract` to read tags from a local
+  clone offline, and `--strict` to exit 1 on a reminder. Suggested cadence: weekly, e.g. a Monday
+  03:00 cron — `0 3 * * 1 cd /path/to/KeelBase4J && bash scripts/check-pin-lag.sh --strict`.
+
+**中文**
+
+- **一步移动 pin：** `scripts/sync-vectors.sh --bump <tag>`。它会改写 `.github/workflows/ci.yml` 与
+  `.github/workflows/release.yml` 里的契约 `ref:`、更新上面的 pin 陈述、从 `<tag>` 精确重新复制
+  快照（用 `git archive` 从契约克隆导出，克隆本身不被修改），最后跑 `--check`——校验不过即退出 1。
+  它不提交、不推送、不打 tag、不碰契约仓。bump 到已钉的 tag 也会重新同步并校验，并说明这一点。
+- **pin 只在三个时刻移动**（CT-4）：契约打 tag、消费方发布准备、跨仓门禁红——顺序为契约推送 →
+  消费方 bump → 消费方推送，同日完成。
+- **落后提醒只报告：** `bash scripts/check-pin-lag.sh` 把 pin 与契约远端最新 tag 比较，当 pin 落后
+  **超过** `--lag` 个已发布 tag 时提醒（默认 `1`，即容忍一个发版窗口；落后两个及以上才提醒）。
+  它不编辑任何文件，也不是推送门禁。加 `--contract ../keelbase-contract` 可离线从本地克隆读 tag，
+  加 `--strict` 让提醒时退出 1。建议频率：每周一次，例如周一 03:00 的 cron：
+  `0 3 * * 1 cd /path/to/KeelBase4J && bash scripts/check-pin-lag.sh --strict`。
+
 > **Coverage note**: the snapshot mirrors the contract's own directory, so it can hold a
 > vector or schema that no Java test consumes. `confirmation-lifecycle-v1` is one: the lifecycle is
 > consumed at **v2** now, and v1 is kept here as protocol history.
