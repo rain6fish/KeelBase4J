@@ -10,6 +10,46 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [0.1.11] - 2026-10-23
+
+**English**
+
+### Added
+
+- **`permissions.adminOnly` — a tool can declare that it serves administrators only.** The declaration
+  is opt-in and defaults to `false`. A non-administrator calling such a tool is refused at the gate,
+  before any confirmation exists, as the frozen `admin_only` check; the tool inventory reports
+  `{"adminOnly": true}` for it and `null` for a tool that declares nothing, rather than inventing a
+  permission the tool never declared.
+
+### Changed
+
+- **A confirmed write keeps its `authorization_basis`.** The executed row of a write that arrived
+  through a confirmation used to carry no basis: only the ALLOW path recorded the gate's structured
+  reasons, so an approved write left "why was this allowed" unanswered on the row that actually wrote.
+  The execution tail now records the same snapshot, and the idempotent-reuse branch does too. The basis
+  stays beside the hash chain, never inside its payload.
+
+- **The version is `0.1.11`.** All eight poms move from `0.1.10` to `0.1.11`; the published set remains
+  the parent pom, `keelbase4j-protocol`, `keelbase4j-core` and `keelbase4j-springai`.
+
+**中文**
+
+### 新增
+
+- **`permissions.adminOnly` —— 工具可以声明自己只服务管理员。** 该声明是选择加入的，默认 `false`。
+  非管理员调用这类工具时，会在闸门、在任何确认行出现之前被拒，理由是冻结的 `admin_only` 检查项；
+  工具清单对它报 `{"adminOnly": true}`，对什么都没声明的工具报 `null`，而不是凭空编一项它从未声明的权限。
+
+### 变更
+
+- **经确认路径的写保留 `authorization_basis`。** 经确认路径执行的那一次写，落下的结果行过去不带依据：
+  只有 ALLOW 路径记录闸门的结构化理由，于是被批准的写让「凭什么放它」在真正写了东西的那一行上没有答案。
+  执行尾段现在记下同一份快照，幂等复用分支也一样。依据仍存在哈希链旁边，从不进入链的载荷。
+
+- **版本为 `0.1.11`。** 八个 pom 由 `0.1.10` 落到 `0.1.11`；发布集合仍是父 pom、`keelbase4j-protocol`、
+  `keelbase4j-core` 与 `keelbase4j-springai`。
+
 ## [0.1.10] - 2026-10-21
 
 **English**
