@@ -106,12 +106,22 @@ jobs:
           # 受治理执行的审计行**精确配成对**。快照正是从该版本刷新、且与之逐字节一致。
           ref: v1.14.0
           path: contract-repo
-      # Scenario packs are not part of the contract, so they are still taken from where they live.
+      # Scenario packs are not part of the contract, so they are still taken from where they live —
+      # but at a version, not at `main`. Read at the branch tip, this gate's verdict for one commit
+      # depended on when the sibling's `main` happened to be read: a commit synced from `main` goes red
+      # the moment `main` moves again, and the same SHA goes green again after the next re-sync. Both
+      # workflows gate the same snapshot, so both pin the same version; raising it is a deliberate edit
+      # made together with re-syncing the snapshot, the same way the contract pin above is raised.
+      #
+      # 场景包不属于契约，故仍从它们所在的地方取 —— 但取的是一个版本，不是 `main`。若按分支 tip 读，
+      # 这道闸对同一个提交的判决就取决于读那一刻兄弟仓的 `main` 在哪：一次从 `main` 同步出来的提交，
+      # 只要 `main` 再动一次就会红；同一个 SHA 在下一次重新同步之后又变绿。两个工作流守的是同一份快照，
+      # 故都钉同一个版本；抬它是一次显式改动，要与重新同步快照一起做，同上面那个契约 pin 的抬法。
       - name: Check out the main repo's scenario packs
         uses: actions/checkout@v5
         with:
           repository: rain6fish/KeelBase
-          ref: main
+          ref: v1.2.0
           path: main-repo
       - name: Vendored snapshot must match its sources
         run: scripts/sync-vectors.sh --check --contract contract-repo --main main-repo
