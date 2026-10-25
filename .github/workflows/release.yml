@@ -35,6 +35,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # A tag cannot be taken back, and it can be cut from a commit that never went through ci.yml —
+      # the same gap the drift check below was added for. `contract-pin` in ci.yml catches a
+      # half-applied pin bump on every push, but it does not run for a tag push, so the pair is checked
+      # here too, and before anything is built: `--pins-only` reads only this checkout (no sibling, no
+      # network) and fails when ci.yml and release.yml answer for different contract versions, or when
+      # either pin is not a release tag. It says nothing about lag — a release verifies against the
+      # version it answers for, which is the next check's question.
+      #
+      # tag 收不回来，而它可以打在从未经过 ci.yml 的提交上——这与下面那道漂移检查当初被加进来是同一个缺口。
+      # ci.yml 的 `contract-pin` 在每次推送时抓「pin 只改了一半」，但它不为打 tag 而跑，所以这一对在这里
+      # 再校一次，且在任何构建之前：`--pins-only` 只读这次检出（不检出兄弟仓、不联网），当 ci.yml 与
+      # release.yml 回答的契约版本不同、或任一处 pin 不是发布 tag 时失败。它不判断落后——一次发布是按它
+      # 所回答的那个版本校的，那是下一道检查的事。
+      - name: Both workflows pin the same released version
+        run: bash scripts/check-pin-lag.sh --pins-only --strict
+
       - name: Set up JDK 17
         uses: actions/setup-java@v6
         with:
