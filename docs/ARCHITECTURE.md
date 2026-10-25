@@ -346,6 +346,7 @@ a consumer's classpath. Only the demo deployment depends on the runtime.
 ```bash
 mvn test                              # protocol · runtime · generator · springai — the whole suite
 mvn -DskipTests install               # install every module into the local repo
+bash scripts/jdk25.sh mvn verify      # the whole suite on JDK 25 — resolved for that one command (CI's second leg)
 bash scripts/demo-generated-app.sh    # generate → build → run → exercise the generated app
 bash scripts/demo-changeability.sh    # change → regenerate → the hand edit survives
 bash scripts/demo-migration.sh        # change → additive migration → existing rows carry over
