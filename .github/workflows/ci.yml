@@ -23,6 +23,39 @@
 #      Maven repository against this repository's own tags and fails when a released coordinate holds a
 #      jar written after that release. An install runs first, and it is not incidental: a fresh runner
 #      has nothing to read, so without it the gate would pass by having nothing to look at.
+#   6. contract-pin — the two workflows answer for the same contract version, and every push says so.
+#      `--bump` moves both `ref:` values in one step, but half a bump did happen: ci.yml moved to
+#      v1.14.0 and release.yml stayed on v1.12.0 for 21 hours, with nothing looking. The gate reads only
+#      this repository — no sibling checkout, no network — so that state is red on the push that creates
+#      it and cannot be red for any other reason. The lag behind the newest contract release is reported
+#      by the same job as a warning, never as a red: CT-4 makes one window behind the normal state
+#      between the moments a pin is allowed to move.
+#
+# ── 中文 ──
+#
+# KeelBase4J CI —— 协议一致性。
+#
+# 本仓的全部意义，在于一个 Java 实现能复现 KeelBase AI 治理协议的、与语言无关的向量。CI 每次推送
+# 证明的正是这件事：
+#   1. conformance —— 实现仍能复现随仓携带的向量，在基线 JDK 与它声称要跑的最新 JDK 上都跑；
+#   2. vector-drift —— 随仓携带的向量仍与它们被刷新自的那份副本一致：契约仓，在**本仓所回答的那个版本**
+#      上，加上主仓的场景包（它们不属于契约）。这些文件绝不在这里手改；一旦分叉，说明一边动了另一边没动。
+#   3. bilingual-comments —— 每个 javadoc 块都是先英文后中文、各自成块。这不是一致性声明，而是同类的闸：
+#      那条规则此前靠碰巧在审的人执行，交错写法的注释在一个会话里进了两次而没人发现，而「取决于谁在看」
+#      的规则不算被执行的规则。
+#   4. release-rehearsal —— 发布集合仍能在 release profile 下构建，含 sources 与 javadoc，在基线 JDK 与
+#      25 上（javadoc 是最可能与新版不一致的一环）。这也算不上一致性声明，理由与 3 同：发布 job 自己的检查
+#      在 tag 已经存在之后才跑，而那一刻什么都收不回来。
+#   5. version-coordinate —— 本运行时没有任何本地坐标冒领一个它不是从那个版本构建出来的发布。形状同 3、4：
+#      版本号只在一次发版提交里前进，所以停在一个已发布号上的树会一直以那个号构建，随后本机安装就会
+#      为一个它不是从那构建出来的发布作答——悄悄地在装了它的那台机器上。这道闸拿本机 Maven 仓库对本仓
+#      自己的 tag，当一个已发布坐标下放着晚于那次发布的 jar 时失败。检查前先装一次，这不是附带的：干净的
+#      runner 无物可读，没有这次安装，闸会「什么都没找到」地通过。
+#   6. contract-pin —— 两个工作流回答的是同一个契约版本，而且每次推送都这么说。`--bump` 一步同时移动两处
+#      `ref:`，但「只改了一半」确实发生过：ci.yml 移到 v1.14.0，而 release.yml 在 v1.12.0 上停了 21 小时，
+#      期间没有任何东西在看。这道闸只读本仓库——不检出兄弟仓、不联网——所以那种状态在造成它的那次推送
+#      上就是红的，也不会为别的任何原因变红。落后最新契约发布多少，由同一个 job 以警告报告，永不变红：
+#      CT-4 把「落后一个窗口」定成 pin 允许移动的那些时刻之间的常态。
 name: CI
 
 on:
@@ -125,6 +158,81 @@ jobs:
           path: main-repo
       - name: Vendored snapshot must match its sources
         run: scripts/sync-vectors.sh --check --contract contract-repo --main main-repo
+
+  contract-pin:
+    name: Both workflows pin one contract version
+    runs-on: ubuntu-latest
+    # What this job judges, and what it refuses to judge.
+    #
+    # `sync-vectors.sh --bump` moves the contract pin in ci.yml and release.yml in one step, but a
+    # half-applied bump is not hypothetical: on 2026-10-20 ci.yml moved to v1.14.0 for the v6 schema
+    # generation and release.yml stayed on v1.12.0 for 21 hours. In that window a tag cut from the
+    # tree would have been verified by the release gate against one contract while every push was
+    # verified against another, and nothing was looking at the pair. The first step makes that state
+    # red, on every push to main and every pull request.
+    #
+    # That gate reads only this repository: `--pins-only` compares the two `ref:` values and checks
+    # each one is a release tag, with no sibling checkout and no network. That is deliberate — a gate
+    # that needs the contract remote can go red because a remote had a bad minute, and a gate that can
+    # go red for something other than the thing it judges is a gate that gets switched off. The price
+    # is that it cannot see the tag list, so "is this version stale" is not its question.
+    #
+    # The second step asks that question and answers it as a warning, never as a red. CT-4 lets the
+    # pin trail the newest contract release by one window, and the pin moves only when something needs
+    # it to move; a gate on lag would be red in the normal state between releases, and a gate that is
+    # red in the normal state is a gate people learn to ignore. The reminder shows up as workflow
+    # warnings and in the step summary. The threshold is `--lag 2` rather than the script's default of
+    # 1 because this runs on every push: one window behind is the state CT-4 calls normal, and a
+    # warning that fires in the normal state trains the same reflex a red one would.
+    #
+    # Nothing here is scheduled. A `schedule:` trigger on this file would cover every job in it, the
+    # Maven legs included, and a tree nobody is pushing to has nobody to act on the reminder. The cron
+    # in the script's header remains the way to get a weekly look at a quiet tree.
+    #
+    # 本 job 判什么、以及它拒绝判什么。
+    #
+    # `sync-vectors.sh --bump` 一步同时移动 ci.yml 与 release.yml 里的契约 pin，但「只改了一半」不是假设：
+    # 2026-10-20 ci.yml 为 v6 这一代 schema 移到 v1.14.0，而 release.yml 在 v1.12.0 上停了 21 小时。在那段
+    # 时间里，从这棵树打出的 tag 会由发布闸按一个契约校验，而每一次推送由 ci.yml 按另一个契约校验 ——
+    # 并且没有任何东西在看这一对。第一步把这种状态判红，每次推送 main 与每个 PR 都跑。
+    #
+    # 这道闸只读本仓库：`--pins-only` 比较两个 `ref:` 并检查各自是发布 tag，不检出兄弟仓、不联网。这是
+    # 有意的 —— 需要契约远端的闸会因为远端抖了一下而红，而会为「不是它要判的东西」变红的闸，最后都会
+    # 被人关掉。代价是它看不见 tag 列表，所以「这个版本是不是落后了」不是它的问题。
+    #
+    # 第二步问那个问题，且只以警告作答、永不变红。CT-4 允许 pin 落后最新契约发布一个窗口，而 pin 只在
+    # 需要它动的时候才动；拿落后做闸，在两次发布之间的常态里就是红的，而在常态里变红的闸，是人们学会
+    # 去无视的闸。提醒以 workflow 警告与 step summary 呈现。阈值取 `--lag 2`、而非脚本默认的 1，是因为
+    # 它每次推送都跑：落后一个窗口正是 CT-4 所说的常态，而在常态里就响的警告，训练出的反射和红的一样。
+    #
+    # 这里没有任何定时。在这个文件上加 `schedule:` 会覆盖它的每一个 job，含几条 Maven 腿，而一棵没人
+    # 推送的树，也没人去处理那条提醒。脚本头部那条 cron 仍是「安静时每周看一眼」的办法。
+    steps:
+      - uses: actions/checkout@v5
+      - name: The two workflows pin the same released version
+        run: bash scripts/check-pin-lag.sh --pins-only --strict
+      # The report is allowed to fail as a step and never as a run: what it has to say is worth a
+      # warning line, not a blocked push, and a remote it cannot reach must not turn a reminder into a
+      # red. The script's own exit code is read rather than propagated, so the warning says which.
+      #
+      # 这份报告允许「以步骤失败」而不允许「以整轮失败」：它要说的话值得一行警告，不值得拦住一次推送，
+      # 而一个它够不着的远端不能把提醒变成红。脚本自己的退出码是被读出来、而不是被传播的，好让警告说清是哪种。
+      - name: How far the pin trails the newest contract release (a reminder, never a gate)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          out=$(bash scripts/check-pin-lag.sh --lag 2 2>&1) && rc=0 || rc=$?
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | sed -n 's/^REMINDER: /::warning::/p'
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning::the lag reminder could not read the contract tags (exit $rc); the pin gate above is unaffected"
+          fi
+          {
+            echo '### Contract pin'
+            echo '```'
+            printf '%s\n' "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   bilingual-comments:
     name: Comment blocks read English then Chinese
