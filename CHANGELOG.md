@@ -10,6 +10,63 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [0.1.12] - 2026-10-26
+
+**English**
+
+### Added
+
+- **A host can register tools after startup, and the registry remembers where each one came from.**
+  `ToolRegistry.register(AiTool, Origin)` is public, idempotent and synchronized, and it keeps the one
+  declaration rule: a governed write without a `resultType` is still refused. `Origin.DEPLOYMENT` is a
+  Spring `AiTool` bean the deployment wrote; `Origin.HOST_ASSEMBLED` is a tool a host registers while it
+  assembles a turn (an MCP server's tool, a SKILL's shell). `all()` still answers the engine, the policy
+  store, the inventory and the confirmation views; the new `catalogue()` answers the two model faces, so
+  a host-assembled tool cannot be offered to every agent as if it were the deployment's own. A
+  host-assembled tool cannot shadow a deployment tool of the same name.
+
+- **`GovernancePolicyStore.ensureDisabled(names)`.** It adds `{enabled:false}` for tools that have no
+  override yet, through the same validation and history path under the same lock. `set` replaces the
+  whole document and would race a policy console; this only adds the missing entries and never touches
+  an override a person wrote. It is the gate a host-assembled external tool starts behind.
+
+### Changed
+
+- **`SpringAiToolCallPlanner` reads `catalogue()`.** A tool a host assembled for one agent is not
+  plannable for every caller of `/ai/chat`.
+
+- **`/keelbase/status` counts R2 and above as writes.** An external tool that declares no `resultType`
+  is an action surface, not a read, so the reading no longer under-reports it.
+
+- **The version is `0.1.12`.** All eight poms move from `0.1.11` to `0.1.12`; the published set remains
+  the parent pom, `keelbase4j-protocol`, `keelbase4j-core` and `keelbase4j-springai`.
+
+**中文**
+
+### 新增
+
+- **宿主可以在启动之后注册工具，注册表也记得每个工具来自哪里。** `ToolRegistry.register(AiTool, Origin)`
+  公开、幂等、加锁，并保留唯一那条声明规则：受治理的写没有 `resultType` 仍然被拒。`Origin.DEPLOYMENT`
+  是部署自己写的 Spring `AiTool` bean；`Origin.HOST_ASSEMBLED` 是宿主在装配一轮会话时注册的工具（某个
+  MCP 服务的工具、某个 SKILL 的 shell）。`all()` 继续回答引擎、策略库、清单与确认视图；新增的
+  `catalogue()` 回答两个模型面，于是宿主装配的工具不会被当成部署自己的目录发给每个 agent。宿主装配的
+  工具不能顶替同名的部署工具。
+
+- **`GovernancePolicyStore.ensureDisabled(names)`。** 它为还没有覆盖的工具补 `{enabled:false}`，走同一套
+  校验与历史路径、同一把锁。`set` 会替换整份文档并与策略控制台撞车；这个方法只补缺失的条目，绝不改动
+  人写下的覆盖。它正是宿主装配的外部工具一开始所在的那道闸。
+
+### 变更
+
+- **`SpringAiToolCallPlanner` 改读 `catalogue()`。** 宿主为某一个 agent 装配的工具，不是 `/ai/chat`
+  每个调用方都能规划的东西。
+
+- **`/keelbase/status` 把 R2 及以上计为写。** 不声明 `resultType` 的外部工具是动作面、不是只读，读数
+  不再少报它。
+
+- **版本为 `0.1.12`。** 八个 pom 由 `0.1.11` 落到 `0.1.12`；发布集合仍是父 pom、`keelbase4j-protocol`、
+  `keelbase4j-core` 与 `keelbase4j-springai`。
+
 ## [0.1.11] - 2026-10-23
 
 **English**
