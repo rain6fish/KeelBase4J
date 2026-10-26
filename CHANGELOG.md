@@ -10,6 +10,30 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [0.1.12] - 2026-10-26
+
+**English**
+
+### Fixed
+
+- **A row denial now names the subject and the action it refused.** `ruleDeniedGuidance` wrote the whole
+  `explanation` only when the refusal claimed a deny basis, so a row denial — which deliberately claims
+  none, because the frozen `permission-decision` defines none for it — dropped the subject and action the
+  guard had already computed: the exception carried them, the wire did not. The guidance is now written
+  whenever there is anything to explain, and a row denial emits `{"reason", "subject", "action"}` with
+  `deniedBy` absent. That absence is the statement — no basis is claimed — and the shape stays inside
+  `error-body.schema.json`, which types `explanation` as `["object", "string"]` with no inner schema.
+
+**中文**
+
+### 修复
+
+- **行拒绝现在点名它拒了哪个主体、哪个动作。** `ruleDeniedGuidance` 只在拒绝**声称了依据**时才写整段
+  `explanation`，于是行拒绝——它**刻意不声称**依据，因为冻结的 `permission-decision` 不为它定义——把守卫
+  已经算出来的 subject 与 action 丢掉了：异常带着它们，线缆上没有。现在只要有可解释的东西就写，行拒绝交出
+  `{"reason", "subject", "action"}` 而 `deniedBy` 缺席。那个缺席本身就是那句话——不声称依据——且形状仍在
+  `error-body.schema.json` 之内：它把 `explanation` 定为 `["object", "string"]`、内部无 schema。
+
 ## [0.1.11] - 2026-10-23
 
 **English**
