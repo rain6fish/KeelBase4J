@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,7 +85,7 @@ public class GovernancePolicyStore {
      * Replace the policy — or refuse the submission, in whole, with the reason. A policy is not applied
      * field by field: half of one is a gate nobody asked for.
      */
-    public Map<String, Object> set(Map<String, Object> body) {
+    public synchronized Map<String, Object> set(Map<String, Object> body) {
         rejectUnknown(body.keySet(), STORED_KEYS, "the policy");
         Map<String, Object> tools = requireMap(body.get("tools"), "`tools`");
         Map<String, Object> audit = requireMap(body.get("audit"), "`audit`");
@@ -102,19 +103,77 @@ public class GovernancePolicyStore {
                     + audit.get("granularity") + "`");
         }
         String json = CanonicalJson.json(ordered(tools, audit));
+        GovernancePolicyRow row = save(json);
+        return view(json, row.getUpdatedAt());
+    }
+
+    /**
+     * Make a set of tools **disabled by default** — the gate a host-assembled external tool starts
+     * with. An entry that already exists is left exactly as it is, so a policy an administrator wrote
+     * is never overwritten by a later assembly.
+     *
+     * <p><b>Why a method rather than a `set` from the host.</b> `set` replaces the whole document, so
+     * a host calling it while an administrator is saving the Policy Center would race them and drop
+     * their other overrides. This only adds the missing entries and goes through the same validation
+     * and history path, under the same lock.
+     *
+     * <p><b>Why `enabled:false` and not `mode:confirmation`.</b> The external path has no later
+     * executor for a confirmation token (the tool belongs to one turn's assembly), so a token would be
+     * a promise nobody can keep. Disabling is a gate the engine really applies, and the Policy Center
+     * can lift it when a person decides this tool may run.
+     *
+     * 让一组工具**默认被禁用** —— 宿主装配的外部工具一开始就该在这道闸后面。已经存在的条目**原样保留**，
+     * 管理员写过的策略不会被后来的一次装配覆盖。
+     *
+     * <p><b>为什么是一个方法、而不是让宿主调 `set`。</b>`set` 替换整份文档，宿主在管理员保存策略中心的同时调它
+     * 就会**撞车**，把管理员其它的覆盖一起丢掉。这里只补缺失的条目，并走同一套校验与历史路径、同一把锁。
+     *
+     * <p><b>为什么是 `enabled:false` 而不是 `mode:confirmation`。</b>外部那条路**没有**之后能执行确认 token 的人
+     * （工具属于某一轮的装配），发一个 token 等于许下一个没人能兑现的承诺。禁用是引擎**真的**施加的闸，而人可以
+     * 在策略中心把它放开。
+     */
+    public synchronized void ensureDisabled(Collection<String> toolNames) {
+        Map<String, Object> merged = new LinkedHashMap<>(currentTools());
+        boolean changed = false;
+        for (String name : toolNames) {
+            if (!tools.contains(name)) {
+                throw refused("`" + name + "` is not registered, so a default cannot be stored for it");
+            }
+            if (!merged.containsKey(name)) {
+                merged.put(name, Map.of("enabled", false));
+                changed = true;
+            }
+        }
+        if (!changed) {
+            return;
+        }
+        Object storedAudit = current().get("audit");
+        Map<String, Object> audit = storedAudit instanceof Map<?, ?> block
+                ? stringKeys(block)
+                : Map.of("granularity", DEFAULT_GRANULARITY);
+        save(CanonicalJson.json(ordered(merged, audit)));
+    }
+
+    /**
+     * Persist the policy and its history snapshot, returning the row that holds its timestamp.
+     *
+     * <p>The revision is content, so an unchanged policy must not append another snapshot.
+     *
+     * 保存策略与它的历史快照，并返回带着时间戳的那一行。revision 是内容，故未变的策略不再追加一份快照。
+     */
+    private GovernancePolicyRow save(String json) {
         GovernancePolicyRow row = policies.findAll().stream().findFirst()
                 .orElseGet(() -> new GovernancePolicyRow(json));
         row.setPolicyJson(json);
         policies.save(row);
         String revision = revision(json);
-        // The revision is content, so an unchanged policy must not append another snapshot.
         boolean alreadyRecorded = history.findFirstByOrderByIdDesc()
                 .map(snapshot -> revision.equals(snapshot.getRevision()))
                 .orElse(false);
         if (!alreadyRecorded) {
             history.save(new GovernancePolicyHistoryRow(revision, json));
         }
-        return view(json, row.getUpdatedAt());
+        return row;
     }
 
     /**
