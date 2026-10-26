@@ -103,8 +103,18 @@ class FailureDiagnosisTest {
         assertTrue(String.valueOf(body.get("reason")).contains("数据范围"));
         assertTrue(String.valueOf(body.get("nextStep")).contains("数据范围"),
                 "the next step says which boundary the caller can act on");
-        assertNull(body.get("explanation"),
+        // The row gate still claims no basis — that is now expressed by `deniedBy` being absent rather
+        // than by the whole `explanation` being absent — and the refusal names what it refused.
+        //
+        // 行闸**仍然不声称依据**——只是这个「不声称」现在由 `deniedBy` 的缺席表达，而不是整段
+        // `explanation` 的缺席；同时它点名了拒的是什么。
+        @SuppressWarnings("unchecked")
+        Map<String, Object> explanation = (Map<String, Object>) body.get("explanation");
+        assertNotNull(explanation, "a row denial names the subject and action it refused");
+        assertNull(explanation.get("deniedBy"),
                 "the row gate claims no basis: the frozen permission-decision defines none for it");
+        assertEquals("Customer", explanation.get("subject"));
+        assertEquals("read", explanation.get("action"));
     }
 
     @Test

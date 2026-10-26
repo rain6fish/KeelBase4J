@@ -59,9 +59,15 @@ public class WireExceptionAdvice {
      * A refusal by the authorization contracts.
      *
      * <p>{@code deniedBy} may be absent — the row gate denies a row the rules allowed, and the frozen
-     * {@code permission-decision} defines no basis for that. When it is absent the {@code explanation}
-     * is omitted rather than sent empty, so the frontend reads "no basis claimed" instead of a basis
-     * it would then act on.
+     * {@code permission-decision} defines no basis for that. The refusal still names the subject and
+     * action it refused, so the {@code explanation} is written with those keys and {@code deniedBy}
+     * simply absent: the frontend reads "no basis claimed" rather than a basis it would then act on.
+     *
+     * <p>由授权契约作出的拒绝。
+     *
+     * <p>`deniedBy` 可以缺席——行闸拒的是规则本就允许的那一行，而冻结的 `permission-decision` 不为它定义依据。
+     * 但拒绝仍然点名它拒了哪个主体、哪个动作，故 `explanation` 照样写出、只是**没有** `deniedBy` 这个键：
+     * 前端读到的是「不声称依据」，而不是一个它会拿去照做的依据。
      */
     @ExceptionHandler(RuleDeniedException.class)
     public ResponseEntity<Map<String, Object>> ruleDenied(RuleDeniedException denied) {

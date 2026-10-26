@@ -147,7 +147,14 @@ class FrontendAttachmentTest {
         assertEquals(403, ((Number) body.get("code")).intValue(),
                 "a refusal must not arrive re-wrapped as a success");
         assertNotNull(body.get("reason"), "the row gate must say which range was exceeded");
-        assertNull(body.get("explanation"),
+        // The runtime still must not claim a basis; that is now expressed by `deniedBy` being absent
+        // rather than by the whole `explanation` being absent.
+        //
+        // 仍然不得声称依据；这个「不声称」现在由 `deniedBy` 的缺席表达，而不是整段 `explanation` 的缺席。
+        @SuppressWarnings("unchecked")
+        Map<String, Object> explanation = (Map<String, Object>) body.get("explanation");
+        assertNotNull(explanation, "a row denial names the subject and action it refused");
+        assertNull(explanation.get("deniedBy"),
                 "the frozen permission-decision names no basis for the row gate, so this runtime "
                         + "must not claim one");
     }

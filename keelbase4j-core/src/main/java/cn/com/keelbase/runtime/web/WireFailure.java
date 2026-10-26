@@ -107,11 +107,21 @@ final class WireFailure {
      * and inventing one would be this runtime minting contract vocabulary (see
      * {@code OwnershipGuard}).
      *
+     * <p>An {@code explanation} is written whenever there is anything to explain — a basis, a subject,
+     * or an action. A row denial carries no basis but does name what was refused, so it emits
+     * {@code {reason, subject, action}} with {@code deniedBy} absent. That absence is the statement:
+     * no basis is claimed. {@code error-body.schema.json} types {@code explanation} as
+     * {@code ["object","string"]} with no inner schema, so this shape is schema-valid.
+     *
      * <p>规则或行拒绝的 403 指引，带上被拒绝的动作与主体。
      *
      * <p>只被告知「forbidden」的调用方分不清：是自己对这个主体缺这个动作，还是这一行不在自己的数据范围内。
      * 守卫两样都知道，故拒绝点名它们。行闸仍然**不声称** `deniedBy`：冻结的集合里没有它的依据，编一个
      * 就是本运行时在铸造契约词表（见 `OwnershipGuard`）。
+     *
+     * <p>只要有可解释的东西——依据、主体、动作三者之一——就写 `explanation`。行拒绝没有依据，但确实点名拒了什么，
+     * 故交出 `{reason, subject, action}` 而 `deniedBy` 缺席。**缺席本身即是那句话**：不声称依据。
+     * `error-body.schema.json` 把 `explanation` 定为 `["object","string"]`、内部无 schema，故该形状 schema 合法。
      */
     static Map<String, Object> ruleDeniedGuidance(String reason, String deniedBy, String subject,
                                                   String action, String nextStep) {
@@ -121,9 +131,11 @@ final class WireFailure {
         extra.put("impact", "本次请求被授权链拒绝，未执行任何工具，也未产生任何写操作");
         Object fallback = guidanceFor(HttpStatus.FORBIDDEN).get("nextStep");
         extra.put("nextStep", nextStep != null ? nextStep : fallback);
-        if (deniedBy != null) {
+        if (deniedBy != null || subject != null || action != null) {
             Map<String, Object> explanation = new LinkedHashMap<>();
-            explanation.put("deniedBy", deniedBy);
+            if (deniedBy != null) {
+                explanation.put("deniedBy", deniedBy);
+            }
             explanation.put("reason", reason);
             if (subject != null) {
                 explanation.put("subject", subject);
