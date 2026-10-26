@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -82,6 +83,9 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 public class IntegrationStatusController {
+
+    /** The risk levels whose calls count as actions rather than reads. / 计为动作而非只读的风险级。 */
+    private static final Set<String> WRITE_LEVELS = Set.of("R2", "R3", "R4", "R5");
 
     /**
      * The chain-verification bound. The report walks the chain to say whether it holds; a deployment
@@ -164,7 +168,15 @@ public class IntegrationStatusController {
 
     private Map<String, Object> toolsBlock(List<IntegrationDiagnostic> diagnostics) {
         List<AiTool> all = tools.all();
-        long writes = all.stream().filter(tool -> tool.resultType() != null).count();
+        // A host-assembled external tool declares no `resultType` (it has no result id to record) but
+        // is still an action surface that can change things; counting only `resultType` would report
+        // it as a read. R2 and above count as writes, so the reading does not under-report.
+        //
+        // 宿主装配的外部工具不声明 `resultType`（它没有可登记的结果 id），但它仍是能改变东西的动作面；只按
+        // `resultType` 计数会把它报成只读。R2 及以上计为写，读数不会少报。
+        long writes = all.stream()
+                .filter(tool -> tool.resultType() != null || WRITE_LEVELS.contains(tool.riskLevel()))
+                .count();
 
         Map<String, Long> distribution = new TreeMap<>();
         Map<String, String> levelByName = new LinkedHashMap<>();

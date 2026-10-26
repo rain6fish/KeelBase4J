@@ -74,6 +74,26 @@ class SpringAiToolCallPlannerTest {
     }
 
     @Test
+    void aHostAssembledToolIsNotOfferedToTheRuntimePlanner() {
+        ChatModel model = prompt -> {
+            prompts.add(prompt.getContents());
+            return new ChatResponse(List.of(new Generation(new AssistantMessage(
+                    "{\"tool\": \"mcp__server__search\", \"args\": {}}"))));
+        };
+        ToolRegistry registry = new ToolRegistry(List.of(readTool()));
+        registry.register(stub("mcp__server__search", "an MCP tool", "R1"),
+                ToolRegistry.Origin.HOST_ASSEMBLED);
+
+        Optional<IntentPlan> plan = new SpringAiToolCallPlanner(ChatClient.builder(model).build(), registry)
+                .plan("search something", Map.of());
+
+        assertTrue(plan.isEmpty(),
+                "a host-assembled tool belongs to one agent's binding, not the deployment catalogue");
+        assertFalse(prompts.get(0).contains("mcp__server__search"),
+                "and it must not even be named in the runtime planner's prompt");
+    }
+
+    @Test
     void theCatalogueSentToTheModelCarriesNoGovernanceMetadata() {
         planWith("{\"tool\": null}");
 

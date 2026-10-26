@@ -85,7 +85,7 @@ public final class SpringAiToolCallPlanner implements ToolCallPlanner {
     private String system() {
         StringBuilder sb = new StringBuilder(INSTRUCTIONS);
         sb.append("\nAvailable tools:\n");
-        for (AiTool tool : tools.all()) {
+        for (AiTool tool : tools.catalogue()) {
             sb.append("- ").append(tool.name()).append(": ").append(tool.description()).append('\n');
             List<ToolParameter> parameters = tool.parameters();
             if (!parameters.isEmpty()) {
@@ -129,7 +129,12 @@ public final class SpringAiToolCallPlanner implements ToolCallPlanner {
     }
 
     private boolean known(String name) {
-        return tools.all().stream().anyMatch(tool -> tool.name().equals(name));
+        // The deployment's catalogue only: a host-assembled tool belongs to one agent's binding and
+        // must not become plannable for every caller of `/ai/chat`.
+        //
+        // 只认部署自己的目录：宿主装配的工具属于某一个 agent 的绑定，不能变成 `/ai/chat` 每个调用方都能
+        // 提议的东西。
+        return tools.catalogue().stream().anyMatch(tool -> tool.name().equals(name));
     }
 
     /** Arguments are passed through as data; a proposal with none is a proposal with none. */
