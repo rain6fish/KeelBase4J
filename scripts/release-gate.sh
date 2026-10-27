@@ -14,7 +14,10 @@
 #   5. the publish set still builds the way a release builds it — sources and javadoc included — and is
 #      still exactly four modules;
 #   6. the provider-bearing deployment still walks the governance chain with no model key when local
-#      debug is on — and cannot start without the switch (the reverse proof).
+#      debug is on — and cannot start without the switch (the reverse proof);
+#   7. the release workflow's keyserver step still fails in minutes rather than hanging — its self-test
+#      drives a deliberately hanging gpg, and `release.yml` is checked to still call it (a raw
+#      `gpg --send-keys` there would pass the self-test while the pipeline went back to being unbounded).
 #
 # Four things are deliberately out of the default run, each for a reason rather than for time:
 #   * `demo-golden-path.sh` needs the main repository's Web-Admin-Vue checkout. A gate that depends on a
@@ -51,7 +54,9 @@
 #      以及（在 `PG_ENV=1` 之后）**同一个产物起在 PostgreSQL** 上，而不是它自带的文件版 H2；
 #   4. 每个 javadoc 块英文在前、中文在后；
 #   5. 发布集合仍按发布的方式构建得出来（含 sources 与 javadoc），且仍恰为四个模块；
-#   6. 带 provider 的部署在打开本地调试、且**没有模型 key** 时仍走完整条治理链 —— 去掉开关则起不来（反向证明）。
+#   6. 带 provider 的部署在打开本地调试、且**没有模型 key** 时仍走完整条治理链 —— 去掉开关则起不来（反向证明）；
+#   7. 发布工作流上传公钥那一步仍在几分钟内失败、而不是挂死 —— 它的自检驱动一个故意挂起的 gpg，并核对
+#      `release.yml` 仍调用它（那里改回裸 `gpg --send-keys`，自检照样绿，而流水线重新变得无界）。
 #
 # 有四件事**有意**不在默认跑，理由各有其理、不是省时间：
 #   * `demo-golden-path.sh` 需要主仓的 Web-Admin-Vue 检出。门禁若依赖相邻仓库的工作树，就会在本就没有它
@@ -211,6 +216,32 @@ if [ "$REACTOR" = "4" ]; then
   gate "Release(发布集合仍恰为四个模块)" pass
 else
   gate "Release(发布集合仍恰为四个模块)" fail "reactor 里有 $REACTOR 个模块，期望 4（父 pom · protocol · core · springai）"
+fi
+
+# ── Release / keyserver：上传公钥那一步失败有界 ────────────────────────────────
+echo "→ [Release] 上传公钥：挂起 / 拒绝 / 已发布三态都有界，且 release.yml 仍走这条路"
+
+# The self-test first: it is what says the bound is still the bound. A bound nobody exercises is a
+# comment, and this one was written because a keyserver left the job hanging for six hours.
+# 先跑自检：是它证明这个界仍然是界。没人跑过的界只是一句注释 —— 而这个界当初之所以存在，正是因为一台
+# keyserver 把作业挂了六小时。
+if KEY_OUT=$(bash scripts/publish-signing-key.sh --self-test 2>&1) && grep -q 'self-test: PASS' <<<"$KEY_OUT"; then
+  gate "Release(公钥上传的界与换服务器：自检四场景)" pass
+else
+  gate "Release(公钥上传的界与换服务器：自检四场景)" fail "publish-signing-key.sh --self-test"
+  echo "── 明细 — 自检输出尾部 ──"; printf '%s\n' "$KEY_OUT" | tail -n 40; echo "── /明细 ──"
+fi
+
+# A working script nobody calls protects nothing: put the raw `gpg --send-keys` back into the workflow
+# and the self-test above still passes while the pipeline is unbounded again. So the pair is checked.
+# 一个没人调用的脚本什么也保护不了：把裸 `gpg --send-keys` 改回工作流，上面的自检照样通过，而流水线重新
+# 无界。所以这一对要一起核。
+if grep -qE '^[[:space:]]*run: bash scripts/publish-signing-key\.sh[[:space:]]*$' .github/workflows/release.yml \
+   && ! grep -vE '^[[:space:]]*#' .github/workflows/release.yml | grep -qE -- '--send-keys'; then
+  gate "Release(release.yml 仍调用有界的脚本，且没有裸 gpg --send-keys)" pass
+else
+  gate "Release(release.yml 仍调用有界的脚本，且没有裸 gpg --send-keys)" fail \
+    "release.yml 里找不到 run: bash scripts/publish-signing-key.sh，或仍有裸 --send-keys"
 fi
 
 # ── Run / Adversarial：LLM 部分（需 LLM_ENV=1）────────────────────────────────
