@@ -32,6 +32,13 @@ jobs:
   publish:
     name: Publish to Maven Central
     runs-on: ubuntu-latest
+    # A backstop, not the normal path: a clean run is well under half this. The six-hour default is what
+    # let one unresponsive keyserver hold the job — the keyserver step below bounds itself now, and this
+    # bounds everything else that could wait on the network the same way.
+    #
+    # 兜底，不是常态：一次干净的运行远不到它的一半。默认的六小时上限，正是一台不响应的 keyserver 能把作业
+    # 拖死那么久的原因——下面那一步现在自己就有界了，而这一条封住其它任何同样会等网络的环节。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
@@ -169,10 +176,35 @@ jobs:
       # the keyserver has to *index* it, and Central's lookup happened seconds later. The third
       # attempt, minutes after the send, went through. So: if this error comes back, re-run the job
       # rather than changing the key. Harmless to repeat.
+      #
+      # The send itself is bounded, and that is the point of the script: on 2026-10-26 (v0.1.13)
+      # `keyserver.ubuntu.com` stopped answering mid-send, gpg waited on it indefinitely, and this job
+      # ran until GitHub's six-hour cap cancelled it — Central received nothing, and the same tag
+      # published on a re-run. A release pipeline should not be able to lose half a day to one
+      # keyserver having a bad afternoon, so each attempt now carries an outer `timeout`, is retried
+      # with backoff, and moves on to a second keyserver that Central also reads; the fallback to
+      # `pgp.mit.edu` this step used to have (`|| true`) never answered, so it was never a second path. The step is capped at ten minutes on top of that. If everything fails *and* the
+      # key is not retrievable anywhere, it stops here with the next step spelled out, rather than
+      # deploying signatures Central cannot verify. `scripts/publish-signing-key.sh --self-test`
+      # shows the bound and the failover working against a deliberately hanging fake gpg.
+      #
+      # Central 会拒绝一次「它验不了签名」的部署：「Could not find a public key by the key fingerprint」
+      # 正是前两次尝试失败的原因——签名的那把钥匙在 CI 里生成，公钥那一半从来没发布过。光发出去还不够：
+      # keyserver 得把它**建进索引**，而 Central 的查询就在几秒之后。第三次尝试，也就是发送几分钟之后，就过了。
+      # 所以：这个错误再出现就重跑作业，别动钥匙。重复发送无害。
+      #
+      # 发送本身是有界的，这正是这个脚本存在的理由：2026-10-26（v0.1.13）`keyserver.ubuntu.com` 发到一半不再
+      # 回应，gpg 就一直等，这个作业一直跑到 GitHub 六小时上限被取消——Central 什么都没收到，而同一个 tag
+      # 重跑就发了出去。发布流水线不该因为一台 keyserver 恰好闹脾气就丢掉半天，所以现在每次尝试外面都套一层
+      # `timeout`，带退避重试，失败就换一台 Central 也认的 keyserver；这一步原先拿 `|| true` 兜底的
+      # `pgp.mit.edu` 根本答不上，所以从来就不是第二条路。在此之上，这一步还封了十分钟上限。如果全都失败**且**
+      # 哪台都查不到这把钥匙，它就在这里停下、把下一步写清楚，而不是把一批 Central 验不了签名的构件发上去。
+      # `scripts/publish-signing-key.sh --self-test` 让一个故意挂起的假 gpg 跑一遍，展示这个界与换服务器确实生效。
       - name: Publish the signing key to the keyservers Central reads
-        run: |
-          gpg --keyserver keyserver.ubuntu.com --send-keys "${{ secrets.GPG_KEY_ID }}"
-          gpg --keyserver pgp.mit.edu --send-keys "${{ secrets.GPG_KEY_ID }}" || true
+        timeout-minutes: 10
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: bash scripts/publish-signing-key.sh
 
       - name: Write Maven settings (Central Portal token)
         run: |
