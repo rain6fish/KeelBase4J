@@ -74,7 +74,15 @@ wait_ready() { # port log timeout-seconds
 echo "== 1/5 build the demo deployment (runtime + adapter + DeepSeek) =="
 mvn -q -B -DskipTests install -pl keelbase4j-demo -am
 
-JAR="$(ls "$ROOT"/keelbase4j-demo/target/keelbase4j-demo-*.jar 2>/dev/null | grep -v original | head -1 || true)"
+# The release profile writes `-javadoc.jar` and `-sources.jar` beside the bootable jar, and their names
+# sort **before** it (`-` < `.`). Picking the first name therefore hands the JVM a jar with no
+# `Main-Class`, and the gate reports "did not start" on a tree whose code is fine. Take the newest jar
+# that is neither a classifier nor an `.original` leftover.
+# 发布档会在可执行 jar 旁边写出 `-javadoc.jar` 与 `-sources.jar`，而它们的名字**排**在可执行包**前面**
+# （`-` < `.`）。按名字取第一个，等于把一个没有 `Main-Class` 的包交给 JVM，于是门禁在一棵树代码没问题的
+# 树上报「起不来」。改为取**最新的**、既不是分类器包、也不是 `.original` 残留的那一个。
+JAR="$(ls -t "$ROOT"/keelbase4j-demo/target/keelbase4j-demo-*.jar 2>/dev/null \
+        | grep -vE -- '(-javadoc|-sources|-tests)\.jar$' | grep -v '\.original$' | head -1 || true)"
 if [ -z "$JAR" ]; then
   echo "FAIL cannot find the demo jar under keelbase4j-demo/target" >&2
   exit 2
