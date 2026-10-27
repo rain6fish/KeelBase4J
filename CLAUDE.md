@@ -57,6 +57,15 @@ CI（`.github/workflows/ci.yml`）门禁四件事：`conformance`（`mvn verify`
 发布集合，然后把**四个 artifact**（父 pom · `keelbase4j-protocol` · `keelbase4j-core` ·
 `keelbase4j-springai`）签名上传到 Maven Central。发到 Central 收不回来，所以 tag 只打在**已推且 CI 绿**的提交上。
 
+⚠️ **Release notes are written from what the tag actually contains.** Before cutting a `v*` tag, compare
+`git log --oneline <previous tag>..HEAD` with the tag body and that version's `CHANGELOG.md` entry: the
+notes describe what the artifact carries, not only the items that were planned and finished. `0.1.11`
+shipped the execution↔trace linking and its notes omitted it, and a published tag cannot be re-cut.
+
+⚠️ **发布说明写的是 tag 实际包含的东西。** 打 `v*` tag 前，把 `git log --oneline <上一 tag>..HEAD` 与 tag
+正文、该版本的 `CHANGELOG.md` 条目逐条比对：发布说明描述发布物实际带着什么，不能只写规划内做完的那几项。
+`0.1.11` 就带着 execution↔trace 关联而说明里没有它，而已发布的 tag 重打不了。
+
 **发布集合 = reactor**（**不是** per-module 的 `deploy.skip`）：central-publishing 插件会把**构建里
 所有模块**打包上传，`maven.deploy.skip` 拦不住它——**没有任何模块声明它**，所以 deploy 步的 `-pl` 是
 这道题唯一的答案。第一次发布就是这么把六个模块全带上、并在其中一个上失败的。现在 deploy 步用

@@ -118,10 +118,11 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 - **`0.1.11` also carries the execution↔trace linking, which this section had not said.** Commit
   `ffea517` — "feat(audit): pair each execution with the host trace id" — is inside the `v0.1.11` tag
-  (`1b038a2` → `ffea517`). Every governed attempt now writes one `execution_trace_links` row, keyed by
-  the `executionId` the audit and effect rows already carry, in a separate best-effort transaction, and
-  records the host's trace id or null when the host sets none. The tag's own message does not mention
-  this either. The tag stays as published; this note only records what the artifact contains.
+  (the tag object `1b038a2` points at commit `ffea517`). Every governed attempt now writes one
+  `execution_trace_links` row, keyed by the `executionId` the audit and effect rows already carry, in a
+  separate best-effort transaction, and records the host's trace id or null when the host sets none.
+  The tag's own message does not mention this either. The tag stays as published; this note only records
+  what the artifact contains.
 
 **中文**
 
@@ -143,10 +144,10 @@ Each version is written in two blocks — English first, then Chinese — marked
 ### 发布后补记
 
 - **`0.1.11` 还带着 execution↔trace 关联，而本节此前没有写。** 提交 `ffea517`（`feat(audit)`：为每次
-  执行记录宿主 trace 关联）就在 `v0.1.11` tag（`1b038a2` → `ffea517`）之内：每次受治理尝试现在写一行
-  `execution_trace_links`，键是审计行与副作用行已经携带的 `executionId`，走独立的事务尽力写，并记下宿主的
-  trace id、宿主没有时存 null。tag 自己的正文也没提这一条。tag 保持已发布状态不动；本补记只记录发布产物
-  实际包含什么。
+  执行记录宿主 trace 关联）就在 `v0.1.11` tag 之内（tag 对象 `1b038a2` 指向提交 `ffea517`）：每次受治理
+  尝试现在写一行 `execution_trace_links`，键是审计行与副作用行已经携带的 `executionId`，走独立的事务尽力
+  写，并记下宿主的 trace id、宿主没有时存 null。tag 自己的正文也没提这一条。tag 保持已发布状态不动；
+  本补记只记录发布产物实际包含什么。
 
 ## [0.1.10] - 2026-10-21
 
