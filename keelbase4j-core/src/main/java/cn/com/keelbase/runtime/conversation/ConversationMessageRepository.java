@@ -40,4 +40,12 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
 
     /** A conversation's turns, oldest first — uncapped, because a trace is of the whole of it. */
     List<ConversationMessage> findByConversationIdOrderByIdAsc(String conversationId);
+
+    /**
+     * How many turns a conversation has. The list carries only the newest two, so its message array
+     * cannot answer this — the count is taken from the transcript itself.
+     *
+     * <p>一条会话有多少回合。列表只带最新的两条，故它的消息数组答不了这个问题 —— 条数从对话记录本身数。
+     */
+    long countByConversationId(String conversationId);
 }
