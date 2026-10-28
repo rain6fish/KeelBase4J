@@ -74,6 +74,15 @@ KEYSERVERS=${KEYSERVERS:-"hkp://keyserver.ubuntu.com hkps://keys.openpgp.org"}
 ATTEMPT_TIMEOUT=${KEYSERVER_ATTEMPT_TIMEOUT:-45}
 ATTEMPTS=${KEYSERVER_ATTEMPTS:-2}
 BACKOFF=${KEYSERVER_BACKOFF:-8}
+# The grace `timeout` grants after the deadline before it stops asking and kills. It is a knob because the
+# self-test's time caps are derived from it rather than hand-tuned: a hung child costs `ATTEMPT_TIMEOUT +
+# KILL_AFTER`, and on a host that cannot deliver SIGTERM into a child process (Cygwin / Git Bash) that
+# grace is always paid in full, so caps written for `ATTEMPT_TIMEOUT` alone fail there.
+#
+# `timeout` 在到期之后、真正下杀手之前给的宽限。做成可调项，是因为自检的时间上限由它推出、而不是手调：
+# 一个挂住的孩子最坏要花 `ATTEMPT_TIMEOUT + KILL_AFTER`，而在无法把 SIGTERM 投递进子进程的主机上
+# （Cygwin / Git Bash），这份宽限每次都要付满 —— 只按 `ATTEMPT_TIMEOUT` 写上限的断言在那里会红。
+KILL_AFTER=${KEYSERVER_KILL_AFTER:-5}
 
 say() { printf '%s\n' "$*"; }
 
@@ -83,7 +92,7 @@ say() { printf '%s\n' "$*"; }
 # 一次有界的单次尝试。返回 gpg 的状态，或者外层不得不杀掉它时的 124 —— 把这两种分清是重点，因为「太慢」和
 # 「明确拒绝」要对人说不同的话。
 bounded_gpg() {
-  timeout --kill-after=5 "$ATTEMPT_TIMEOUT" "$GPG_BIN" --batch --yes "$@"
+  timeout --kill-after="$KILL_AFTER" "$ATTEMPT_TIMEOUT" "$GPG_BIN" --batch --yes "$@"
 }
 
 # The I/O happens in dirmngr, not in the process `timeout` killed, so the next attempt starts from a
@@ -236,14 +245,25 @@ FAKE
     fi
   }
 
-  echo "self-test: 2 servers, 2 attempts each, 3s per attempt, backoff 1s (worst case 4×3 + 3 = 15s)"
-  FAKE_HANG="hkp://first.example" run "first server hangs, second answers → failover" 0 12
+  # A hung attempt costs the child's 3s timeout *plus* KILL_AFTER, because the grace is paid in full where
+  # SIGTERM does not reach the child (Cygwin / Git Bash). The caps are derived from that worst case rather
+  # than hand-tuned to one platform, and the slack absorbs process-startup cost. What they guard is the
+  # bound itself: an unbounded send overruns them by hours, not by seconds.
+  #
+  # 一次挂住的尝试要花子进程的 3 秒超时**加上** KILL_AFTER —— 在 SIGTERM 到不了子进程的地方（Cygwin /
+  # Git Bash），那份宽限每次都要付满。上限由这个最坏情况推出，而不是按某一台机器手调；余量用来吸收进程
+  # 启动开销。它们守的是**界本身**：去掉界之后超出的是小时级，不是秒级。
+  local hung=$(( 3 + KILL_AFTER ))
+  local cap_failover=$(( 2 * hung + 8 ))
+  local cap_all_hung=$(( 4 * hung + 16 ))
+  echo "self-test: 2 servers, 2 attempts each, 3s per attempt + ${KILL_AFTER}s kill grace, backoff 1s"
+  FAKE_HANG="hkp://first.example" run "first server hangs, second answers → failover" 0 "$cap_failover"
   grep -q 'hkp://second.example' "$tmp/log" || { echo "  FAIL  the second server was never tried"; failures=$((failures + 1)); }
-  FAKE_HANG="hkp://first.example hkp://second.example" run "both hang → bounded failure" 1 20
+  FAKE_HANG="hkp://first.example hkp://second.example" run "both hang → bounded failure" 1 "$cap_all_hung"
   grep -q 'What to do next' "$tmp/out" || { echo "  FAIL  no guidance on failure"; failures=$((failures + 1)); }
-  FAKE_HANG="hkp://first.example hkp://second.example" FAKE_RECV=found run "both hang but key already public → warn and continue" 0 20
+  FAKE_HANG="hkp://first.example hkp://second.example" FAKE_RECV=found run "both hang but key already public → warn and continue" 0 "$cap_all_hung"
   grep -q 'already retrievable' "$tmp/out" || { echo "  FAIL  did not warn about an existing key"; failures=$((failures + 1)); }
-  FAKE_FAIL="hkp://first.example" run "first server refuses, retry, then second answers" 0 12
+  FAKE_FAIL="hkp://first.example" run "first server refuses, retry, then second answers" 0 "$cap_failover"
   [ "$(grep -c 'hkp://first.example' "$tmp/log")" -eq 2 ] \
     || { echo "  FAIL  the first server was not retried exactly twice"; failures=$((failures + 1)); }
 
