@@ -10,6 +10,78 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [0.1.14] - 2026-10-28
+
+**English**
+
+### Added
+
+- **The release gate exercises the signing-key upload instead of describing it.**
+  `scripts/publish-signing-key.sh --self-test` drives a deliberately hanging fake `gpg` and prints, per
+  scenario, the exit status, the elapsed time and the keyservers actually tried. The gate runs it, and
+  separately checks that `release.yml` still calls the script rather than sending with a bare
+  `gpg --send-keys`: a script nobody calls protects nothing, and a self-test nobody runs stops being true.
+
+### Fixed
+
+- **The signing-key upload fails in minutes, not after six hours.** The step ran two bare
+  `gpg --send-keys` calls with no bound. On 2026-10-26 `keyserver.ubuntu.com` stopped answering mid-send,
+  the job ran until GitHub's six-hour cap cancelled it, and Central received nothing; the same tag had to
+  be published on a re-run. Each attempt now carries an outer `timeout`, is retried with backoff, and
+  falls back to a second keyserver Central reads. The step is capped at ten minutes and the job at
+  sixty. If every server fails *and* the key is retrievable nowhere, the step stops with the next step
+  spelled out, rather than deploying signatures Central cannot verify. The self-test's time caps follow
+  the timeout's kill grace (`KEYSERVER_KILL_AFTER`), so they mean the same thing on a host that cannot
+  deliver SIGTERM into the child process.
+
+- **The local-debug demo runs the bootable jar, not the javadoc one.** The release profile writes
+  `-javadoc.jar` and `-sources.jar` beside the bootable jar, and their names sort first, so the demo
+  handed `java -jar` a jar with no `Main-Class` and the gate went red on a tree whose code was fine.
+
+### Changed
+
+- **Release notes are checked against the tag's commits.** `CLAUDE.md` now requires comparing
+  `git log --oneline <previous tag>..HEAD` with the tag body and that version's `CHANGELOG.md` entry
+  before a `v*` tag is cut: `0.1.11` shipped the execution↔trace linking and its notes omitted it, and a
+  published tag cannot be re-cut. The `0.1.11` post-release note now says the tag object `1b038a2`
+  points at commit `ffea517`, so it no longer reads like a commit range.
+
+- **The version is `0.1.14`.** All eight poms move from `0.1.13` to `0.1.14`; the published set is
+  unchanged: the parent pom, `keelbase4j-protocol`, `keelbase4j-core` and `keelbase4j-springai`.
+
+**中文**
+
+### 新增
+
+- **发布门禁实际跑一遍签名公钥上传，而不是只在文字里描述它。**
+  `scripts/publish-signing-key.sh --self-test` 驱动一个故意挂起的假 `gpg`，逐场景打印退出码、耗时与真正
+  试过的 keyserver。门禁会跑它，另外还会检查 `release.yml` 是否仍在调用这个脚本、而不是退回裸的
+  `gpg --send-keys`：没人调用的脚本保护不了任何东西，没人跑的自检也会慢慢不再成立。
+
+### 修复
+
+- **签名公钥上传几分钟内失败，不再挂满六小时。** 那一步原先跑两条没有界的裸 `gpg --send-keys`。
+  2026-10-26 `keyserver.ubuntu.com` 发到一半不再回应，作业一直跑到 GitHub 六小时上限被取消，Central 什么
+  都没收到，同一 tag 只能重跑才发出去。现在每次尝试外面都套一层 `timeout`，带退避重试，失败就换一台
+  Central 也认的 keyserver。该步骤封顶十分钟、整个作业封顶六十分钟。如果所有服务器都失败**且**这把钥匙
+  哪台都查不到，这一步就停下并把下一步写清楚，而不是把一批 Central 验不了签名的构件发上去。自检的时间
+  上限跟着 `timeout` 的击杀宽限（`KEYSERVER_KILL_AFTER`）走，于是在无法把 SIGTERM 投递进子进程的主机上，
+  它们仍然说同一件事。
+
+- **本地调试 demo 跑的是可执行 jar，不是 javadoc 包。** 发布档会在可执行 jar 旁边写出 `-javadoc.jar` 与
+  `-sources.jar`，它们的名字排在前面，于是 demo 把一个没有 `Main-Class` 的包交给 `java -jar`，门禁在一棵
+  代码没问题的树上判红。
+
+### 变更
+
+- **发布说明对照 tag 实际包含的提交。** `CLAUDE.md` 现在要求在打 `v*` tag 之前，把
+  `git log --oneline <上一 tag>..HEAD` 与该版本 tag 正文、`CHANGELOG.md` 条目逐条比对：`0.1.11` 就带着
+  execution↔trace 关联而说明里没有它，而已发布的 tag 重打不了。`0.1.11` 的发布后补记也改为「tag 对象
+  `1b038a2` 指向提交 `ffea517`」，不再读起来像一个提交区间。
+
+- **版本为 `0.1.14`。** 八个 pom 由 `0.1.13` 落到 `0.1.14`；发布集合不变：父 pom、`keelbase4j-protocol`、
+  `keelbase4j-core` 与 `keelbase4j-springai`。
+
 ## [0.1.13] - 2026-10-26
 
 **English**
