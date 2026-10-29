@@ -10,6 +10,26 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [Unreleased]
+
+**English**
+
+### Changed
+
+- **The version is `0.1.15-SNAPSHOT`.** All eight poms move from `0.1.14` to `0.1.15-SNAPSHOT`. `v0.1.14`
+  is published (tag object `a147dc4711` points at commit `68a956a`), and CI's `version-coordinate` job
+  refuses a tree that keeps building under a released number; on a clean runner no `0.1.15` tag exists,
+  so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
+  change.
+
+**中文**
+
+### 变更
+
+- **版本为 `0.1.15-SNAPSHOT`。** 八个 pom 由 `0.1.14` 抬到 `0.1.15-SNAPSHOT`。`v0.1.14` 已发布（tag 对象
+  `a147dc4711` 指向提交 `68a956a`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
+  拒绝的；在干净 runner 上不存在 `0.1.15` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
+
 ## [0.1.14] - 2026-10-28
 
 **English**
@@ -1205,7 +1225,7 @@ application depends on.
   发布什么一直是由 **reactor** 决定的，0.1.2 的 `release.yml` 头注已按实况写明。原文保留在上。]**
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.14...HEAD
 [0.1.3]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.1
