@@ -240,14 +240,14 @@ verifiable.
 
 | Artifact | Version | Contents |
 |---|---|---|
-| `cn.com.keelbase:keelbase4j-protocol` | 0.1.3 | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on, and one of the four published to Maven Central. |
-| `cn.com.keelbase:keelbase4j-core` | 0.1.3 | The embeddable core — the trust loop, the governance surface and the security chain, assembled by one auto-configuration so a host can carry it. **Depends on the protocol**; the adapter and the application over it depend on this. |
-| `cn.com.keelbase:keelbase4j-runtime` | 0.1.3 | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
-| `cn.com.keelbase:keelbase4j-generator` | 0.1.3 | The generator (studio side). |
-| `cn.com.keelbase:keelbase4j-springai` | 0.1.3 | The Spring AI adapter — **depends on the core**, not on the runtime (an adapter has no business dragging an application's boot class onto a consumer's classpath, ADR-0017 D2); only the demo deployment depends on it. |
-| `cn.com.keelbase:keelbase4j-mcp` | 0.1.3 | The MCP adapter — the tools a server advertises, governed like the ones compiled in. |
-| `cn.com.keelbase:keelbase4j-demo` | 0.1.3 | The runnable demo deployment — runtime + adapter + one provider, chosen by Maven profile. |
-| `cn.com.keelbase:keelbase4j` | 0.1.3 | The parent/aggregator (`pom`). |
+| `cn.com.keelbase:keelbase4j-protocol` | 0.1.14 | The protocol library — **no third-party dependency**. This is the artifact a generated application depends on, and one of the four published to Maven Central. |
+| `cn.com.keelbase:keelbase4j-core` | 0.1.14 | The embeddable core — the trust loop, the governance surface and the security chain, assembled by one auto-configuration so a host can carry it. **Depends on the protocol**; the adapter and the application over it depend on this. |
+| `cn.com.keelbase:keelbase4j-runtime` | 0.1.14 | The runtime — a plain jar (usable as a library) plus a runnable boot jar under the `exec` classifier. |
+| `cn.com.keelbase:keelbase4j-generator` | 0.1.14 | The generator (studio side). |
+| `cn.com.keelbase:keelbase4j-springai` | 0.1.14 | The Spring AI adapter — **depends on the core**, not on the runtime (an adapter has no business dragging an application's boot class onto a consumer's classpath, ADR-0017 D2); only the demo deployment depends on it. |
+| `cn.com.keelbase:keelbase4j-mcp` | 0.1.14 | The MCP adapter — the tools a server advertises, governed like the ones compiled in. |
+| `cn.com.keelbase:keelbase4j-demo` | 0.1.14 | The runnable demo deployment — runtime + adapter + one provider, chosen by Maven profile. |
+| `cn.com.keelbase:keelbase4j` | 0.1.14 | The parent/aggregator (`pom`). |
 
 Four of these are published: `keelbase4j-protocol`, `keelbase4j-core`, `keelbase4j-springai` and the
 parent pom. The first is what a generated application resolves; the core and the adapter were added in
