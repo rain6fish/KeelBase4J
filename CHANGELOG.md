@@ -10,25 +10,42 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
-## [Unreleased]
+## [0.1.15] - 2026-10-29
 
 **English**
 
+### Added
+
+- **A conversation can be named, and the list says how long it is.** Conversations in this runtime are
+  derived from their messages, so a name had nowhere to live; `conversation-data` v2 has carried an optional
+  `title` since the contract was written. `V17__conversation_titles` adds one row per named conversation, so
+  "no name" has exactly one representation (no row), and `PUT /ai/conversations/{id}/title` names it — owner
+  only, by the same rule the trace uses; a blank title clears the name, and one over 200 characters is refused
+  rather than truncated, because a silently shortened name would look like the one the user typed. The list
+  and the trace now carry `title` and `messageCount`; the count is the whole transcript's, because the list
+  carries only the newest two turns and `messages.length` would say "2" for every conversation past its first
+  exchange.
+
 ### Changed
 
-- **The version is `0.1.15-SNAPSHOT`.** All eight poms move from `0.1.14` to `0.1.15-SNAPSHOT`. `v0.1.14`
-  is published (tag object `a147dc4711` points at commit `68a956a`), and CI's `version-coordinate` job
-  refuses a tree that keeps building under a released number; on a clean runner no `0.1.15` tag exists,
-  so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
-  change.
+- **The version is `0.1.15`.** All eight poms finish at `0.1.15`; the published set is unchanged: the parent
+  pom, `keelbase4j-protocol`, `keelbase4j-core` and `keelbase4j-springai`.
 
 **中文**
 
+### 新增
+
+- **会话可以起名，列表也会说出它有多长。** 本运行时的会话由消息推出来，名字没有地方可放；`conversation-data`
+  v2 从写下契约起就带着可选的 `title`。`V17__conversation_titles` 一条命名会话一行，故「没有名字」只有一种
+  表示（没有这一行）；`PUT /ai/conversations/{id}/title` 给它起名 —— 仅属主，与追踪同一条规则；空白标题
+  清除名字，超过 200 字**拒绝**而不是截断，因为被悄悄截短的名字看起来会与用户写下的那个一样。列表与追踪
+  现在都带 `title` 与 `messageCount`；条数是**整段**对话记录的，因为列表只带最新两条回合，`messages.length`
+  会对每一条超过一回合的会话都说「2」。
+
 ### 变更
 
-- **版本为 `0.1.15-SNAPSHOT`。** 八个 pom 由 `0.1.14` 抬到 `0.1.15-SNAPSHOT`。`v0.1.14` 已发布（tag 对象
-  `a147dc4711` 指向提交 `68a956a`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
-  拒绝的；在干净 runner 上不存在 `0.1.15` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
+- **版本为 `0.1.15`。** 八个 pom 最终落到 `0.1.15`；发布集合不变：父 pom、`keelbase4j-protocol`、
+  `keelbase4j-core` 与 `keelbase4j-springai`。
 
 ## [0.1.14] - 2026-10-28
 
@@ -1225,7 +1242,7 @@ application depends on.
   发布什么一直是由 **reactor** 决定的，0.1.2 的 `release.yml` 头注已按实况写明。原文保留在上。]**
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.14...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.15...HEAD
 [0.1.3]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.1
