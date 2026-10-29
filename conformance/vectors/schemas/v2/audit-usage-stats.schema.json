@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v2/audit-usage-stats.schema.json",
+  "title": "AI Usage Stats (GET /audit/stats data) — v2",
+  "description": "Global AI usage statistics data (UsageStats). v2 adds `refused` to every byDay bucket so the daily segments add up to the same six categories the action report counts, and both are produced by one aggregation (by-day.ts). / 全局 AI 用量统计响应 data。v2 给每个 byDay 桶加 `refused`，于是按日分段与 Action Report 数的是同样六类，且两者由同一份聚合实现（by-day.ts）产出。",
+  "type": "object",
+  "required": ["totalConversations", "totalMessages", "totalTokens", "totalErrors", "topActions", "byDay"],
+  "additionalProperties": false,
+  "properties": {
+    "totalConversations": { "type": "number" },
+    "totalMessages": { "type": "number" },
+    "totalTokens": { "type": "number" },
+    "totalErrors": { "type": "number" },
+    "topActions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action", "count"],
+        "additionalProperties": false,
+        "properties": { "action": { "type": "string" }, "count": { "type": "number" } }
+      }
+    },
+    "byDay": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["date", "executed", "approved", "rejected", "blocked", "refused", "errors"],
+        "additionalProperties": false,
+        "properties": {
+          "date": { "type": "string" },
+          "executed": { "type": "number" },
+          "approved": { "type": "number" },
+          "rejected": { "type": "number" },
+          "blocked": { "type": "number" },
+          "refused": { "type": "number" },
+          "errors": { "type": "number" }
+        }
+      }
+    }
+  }
+}

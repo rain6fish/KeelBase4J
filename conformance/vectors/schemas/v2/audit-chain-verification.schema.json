@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v2/audit-chain-verification.schema.json",
+  "title": "Audit Chain Verification (GET /audit/verify data) — v2",
+  "description": "Audit hash-chain verification response data. v2 adds `tableRows` beside `checked`: `checked` counts the rows already in the chain, and rows without a `hash` (written before AddAuditHashChain, or inserted directly by tools) are never verified. Publishing both makes the verification rate carry its real denominator. Source: governance-shared/services/audit-evidence.service.ts verifyChain + _chainSlice. / 审计哈希链校验响应 data。v2 在 `checked` 旁边加 `tableRows`：`checked` 数的是已入链的行，而 `hash` 为空的那些行（AddAuditHashChain 之前写下的，或工具直插的）从不参与校验。两者一起出门，验证率才带着它真实的分母。",
+  "type": "object",
+  "required": ["valid", "checked", "tableRows", "chain"],
+  "additionalProperties": false,
+  "properties": {
+    "valid": { "type": "boolean" },
+    "checked": { "type": "number" },
+    "tableRows": { "type": "number" },
+    "brokenIndex": { "type": ["number", "null"] },
+    "chain": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "createdAt", "action", "isError"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "number" },
+          "createdAt": { "type": "string" },
+          "action": { "type": "string" },
+          "toolName": { "type": ["string", "null"] },
+          "prevHash": { "type": ["string", "null"] },
+          "hash": { "type": ["string", "null"] },
+          "isError": { "type": "boolean" },
+          "broken": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}
