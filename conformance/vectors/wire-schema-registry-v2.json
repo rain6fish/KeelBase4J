@@ -363,12 +363,13 @@
       ]
     },
     {
-      "version": "v6",
+      "version": "v7",
       "id": "ai-audit-log-row",
       "schema": "ai-audit-log-row.schema.json",
-      "title": "AI 审计查询行（v6：+ 可选 executionId —— 同一次受治理执行的关联键；v5 为 outcome 结构化结果码 / tool 工具名，C-3；v4 为 deviceId、v3 为 guestId、v2 为 ip）",
+      "title": "AI 审计查询行（v7：`outcome` 词表新增 not_executed（**没发生**：确认窗口到期、无人裁决）；v6 为可选 executionId —— 同一次受治理执行的关联键；v5 为 outcome 结构化结果码 / tool 工具名，C-3；v4 为 deviceId、v3 为 guestId、v2 为 ip）",
       "source": "src/ai/audit/audit.service.ts _queryLogs; GovernedExecutionEngine (Java runtime) writes the same executionId on the audit and side-effect rows",
       "samples": [
+        "schemas/v7/samples/ai-audit-log-row-not-executed.json",
         "schemas/v6/samples/ai-audit-log-row-execution-id.json",
         "schemas/v6/samples/ai-audit-log-row-no-execution-id.json",
         "schemas/v5/samples/ai-audit-log-row-attempted.json",

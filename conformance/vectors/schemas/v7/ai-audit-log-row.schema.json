@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v7/ai-audit-log-row.schema.json",
+  "title": "AI Audit Log Row (GET /audit/logs item) — v7",
+  "description": "Audit query row (AI audit chain): the AiAuditLog row plus the username snapshot projection. v2 (AU-2 §22.19) added `ip`; v3 (AU-3 §22.19) added `guestId`; v4 (AU-2 §22.19 remainder) added `deviceId`; v5 (C-3, from the Java line JV-42/JV-45) added `outcome` (the structured result code) and `tool` (the tool name) so the evaluation surface no longer has to parse the free-text `detail` to classify by outcome or fold by tool. `action` is a frozen enum (audit-payload.schema.json) and cannot say how this attempt ended, so both columns are chain-external attribution columns, on the same precedent as `ip`/`guestId`/`deviceId`. `outcome` is a frozen vocabulary, legal by `action`: `tool_call` → attempted / executed / pending / blocked / refused / declined / failed / not_executed; `tool_confirmation` → approved / declined / pending / timeout / attempted; `effect_revoke` → revoked. Non-tool rows (such as `chat`) carry null in both columns. Neither column enters the hash payload (that would break the chain). v6 (2026-10-20): adds an optional `executionId` — the correlation key for one governed execution, carrying the same value on the side-effect row that execution wrote; chain-external, never in the hash payload; null or absent when the runtime has no execution-id concept or the row is not a tool execution. Additive: not in `required`, so v5-shaped payloads stay valid. v7 (2026-10-28): adds `not_executed` to the `outcome` vocabulary — a `tool_call` whose confirmation window closed with no decision ran nothing at all, and `failed` says an execution was tried and broke. Same frozen-vocabulary rule as v5: legal by `action`, chain-external, not in `required`. Source: src/ai/audit/audit.service.ts _queryLogs. v1/v2/v3/v4/v5/v6 are frozen history → schemas/v1/ … schemas/v5/. / 审计查询行（AI 审计链）：AiAuditLog + username 快照投影。v2（AU-2 §22.19）：新增 `ip`。v3（AU-3 §22.19）：新增 `guestId`。v4（AU-2 §22.19 余项）：新增 `deviceId`。v5（C-3，源自 Java 线 JV-42/JV-45）：新增 `outcome`（结构化结果码）与 `tool`（工具名）——使评估面**不再解析 `detail` 自由文本**就能按「结果」分类、按「工具」折叠。`action` 是冻结 enum（audit-payload.schema.json）、其值取不到「这一次结局如何」，故这两列走**链外归因列**（与 `ip`/`guestId`/`deviceId` 同一条先例）。**`outcome` 是冻结词表**，各值按 `action` 分组合法：`tool_call` → executed / pending / blocked / refused / declined / failed / not_executed；`tool_confirmation` → approved / declined / pending / timeout / attempted；`effect_revoke` → revoked。非工具行（如 `chat`）两列均为 null。两列均**不入 hash payload**（防破链）。v6（2026-10-20）：新增**可选** `executionId` —— 同一次受治理执行的关联键，与这次执行写下的副作用行同值；链外列，不入 hash payload；本运行时没有该概念、或该行不是一次工具执行时为 null/省略。**加性**：不进 `required`，故 v5 形态载荷仍合法。v7（2026-10-28）：`outcome` 词表新增 `not_executed` —— 确认窗口到期、无人裁决的 `tool_call` **一次都没跑**，而 `failed` 说的是「跑过、坏了」。与 v5 同一条冻结词表规则：按 `action` 分组合法、链外列、不进 `required`。来源：src/ai/audit/audit.service.ts _queryLogs。v1/v2/v3/v4/v5/v6 冻结历史 → schemas/v1/、schemas/v2/、schemas/v3/、schemas/v4/、schemas/v5/、schemas/v6/。",
+  "type": "object",
+  "required": [
+    "id",
+    "userId",
+    "action",
+    "isError",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "number"
+    },
+    "userId": {
+      "type": "string"
+    },
+    "conversationId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "action": {
+      "type": "string"
+    },
+    "detail": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "actionKey": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "actionLabel": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "agentId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "parentActionId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "callerAgentId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "delegationContext": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "businessIntent": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ip": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "guestId": {
+      "description": "AU-3（§22.19）：访客标识（匿名，与账号无关）——区分共享演示账号下的不同访客。链外列，不入 hash payload。",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "deviceId": {
+      "description": "AU-2 余项（§22.19）：客户端设备标识（`X-Device-Id` 请求头，客户端自带）。与 `ip` 互补——IP 经 NAT/移动网会被多个客户端共享，设备标识用来分辨同一 IP 之后的不同客户端。**客户端可控**（与 `guestId` 同一性质），故是归因线索而非身份凭证。链外列，不入 hash payload。",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "outcome": {
+      "description": "C-3（v5）：这一次的**结构化结果码**——冻结词表，值即语义，不随实现变。链外列，不入 hash payload。**按 `action` 分组合法**：`tool_call` → `attempted`（**只记「试过」**——见下）/ `executed`（真执行了，含幂等复用）/ `pending`（已提议、等人裁决，含两人规则）/ `blocked`（风险策略挡下，**没到裁决**）/ `refused`（治理或授权拒绝）/ `declined`（人工拒绝）/ `failed`（执行本身失败）/ `not_executed`（**没发生**：确认窗口到期、无人裁决 —— 一次都没跑，与 `failed` 不是一回事）；`tool_confirmation` → `approved`（人工批准）/ `declined` / `pending` / `timeout`（**等待窗口走完、没人裁**——取契约自己 `confirmation-lifecycle-v2` 那个词；不是「拒绝」，也不是失败）/ `attempted`（一次**重试**：有人要求「再执行一遍」，而那一刻还没执行，结局在它后面那一行）；`effect_revoke` → `revoked`（副作用已撤销）。**⚠ `attempted` 不是一次结局**：`executed`/`failed` 这些说的是「这次提议怎么了」，而 `attempted` 说的是**这一刻还没走到那一步** —— 引擎在真正执行**之前**写下它，好让「谁尝试过」**永不缺行**（`D36 ②`）；它的结局在**后面**那一行。一次成功的执行因此有**两行**：`attempted` + `executed`。**⚠ `blocked` 与 `refused` 是两道不同的闸**（风险策略 vs 治理/授权），不得合并。**不是关于某一个工具的行为 null**（`chat` / `knowledge` / `delegate` / `flow_node` 这类非工具行，以及一次裁决涉及**多个**工具的行），且**不得猜测填充**。",
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "attempted",
+        "executed",
+        "pending",
+        "blocked",
+        "refused",
+        "declined",
+        "failed",
+        "not_executed",
+        "approved",
+        "timeout",
+        "revoked",
+        null
+      ]
+    },
+    "tool": {
+      "description": "C-3（v5）：本行所属的**工具名**，取产出方自己的注册名。链外列，不入 hash payload。**不是关于某一个工具的行为 null**：非工具行（`chat` / `knowledge` / …），以及一次裁决/一次运行涉及**多个**工具的行（如 run 级确认行）。—— 不要拿 `detail` 的第一个 token 去凑（两个实现的 `detail` 文法不同：Java 是 `<tool> <动词> …`、NestJS 是 `<tool>(<argsJson>)`；这正是本列要取代的那种解析）。",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "executionId": {
+      "description": "Correlation key for one governed execution — the same value on the side-effect row that execution wrote; chain-external, never in the hash payload. Optional: null or absent when the runtime has no execution-id concept, or when this row is not a tool execution. / 同一次受治理执行的关联键，与这次执行写下的副作用行同值；链外列，不入 hash payload。可选：本运行时没有该概念、或本行不是一次工具执行时为 null/省略。",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "provider": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "promptTokens": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "completionTokens": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "durationMs": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "isError": {
+      "type": "boolean"
+    },
+    "errorMessage": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "authorization": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "feedback": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "feedbackNote": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "username": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "businessEvent": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

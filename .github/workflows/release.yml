@@ -117,7 +117,7 @@ jobs:
           # note in ci.yml.
           #
           # 与 ci.yml 里那个 pin 于 2026-10-12 再次一同抬起（v1.8.0，它带着 v2 registry）。见 ci.yml 那处。
-          ref: v1.14.0
+          ref: v1.15.0
           path: contract-repo
 
       - name: Check out the main repo's scenario packs

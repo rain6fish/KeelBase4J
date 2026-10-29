@@ -137,7 +137,7 @@ jobs:
           # 2026-10-20 抬到 v1.14.0，对应 v6 这一代 schema：它在审计行与副作用的 `item`/`traceItem`
           # 上声明了**可选**的 `executionId`，本运行时现在会发出它，好让一条副作用能与写下它的那一次
           # 受治理执行的审计行**精确配成对**。快照正是从该版本刷新、且与之逐字节一致。
-          ref: v1.14.0
+          ref: v1.15.0
           path: contract-repo
       # Scenario packs are not part of the contract, so they are still taken from where they live —
       # but at a version, not at `main`. Read at the branch tip, this gate's verdict for one commit

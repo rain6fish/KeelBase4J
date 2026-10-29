@@ -1,0 +1,321 @@
+{
+  "vectorVersion": "v2",
+  "protocol": "ai-audit-log-row v7 — the `outcome` vocabulary (C-3). Shape: schemas/v7/ai-audit-log-row.schema.json",
+  "license": "Apache-2.0",
+  "note": "钉的是**词表本身**：每个值什么意思、哪些值对哪种 `action` 合法。**刻意不放**「某个实现的 `detail` 文本 → 某个值」的映射——那等于把实现的措辞烧进契约，而契约要能扛住任何一个实现换措辞。`detail` 的文本是产出方的事。判据：消费方拿自己的行来跑 `cases`，合法的必须被接受、不合法的必须被拒。\n\nv2（2026-10-28）：`outcomes` 与 `legalByAction.tool_call` 各加一个值 `not_executed`。v1 逐字未动（加性：旧行仍合法）。",
+  "outcomes": {
+    "attempted": "**只记「试过」** —— 它的结局在**后面**那一行。引擎在真正执行**之前**写下它，好让「谁尝试过」**永不缺行**（`D36 ②`）。**它不是一次结局**：其余值说的是「这次提议怎么了」，它说的是**这一刻还没走到那一步**。一次成功的执行因此有**两行**：`attempted` + `executed`。同一条也覆盖**重试**（`tool_confirmation` 上的一次「再执行一遍」）。",
+    "executed": "真执行了。含**幂等复用**（同一调用重放、复用已有 effect）。",
+    "pending": "已提议、**等人裁决**。含两人规则那一档（`awaiting a second person's …`）。",
+    "blocked": "**风险策略**挡下，没到裁决。⚠ 与 `refused` 是两道**不同**的闸，不得合并。",
+    "refused": "**治理 / 授权**拒绝。",
+    "declined": "**人工**拒绝（`tool_confirmation` 行的结局，也见于被裁决挡下的提议）。",
+    "failed": "执行**本身**失败（工具抛错 / 超时等），不是治理挡下。",
+    "not_executed": "**没发生**：确认窗口到期、**没有人裁决**（`tool_confirmation` 行上的 `timeout` 说的是同一件事，只是那一行记的是裁决本身的结局）。一次都没跑 —— 与 `failed`（**跑过**、坏了）不是一回事。⚠ 它与 `pending` 的分界是**窗口**：还在窗口内是 `pending`，窗口走完仍无裁决是 `not_executed`。",
+    "approved": "人工**批准**（`tool_confirmation` 行的结局）。之后是否真写成，看那次执行自己的行。",
+    "timeout": "等待窗口走完、**没人裁**（`tool_confirmation` 行的结局）。取契约自己 `confirmation-lifecycle-v2` 的那个词 —— **既不是「拒绝」，也不是执行失败**：没人做决定，提案静默作废。",
+    "revoked": "副作用已**撤销**（`effect_revoke` 行的结局）。"
+  },
+  "legalByAction": {
+    "tool_call": [
+      "attempted",
+      "executed",
+      "pending",
+      "blocked",
+      "refused",
+      "declined",
+      "failed",
+      "not_executed"
+    ],
+    "tool_confirmation": [
+      "approved",
+      "declined",
+      "pending",
+      "timeout",
+      "attempted"
+    ],
+    "effect_revoke": [
+      "revoked"
+    ],
+    "any-other-action": [
+      null
+    ]
+  },
+  "cases": [
+    {
+      "id": "tc-attempted",
+      "name": "tool_call + attempted（只记「试过」；结局在它后面那一行）",
+      "in": {
+        "action": "tool_call",
+        "outcome": "attempted"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "tc-executed",
+      "name": "tool_call + executed",
+      "in": {
+        "action": "tool_call",
+        "outcome": "executed"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "tc-pending",
+      "name": "tool_call + pending",
+      "in": {
+        "action": "tool_call",
+        "outcome": "pending"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "tc-blocked",
+      "name": "tool_call + blocked",
+      "in": {
+        "action": "tool_call",
+        "outcome": "blocked"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "tc-refused",
+      "name": "tool_call + refused",
+      "in": {
+        "action": "tool_call",
+        "outcome": "refused"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "tc-declined",
+      "name": "tool_call + declined",
+      "in": {
+        "action": "tool_call",
+        "outcome": "declined"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "tc-failed",
+      "name": "tool_call + failed",
+      "in": {
+        "action": "tool_call",
+        "outcome": "failed"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "tc-not-executed",
+      "name": "tool_call + not_executed（没发生：确认窗口到期、无人裁决）",
+      "in": {
+        "action": "tool_call",
+        "outcome": "not_executed"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "cf-approved",
+      "name": "tool_confirmation + approved",
+      "in": {
+        "action": "tool_confirmation",
+        "outcome": "approved"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "cf-declined",
+      "name": "tool_confirmation + declined",
+      "in": {
+        "action": "tool_confirmation",
+        "outcome": "declined"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "cf-pending",
+      "name": "tool_confirmation + pending",
+      "in": {
+        "action": "tool_confirmation",
+        "outcome": "pending"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "rv-revoked",
+      "name": "effect_revoke + revoked",
+      "in": {
+        "action": "effect_revoke",
+        "outcome": "revoked"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "cf-timeout",
+      "name": "tool_confirmation + timeout（等待窗口走完、没人裁）",
+      "in": {
+        "action": "tool_confirmation",
+        "outcome": "timeout"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "cf-attempted",
+      "name": "tool_confirmation + attempted（一次重试；结局在后面那一行）",
+      "in": {
+        "action": "tool_confirmation",
+        "outcome": "attempted"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "chat-null",
+      "name": "非工具行：outcome 必须缺席或 null",
+      "in": {
+        "action": "chat",
+        "outcome": null
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "chat-executed",
+      "name": "非工具行不得带 outcome",
+      "in": {
+        "action": "chat",
+        "outcome": "executed"
+      },
+      "expect": {
+        "legal": false
+      }
+    },
+    {
+      "id": "chat-attempted",
+      "name": "非工具行也不得带 attempted（「试过」只对工具调用成立）",
+      "in": {
+        "action": "chat",
+        "outcome": "attempted"
+      },
+      "expect": {
+        "legal": false
+      }
+    },
+    {
+      "id": "chat-timeout",
+      "name": "非工具行也不得带 timeout",
+      "in": {
+        "action": "chat",
+        "outcome": "timeout"
+      },
+      "expect": {
+        "legal": false
+      }
+    },
+    {
+      "id": "tc-approved",
+      "name": "tool_call 不得答 approved（那是裁决事件、不是提议结局）",
+      "in": {
+        "action": "tool_call",
+        "outcome": "approved"
+      },
+      "expect": {
+        "legal": false
+      }
+    },
+    {
+      "id": "tc-revoked",
+      "name": "tool_call 不得答 revoked（撤销有自己的 action）",
+      "in": {
+        "action": "tool_call",
+        "outcome": "revoked"
+      },
+      "expect": {
+        "legal": false
+      }
+    },
+    {
+      "id": "rv-executed",
+      "name": "effect_revoke 只能答 revoked",
+      "in": {
+        "action": "effect_revoke",
+        "outcome": "executed"
+      },
+      "expect": {
+        "legal": false
+      }
+    },
+    {
+      "id": "outside-vocabulary",
+      "name": "词表外的取值一律不合法（示例：ok——那是文本里的词，不是本列的取值）",
+      "in": {
+        "action": "tool_call",
+        "outcome": "ok"
+      },
+      "expect": {
+        "legal": false
+      }
+    },
+    {
+      "id": "tool-on-tool-call",
+      "name": "工具行带工具名",
+      "in": {
+        "action": "tool_call",
+        "tool": "create_followup_task"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "tool-on-non-tool",
+      "name": "非工具行不得带工具名（别拿 detail 的第一个 token 去凑）",
+      "in": {
+        "action": "knowledge",
+        "tool": "search_knowledge"
+      },
+      "expect": {
+        "legal": false
+      }
+    },
+    {
+      "id": "tool-null-on-run-confirmation",
+      "name": "一次裁决涉及**多个**工具（run 级）→ tool 为 null 合法",
+      "in": {
+        "action": "tool_confirmation",
+        "tool": null
+      },
+      "expect": {
+        "legal": true
+      }
+    }
+  ]
+}

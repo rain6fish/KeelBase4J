@@ -1,0 +1,10 @@
+{
+  "id": 90314,
+  "userId": "42",
+  "action": "tool_call",
+  "detail": "create_event({\"title\":\"评审\"})",
+  "isError": true,
+  "createdAt": "2026-10-28T05:21:24.000Z",
+  "outcome": "not_executed",
+  "tool": "create_event"
+}
