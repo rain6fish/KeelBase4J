@@ -5,6 +5,8 @@ import cn.com.keelbase.runtime.audit.AuditLog;
 import cn.com.keelbase.runtime.audit.AuditLogRepository;
 import cn.com.keelbase.runtime.conversation.ConversationMessage;
 import cn.com.keelbase.runtime.conversation.ConversationMessageRepository;
+import cn.com.keelbase.runtime.conversation.ConversationTitle;
+import cn.com.keelbase.runtime.conversation.ConversationTitleRepository;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
@@ -13,12 +15,15 @@ import cn.com.keelbase.runtime.pipeline.DeterministicReplier;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -64,13 +69,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class ConversationController {
 
     private final ConversationMessageRepository messages;
+    private final ConversationTitleRepository titles;
     private final AuditLogRepository audit;
     private final SideEffectRepository effects;
     private final CurrentPrincipal principals;
 
-    public ConversationController(ConversationMessageRepository messages, AuditLogRepository audit,
-                                  SideEffectRepository effects, CurrentPrincipal principals) {
+    public ConversationController(ConversationMessageRepository messages, ConversationTitleRepository titles,
+                                  AuditLogRepository audit, SideEffectRepository effects,
+                                  CurrentPrincipal principals) {
         this.messages = messages;
+        this.titles = titles;
         this.audit = audit;
         this.effects = effects;
         this.principals = principals;
@@ -101,9 +109,17 @@ public class ConversationController {
         // 最近有活动的在前 —— 控制台列表就是这个序。排序放在这里，是因为本运行时的会话是**由消息推出来的**，
         // 没有一行可供排序。
         found.sort((a, b) -> b.lastActivity().compareTo(a.lastActivity()));
+        // Titles in one query, not one per row; a conversation without a row has no name.
+        //
+        // 名字一次查完，不是一行一次；没有行就没有名字。
+        Map<String, String> titlesById = new HashMap<>();
+        for (ConversationTitle row : titles.findByConversationIdIn(found.stream().map(Conversation::id).toList())) {
+            titlesById.put(row.getConversationId(), row.getTitle());
+        }
         List<Map<String, Object>> out = new ArrayList<>();
         for (Conversation conversation : found) {
-            out.add(conversation.data());
+            out.add(conversation.data(titlesById.get(conversation.id()),
+                    messages.countByConversationId(conversation.id())));
         }
         return out;
     }
@@ -120,9 +136,59 @@ public class ConversationController {
                     "conversation belongs to another user");
         }
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("conversation", new Conversation(id, turns.get(0), turns).data());
+        body.put("conversation", new Conversation(id, turns.get(0), turns)
+                .data(titles.findById(id).map(ConversationTitle::getTitle).orElse(null), turns.size()));
         body.put("steps", steps(id, turns));
         return body;
+    }
+
+    /**
+     * Name a conversation — the work ledger's identifying field.
+     *
+     * <p>Owner only, by the same rule the trace uses: the id is not a capability. A blank title clears
+     * the name (the row is deleted, so "no name" has one representation), and a title longer than
+     * {@link ConversationTitle#MAX_LENGTH} is refused rather than truncated — a silently shortened
+     * name would look like the one the user typed.
+     *
+     * <p>给会话起名 —— 工作账本里那个**可辨认**的字段。
+     *
+     * <p>**仅属主**，与追踪同一条规则：id 不是能力。空标题**清除**名字（删掉那一行，故「没有名字」只有一种表示），
+     * 超过 {@link ConversationTitle#MAX_LENGTH} 的标题**拒绝**而不是截断 —— 被悄悄截短的名字，看起来会与用户写下的那个一样。
+     */
+    @PutMapping("/ai/conversations/{id}/title")
+    public Map<String, Object> rename(@PathVariable String id, @RequestBody TitleRequest request) {
+        Principal caller = principals.current();
+        List<ConversationMessage> turns = messages.findByConversationIdOrderByIdAsc(id);
+        if (turns.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown conversation: " + id);
+        }
+        if (!turns.get(0).getUserId().equals(caller.userId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "conversation belongs to another user");
+        }
+        String title = request.title() == null ? "" : request.title().trim();
+        if (title.length() > ConversationTitle.MAX_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "a conversation title is at most " + ConversationTitle.MAX_LENGTH + " characters");
+        }
+        if (title.isEmpty()) {
+            titles.deleteById(id);
+        } else {
+            titles.save(new ConversationTitle(id, caller.userId(), title));
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("id", id);
+        body.put("title", title.isEmpty() ? null : title);
+        return body;
+    }
+
+    /**
+     * The one field a rename takes. A record rather than a free map, so the body cannot smuggle
+     * anything else in — the title is all this entry moves.
+     *
+     * 重命名只收一个字段。用 record 而不是自由的 map，好让请求体带不进别的东西 —— 这个入口移动的只有标题。
+     */
+    public record TitleRequest(String title) {
     }
 
     /**
@@ -289,13 +355,23 @@ public class ConversationController {
             return messages.get(messages.size() - 1).getCreatedAt();
         }
 
-        Map<String, Object> data() {
+        /**
+         * The frozen `conversation-data` view. `title` is null when no one named the conversation and
+         * `messageCount` is the whole transcript's size — the list only carries the newest two turns,
+         * so `messages` cannot be counted as the total.
+         *
+         * 冻结的 `conversation-data` 视图。没人起名时 `title` 为 null；`messageCount` 是**整段**对话
+         * 记录的条数 —— 列表只带最新的两条回合，故 `messages` 不能当作总数来数。
+         */
+        Map<String, Object> data(String title, long messageCount) {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("id", id);
             data.put("userId", first.getUserId());
             data.put("provider", DeterministicReplier.PROVIDER);
             data.put("model", DeterministicReplier.MODEL);
             data.put("summary", null);
+            data.put("title", title);
+            data.put("messageCount", messageCount);
             data.put("createdAt", first.getCreatedAt());
             data.put("lastActivityAt", lastActivity());
             List<Map<String, Object>> shown = new ArrayList<>();
