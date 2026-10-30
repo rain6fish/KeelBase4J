@@ -243,7 +243,7 @@ public class AuditService {
         }
         AuditChain.Verification v =
                 AuditChain.verify(rows, List.of(chainKey), row -> payloads.get((long) row.id()));
-        return new Verification(v.valid(), v.checked(), v.brokenIndex(),
+        return new Verification(v.valid(), v.checked(), logs.size(), v.brokenIndex(),
                 chain(logs, v.brokenIndex()));
     }
 
@@ -397,10 +397,17 @@ public class AuditService {
      * The verification's answer. {@code chain} is the frozen object's own field and the reason that
      * route exists at all: the walk says whether the chain holds, and this says what it walked.
      *
+     * <p>{@code tableRows} is the table's whole row count, beside the rows the walk actually checked:
+     * a row with no hash is never verified, so a verification rate quoted over {@code checked} alone
+     * would carry a denominator the reader cannot see.
+     *
      * 校验的答案。{@code chain} 是冻结对象自己的字段，也是那条路由存在的原因：这次走**说链站不站得住**，
      * 而它**说走过了什么**。
+     *
+     * <p>{@code tableRows} 是**整张表**的行数，与这次走真正校验过的行数并列：没有 hash 的行从不参与校验，
+     * 所以只看 {@code checked} 报出的验证率，分母是读者看不见的。
      */
-    public record Verification(boolean valid, int checked, Integer brokenIndex,
+    public record Verification(boolean valid, int checked, int tableRows, Integer brokenIndex,
                                List<Map<String, Object>> chain) {
     }
 }

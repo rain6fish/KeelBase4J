@@ -4574,6 +4574,13 @@ public class JavaGenerator {
                         // 这次走自己的答案，**以及它走过的那些行**：冻结对象的 `chain` 是**必填**，而一条**不报行**的链
                         // 是**没人能手工查**的链。`broken` 是**留空**、不是猜的 —— 它标的是**断在哪一行**，而这个存储的
                         // 走法只答**通不通**、不答**在哪**；schema 里它是可选的，故缺席是**诚实**、不是沉默。
+                        //
+                        // `tableRows` is the store's own row count beside `checked`: the schema asks for both, and a
+                        // rate quoted over `checked` alone would hide a denominator the reader cannot see. This
+                        // store walks every row it holds, so the two agree — saying so is still the answer.
+                        //
+                        // `tableRows` 是存储自己的行数，与 `checked` 并列：schema 两个都要，而只看 `checked` 报出的
+                        // 比率会藏起读者看不见的分母。这个存储走的是它持有的每一行，故两者相等 —— 但**说出来**才是答案。
                         List<Map<String, Object>> chain = new ArrayList<>();
                         for (AuditChainStore.Row row : audit.rows()) {
                             Map<String, Object> node = new LinkedHashMap<>();
@@ -4588,6 +4595,7 @@ public class JavaGenerator {
                         Map<String, Object> answer = new LinkedHashMap<>();
                         answer.put("valid", audit.verify());
                         answer.put("checked", audit.size());
+                        answer.put("tableRows", audit.size());
                         answer.put("chain", chain);
                         return answer;
                     }
