@@ -2,7 +2,7 @@
   "registryVersion": "v1",
   "title": "KeelBase wire 对象 Schema v1 Registry（CE-1 wire Schema 版本化）",
   "license": "Apache-2.0",
-  "note": "wire 对象 Schema = 固化当前形状（实证优先，非自动派生——人工策展快照）。语义变更必须先升 v2（新增 schemas/v2/ + 本表对应条目）再改实现（CE-1 L3 / C-1 单源规则），否则 wire-schema.spec.ts 的对象清单断言红。来源行号为抽取时锚，可能随代码漂移——权威以 Server-NestJS/src 为准。v2 条目（decision 词汇统一，CE-1 B3b）：confirm-decision-body / confirmation-decision 升 v2，v1 冻结历史留在 schemas/v1/。v3 条目（级联补偿，docs/cascade-compensation.spec.md）：side-effect-revoke 升 v3（加 compensationGroup/parentEffectId/cascade），v2 冻结历史留在 schemas/v2/。sse-event 升 v2（2026-09-16 §22.17 ④ 影响预览收口）：**事件名枚举不变**，只把嵌套载荷 $ref 从裸名（解析到冻结的 v1 载荷、additionalProperties:false、无 impact / revokeClass）改指各对象当前版——confirmation_request → confirmation-request v3、confirmation_decision → confirmation-decision v2，修「信封与内层对象版本脱节」。v3 条目（国密 SM2 签名，docs/evidence-root.spec.md §11）：evidence-package 升 v3——signature 段由「字符串 HMAC 或 null」扩为 oneOf[null, 字符串(历史包向后兼容), 对象 {hmac, sm2?}]；**加性变更**（旧形态仍合法），canonical 签名对象不变（仍剔除 signature 段自身），故 v1/v2 包可继续离线验证。v2 条目（P2 审批执行态，2026-09-23）：governance-confirmation-item 与 my-confirmation-item 升 v2——加 executionState / executedAt / executionError（决策轴与执行轴分离，status 枚举与冻结语料均不变），使「已批准但未执行」的行可见且可重试（POST /ai/confirmations/:token/retry-execution）。v5 条目（租户升为契约一等维度，决定索引 `D26 ①`）：org-membership-scope 升 v5——加**可选** `tenant`（与 org 并列、**不折进 org**；**不进 required ⇒ v1 形态仍合法**，因为主仓今天没有租户概念，做成必需会当场留下一处没有实现产出的缺口），v1 冻结历史留在 schemas/v1/。v5 条目（JV-65）：side-effect-revoke 升 v5——`item` 与 `traceItem` 加**可选** `userId`（这次写由**谁**发起）；**不进 required ⇒ v4 形态仍合法**（`schemas/v5/samples/side-effect-revoke-item-no-user-id.json` 就是那一条），两个对象仍是 `additionalProperties:false`，故按 v4 schema 校验的消费者会拒掉带 `userId` 的 v5 载荷 —— 消费方须跟上版本。v4 条目（CONF-4，2026-10-17）：confirmation-request 升 v4——`summary` 两处（顶层与 run.items[] 逐条）由 `string` 改为服务端**一直实际在下发**的 `{key, fallback, params?}` 对象；v1/v2/v3 冻结不动，v3 的 string 样例仍按 v3 校验。sse-event 随之升 v3：嵌套 `$ref` 指到 v4（信封与内层版本不得脱节），并把 `tool_start` / `tool_end` 的 `summary` 由字符串改为呈现文案对象（`tool_start` 可为 null）—— 运行时一直发对象，旧声明会拒掉它。registry 新增 `negativeSamples`：列出的负样例必须被 schema **拒绝**，每条必须写成 `{path, validUnder}` 并注明它必须在旧 schema 下合法；runner 先核 `validUnder`、再核拒绝，故拒绝不会因无关漂移而假绿，而「旧 string 形状会被拒」也不再只是句子、而是每次 check 都执行的断言。 v3 entry (A4, 2026-10-20): trace-step rises to v3 - traceEffect declares `status` (executed/revoked/revoking_external/revoke_failed), a field the trace has always emitted and the schema never named; additive, v2 sample still validates. v3 条目（A4，2026-10-20）：trace-step 升 v3——`traceEffect` 声明 `status`（executed/revoked/revoking_external/revoke_failed），该字段轨迹一直下发、schema 此前未命名；加性变更，v2 样例仍通过。 v6 entry (2026-10-20): ai-audit-log-row and side-effect-revoke rise to v6 — `item` / `traceItem` declare an optional `executionId`, the correlation key of one governed execution: the Java runtime already writes the same UUID on both the audit row and the side-effect row (GovernedExecutionEngine), while the frozen wire never named it, so effect↔audit could only be paired by tool + user + time. Additive: not in required, so v5-shaped payloads stay valid; a consumer validating against v5 will reject a v6 payload carrying the field (additionalProperties:false), so consumers must follow the version; the TypeScript reference has no such concept, so it sends null or omits it. v6 条目（2026-10-20）：ai-audit-log-row 与 side-effect-revoke 升 v6——`item` / `traceItem` 声明**可选** `executionId`，即一次受治理执行的关联键：Java 运行时早已把同一个 UUID 同时写进审计行与副作用行（GovernedExecutionEngine），而冻结 wire 从未命名它，故 effect↔audit 此前只能靠 tool + user + 时间配对。**加性**：不进 required，故 v5 形态载荷仍合法；按 v5 schema 校验的消费者会拒掉带该字段的 v6 载荷（additionalProperties:false），故消费方须跟上版本；TypeScript 参照实现没有该概念，发 null 或省略。",
+  "note": "wire 对象 Schema = 固化当前形状（实证优先，非自动派生——人工策展快照）。语义变更必须先升 v2（新增 schemas/v2/ + 本表对应条目）再改实现（CE-1 L3 / C-1 单源规则），否则 wire-schema.spec.ts 的对象清单断言红。来源行号为抽取时锚，可能随代码漂移——权威以 Server-NestJS/src 为准。v2 条目（decision 词汇统一，CE-1 B3b）：confirm-decision-body / confirmation-decision 升 v2，v1 冻结历史留在 schemas/v1/。v3 条目（级联补偿，docs/cascade-compensation.spec.md）：side-effect-revoke 升 v3（加 compensationGroup/parentEffectId/cascade），v2 冻结历史留在 schemas/v2/。sse-event 升 v2（2026-09-16 §22.17 ④ 影响预览收口）：**事件名枚举不变**，只把嵌套载荷 $ref 从裸名（解析到冻结的 v1 载荷、additionalProperties:false、无 impact / revokeClass）改指各对象当前版——confirmation_request → confirmation-request v3、confirmation_decision → confirmation-decision v2，修「信封与内层对象版本脱节」。v3 条目（国密 SM2 签名，docs/evidence-root.spec.md §11）：evidence-package 升 v3——signature 段由「字符串 HMAC 或 null」扩为 oneOf[null, 字符串(历史包向后兼容), 对象 {hmac, sm2?}]；**加性变更**（旧形态仍合法），canonical 签名对象不变（仍剔除 signature 段自身），故 v1/v2 包可继续离线验证。v2 条目（P2 审批执行态，2026-09-23）：governance-confirmation-item 与 my-confirmation-item 升 v2——加 executionState / executedAt / executionError（决策轴与执行轴分离，status 枚举与冻结语料均不变），使「已批准但未执行」的行可见且可重试（POST /ai/confirmations/:token/retry-execution）。v5 条目（租户升为契约一等维度，决定索引 `D26 ①`）：org-membership-scope 升 v5——加**可选** `tenant`（与 org 并列、**不折进 org**；**不进 required ⇒ v1 形态仍合法**，因为主仓今天没有租户概念，做成必需会当场留下一处没有实现产出的缺口），v1 冻结历史留在 schemas/v1/。v5 条目（JV-65）：side-effect-revoke 升 v5——`item` 与 `traceItem` 加**可选** `userId`（这次写由**谁**发起）；**不进 required ⇒ v4 形态仍合法**（`schemas/v5/samples/side-effect-revoke-item-no-user-id.json` 就是那一条），两个对象仍是 `additionalProperties:false`，故按 v4 schema 校验的消费者会拒掉带 `userId` 的 v5 载荷 —— 消费方须跟上版本。v4 条目（CONF-4，2026-10-17）：confirmation-request 升 v4——`summary` 两处（顶层与 run.items[] 逐条）由 `string` 改为服务端**一直实际在下发**的 `{key, fallback, params?}` 对象；v1/v2/v3 冻结不动，v3 的 string 样例仍按 v3 校验。sse-event 随之升 v3：嵌套 `$ref` 指到 v4（信封与内层版本不得脱节），并把 `tool_start` / `tool_end` 的 `summary` 由字符串改为呈现文案对象（`tool_start` 可为 null）—— 运行时一直发对象，旧声明会拒掉它。registry 新增 `negativeSamples`：列出的负样例必须被 schema **拒绝**，每条必须写成 `{path, validUnder}` 并注明它必须在旧 schema 下合法；runner 先核 `validUnder`、再核拒绝，故拒绝不会因无关漂移而假绿，而「旧 string 形状会被拒」也不再只是句子、而是每次 check 都执行的断言。 v3 entry (A4, 2026-10-20): trace-step rises to v3 - traceEffect declares `status` (executed/revoked/revoking_external/revoke_failed), a field the trace has always emitted and the schema never named; additive, v2 sample still validates. v3 条目（A4，2026-10-20）：trace-step 升 v3——`traceEffect` 声明 `status`（executed/revoked/revoking_external/revoke_failed），该字段轨迹一直下发、schema 此前未命名；加性变更，v2 样例仍通过。 v6 entry (2026-10-20): ai-audit-log-row and side-effect-revoke rise to v6 — `item` / `traceItem` declare an optional `executionId`, the correlation key of one governed execution: the Java runtime already writes the same UUID on both the audit row and the side-effect row (GovernedExecutionEngine), while the frozen wire never named it, so effect↔audit could only be paired by tool + user + time. Additive: not in required, so v5-shaped payloads stay valid; a consumer validating against v5 will reject a v6 payload carrying the field (additionalProperties:false), so consumers must follow the version; the TypeScript reference has no such concept, so it sends null or omits it. v6 条目（2026-10-20）：ai-audit-log-row 与 side-effect-revoke 升 v6——`item` / `traceItem` 声明**可选** `executionId`，即一次受治理执行的关联键：Java 运行时早已把同一个 UUID 同时写进审计行与副作用行（GovernedExecutionEngine），而冻结 wire 从未命名它，故 effect↔audit 此前只能靠 tool + user + 时间配对。**加性**：不进 required，故 v5 形态载荷仍合法；按 v5 schema 校验的消费者会拒掉带该字段的 v6 载荷（additionalProperties:false），故消费方须跟上版本；TypeScript 参照实现没有该概念，发 null 或省略。 v2 entry (2026-10-29): audit-action-report, audit-chain-verification and audit-usage-stats rise to v2 - a denied tool call is split into the two gates that can deny it (`blocked` = the risk policy, which never reached a decision; `refused` = the governance / authorization gate), `refused` joins `summary` and every `byDay` bucket, and `tableRows` joins `checked` so a chain verification rate carries the rows it never verified. Additive in shape, not in semantics: `additionalProperties:false` means a v1 consumer rejects a v2 payload, so consumers must follow the version; the three v1 samples become negative samples (valid under v1, rejected under v2). v2 条目（2026-10-29）：audit-action-report / audit-chain-verification / audit-usage-stats 升 v2 —— 被拒的工具调用拆成能拒它的两道闸（`blocked` = 风险策略，没到过裁决；`refused` = 治理 / 授权闸），`refused` 进 `summary` 与每个 `byDay` 桶，`tableRows` 与 `checked` 并列，于是链验证率带着它从未校验过的那些行。形状是加性的、语义不是：`additionalProperties:false` 意味着按 v1 校验的消费者会拒掉 v2 载荷，故消费方须跟上版本；三份 v1 样例转为负样例（v1 下合法、v2 下被拒）。",
   "schemasDir": "schemas/",
   "supportSchemas": [
     "risk-level-ref.schema.json",
@@ -395,23 +395,35 @@
       ]
     },
     {
-      "version": "v1",
+      "version": "v2",
       "id": "audit-chain-verification",
-      "schema": "audit-chain-verification.schema.json",
-      "title": "审计哈希链校验响应（GET /audit/verify data）",
-      "source": "src/common/audit-chain/audit-chain.service.ts:13-18; src/ai/audit/audit.service.ts:379-413",
+      "schema": "v2/audit-chain-verification.schema.json",
+      "title": "审计哈希链校验响应（GET /audit/verify data；v2 加 `tableRows`）",
+      "source": "src/common/audit-chain/audit-chain.service.ts:13-18; src/governance-shared/services/audit-evidence.service.ts verifyChain",
       "samples": [
-        "schemas/v1/samples/audit-chain-verification.json"
+        "schemas/v2/samples/audit-chain-verification.json"
+      ],
+      "negativeSamples": [
+        {
+          "path": "schemas/v1/samples/audit-chain-verification.json",
+          "validUnder": "audit-chain-verification.schema.json"
+        }
       ]
     },
     {
-      "version": "v1",
+      "version": "v2",
       "id": "audit-usage-stats",
-      "schema": "audit-usage-stats.schema.json",
-      "title": "AI 用量统计（GET /audit/stats data）",
-      "source": "src/ai/audit/audit.service.ts:1132-1168 getAllStats",
+      "schema": "v2/audit-usage-stats.schema.json",
+      "title": "AI 用量统计（GET /audit/stats data；v2 的 byDay 加 `refused`）",
+      "source": "src/governance-shared/services/audit-stats.service.ts getAllStats + by-day.ts",
       "samples": [
-        "schemas/v1/samples/audit-usage-stats.json"
+        "schemas/v2/samples/audit-usage-stats.json"
+      ],
+      "negativeSamples": [
+        {
+          "path": "schemas/v1/samples/audit-usage-stats.json",
+          "validUnder": "audit-usage-stats.schema.json"
+        }
       ]
     },
     {
@@ -425,13 +437,19 @@
       ]
     },
     {
-      "version": "v1",
+      "version": "v2",
       "id": "audit-action-report",
-      "schema": "audit-action-report.schema.json",
-      "title": "AI Action Report 合规证据包（GET /audit/action-report data）",
-      "source": "src/ai/audit/audit.service.ts:638-732 getActionReport",
+      "schema": "v2/audit-action-report.schema.json",
+      "title": "AI Action Report 合规证据包（GET /audit/action-report data；v2 加 `refused` 与 `hashChain.tableRows`）",
+      "source": "src/governance-shared/services/audit-evidence.service.ts getActionReport + by-day.ts",
       "samples": [
-        "schemas/v1/samples/audit-action-report.json"
+        "schemas/v2/samples/audit-action-report.json"
+      ],
+      "negativeSamples": [
+        {
+          "path": "schemas/v1/samples/audit-action-report.json",
+          "validUnder": "audit-action-report.schema.json"
+        }
       ]
     },
     {

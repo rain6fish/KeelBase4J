@@ -395,23 +395,35 @@
       ]
     },
     {
-      "version": "v1",
+      "version": "v2",
       "id": "audit-chain-verification",
       "schema": "audit-chain-verification.schema.json",
-      "title": "审计哈希链校验响应（GET /audit/verify data）",
-      "source": "src/common/audit-chain/audit-chain.service.ts:13-18; src/ai/audit/audit.service.ts:379-413",
+      "title": "审计哈希链校验响应（GET /audit/verify data；v2 加 `tableRows`）",
+      "source": "src/common/audit-chain/audit-chain.service.ts:13-18; src/governance-shared/services/audit-evidence.service.ts verifyChain",
       "samples": [
-        "schemas/v1/samples/audit-chain-verification.json"
+        "schemas/v2/samples/audit-chain-verification.json"
+      ],
+      "negativeSamples": [
+        {
+          "path": "schemas/v1/samples/audit-chain-verification.json",
+          "validUnder": "audit-chain-verification.schema.json"
+        }
       ]
     },
     {
-      "version": "v1",
+      "version": "v2",
       "id": "audit-usage-stats",
       "schema": "audit-usage-stats.schema.json",
-      "title": "AI 用量统计（GET /audit/stats data）",
-      "source": "src/ai/audit/audit.service.ts:1132-1168 getAllStats",
+      "title": "AI 用量统计（GET /audit/stats data；v2 的 byDay 加 `refused`）",
+      "source": "src/governance-shared/services/audit-stats.service.ts getAllStats + by-day.ts",
       "samples": [
-        "schemas/v1/samples/audit-usage-stats.json"
+        "schemas/v2/samples/audit-usage-stats.json"
+      ],
+      "negativeSamples": [
+        {
+          "path": "schemas/v1/samples/audit-usage-stats.json",
+          "validUnder": "audit-usage-stats.schema.json"
+        }
       ]
     },
     {
@@ -425,13 +437,19 @@
       ]
     },
     {
-      "version": "v1",
+      "version": "v2",
       "id": "audit-action-report",
       "schema": "audit-action-report.schema.json",
-      "title": "AI Action Report 合规证据包（GET /audit/action-report data）",
-      "source": "src/ai/audit/audit.service.ts:638-732 getActionReport",
+      "title": "AI Action Report 合规证据包（GET /audit/action-report data；v2 加 `refused` 与 `hashChain.tableRows`）",
+      "source": "src/governance-shared/services/audit-evidence.service.ts getActionReport + by-day.ts",
       "samples": [
-        "schemas/v1/samples/audit-action-report.json"
+        "schemas/v2/samples/audit-action-report.json"
+      ],
+      "negativeSamples": [
+        {
+          "path": "schemas/v1/samples/audit-action-report.json",
+          "validUnder": "audit-action-report.schema.json"
+        }
       ]
     },
     {
