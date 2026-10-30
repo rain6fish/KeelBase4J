@@ -18,6 +18,8 @@ repository — the same files any other implementation would use.
 
 ---
 
+**Articles** — the long-form essays behind these decisions, on AI execution governance and AI audit evidence: [keelbase.hashnode.dev](https://keelbase.hashnode.dev/).
+
 <!-- BEGIN keelbase-family:en sha256:92e82fd34f0a15d22b119841121b79f97caa1bfb8f5d77dcdcf73002c9257be0 -->
 ## 🧬 The KeelBase family
 
