@@ -112,6 +112,8 @@ class AuditChainConcurrencyTest {
         AuditService.Verification verification = audit.verify();
         assertTrue(verification.valid(), "a forked chain would fail verification");
         assertEquals(before + threads * each, verification.checked(), "nothing may be lost");
+        assertEquals(before + threads * each, verification.tableRows(),
+                "the answer carries the table's own row count, not only the rows the walk checked");
     }
 
     private static void await(CountDownLatch latch) {

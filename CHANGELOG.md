@@ -26,6 +26,12 @@ Each version is written in two blocks — English first, then Chinese — marked
   carries only the newest two turns and `messages.length` would say "2" for every conversation past its first
   exchange.
 
+- **The chain verification answer says how many rows the table has.** `GET /audit/verify` now carries
+  `tableRows` beside `checked` — the table's whole row count, not only the rows the walk verified. The two
+  differ wherever a row exists without a hash, and a rate quoted over `checked` alone hides its own
+  denominator. `audit-chain-verification` v2 is what asks for the field, and this release moves the contract
+  pin to `v1.16.0` to carry it.
+
 ### Changed
 
 - **The version is `0.1.15`.** All eight poms finish at `0.1.15`; the published set is unchanged: the parent
@@ -41,6 +47,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   清除名字，超过 200 字**拒绝**而不是截断，因为被悄悄截短的名字看起来会与用户写下的那个一样。列表与追踪
   现在都带 `title` 与 `messageCount`；条数是**整段**对话记录的，因为列表只带最新两条回合，`messages.length`
   会对每一条超过一回合的会话都说「2」。
+
+- **链校验的答案说出表里有多少行。** `GET /audit/verify` 现在在 `checked` 旁带上 `tableRows` —— 整张表的
+  行数，不只是这次走校验过的那些行。只要有一行没有 hash，两者就会不同，而只看 `checked` 报出的验证率会把
+  自己的分母藏起来。要求这个字段的是 `audit-chain-verification` v2，本次发版为此把契约 pin 抬到 `v1.16.0`。
 
 ### 变更
 
