@@ -10,6 +10,52 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [Unreleased] - 0.1.16-SNAPSHOT
+
+**English**
+
+### Fixed
+
+- **A write that names a text id is recorded, instead of ending as an unrecorded failure.** The effect
+  ledger stored `result_id` as `BIGINT` and read an id out of a tool's result only when it was a
+  `Number`, so a tool whose object is keyed by a UUID — a Flowable process instance, for one — had its
+  call executed and then reported as `no result id`: the row was gone from the business table, no
+  effect row existed, the write claim stayed taken, and `GET /ai/tool-effects` showed nothing. The
+  column now holds text (`V18__effect_result_id_text`, all three dialects), and the engine accepts a
+  number or a text id. The wire is unchanged for what already existed: an id that is the canonical
+  decimal form of a `long` is still emitted as a number (`ResultIds#wire`), so no stored effect and no
+  existing payload changes shape.
+
+### Changed
+
+- **`POST /ai/chat` carries `targetId` as text.** It was a `Long`, which refused a Flowable UUID at
+  deserialization — before any route could read it. A JSON number still binds and reaches routes as a
+  number, exactly as before; a non-numeric id reaches them as the text it is. `customerId` still binds
+  as an alias. **Source-compatible for HTTP callers, not for Java callers**: `ChatRequest.targetId()`
+  now returns `String`, `SideEffect.getResultId()` now returns `String`, and the `SideEffectService.record`
+  overloads take a `String` result id.
+- **The version is `0.1.16-SNAPSHOT`.** All eight poms; the published set is unchanged.
+
+**中文**
+
+### 修复
+
+- **点名文本 id 的写会被记下，而不是收成一条记不下来的失败。** 副作用账本把 `result_id` 存成 `BIGINT`，
+  并且只在工具结果的 id 是 `Number` 时才读它，于是对象以 UUID 为键的工具（Flowable 流程实例就是一例）其调用
+  被执行了、随后被报成 `no result id`：业务表里的那行已经不在了，却没有副作用行、写认领一直占着、
+  `GET /ai/tool-effects` 什么也看不到。这一列现在收文本（`V18__effect_result_id_text`，三个方言），
+  而引擎接受数字或文本 id。wire 对既有的东西不变：某个 `long` 的规范十进制写法的 id 仍写成数字
+  （`ResultIds#wire`），故没有一条存下的 effect、也没有一个既有载荷改变形状。
+
+### 变更
+
+- **`POST /ai/chat` 的 `targetId` 以文本携带。** 它曾是 `Long`，会在反序列化阶段拒掉 Flowable 的 UUID ——
+  在任何路由读到它之前。JSON 数字照样绑得上、并以数字到达路由，与从前完全一样；非数字的 id 以它本来的文本到达。
+  `customerId` 作为别名照样绑。**对 HTTP 调用方兼容，对 Java 调用方不是**：`ChatRequest.targetId()` 现在返回
+  `String`，`SideEffect.getResultId()` 现在返回 `String`，而 `SideEffectService.record` 的各重载收 `String`
+  结果 id。
+- **版本为 `0.1.16-SNAPSHOT`。** 八个 pom；发布集合不变。
+
 ## [0.1.15] - 2026-10-29
 
 **English**

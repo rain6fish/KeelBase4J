@@ -31,8 +31,21 @@ public class SideEffect {
     @Column(name = "result_type", nullable = false)
     private String resultType;
 
-    @Column(name = "result_id", nullable = false)
-    private Long resultId;
+    /**
+     * <b>The id is text</b> because the object it names is not always numbered: Flowable process
+     * instances, for one, are UUIDs. It was a {@code Long}, and a tool that could only produce a UUID
+     * had its write left unrecorded — the ledger's one job is to name what the write produced, and a
+     * type that cannot hold that name cannot do it. The column changed with it (see
+     * {@code V18__effect_result_id_text}); the wire keeps integer ids as numbers so an existing
+     * payload stays as it was (see {@code ResultIds#wire}).
+     *
+     * **id 是文本**，因为它命名的对象不总是有编号：Flowable 流程实例就是 UUID。它曾是 `Long`，而一个只能
+     * 产出 UUID 的工具，其写就记不下来 —— 账本的唯一职责就是说清这次写产出了什么，而一个装不下那个名字的类型
+     * 做不了这件事。列随之一并改了（见 `V18__effect_result_id_text`）；wire 上仍把数字 id 写成数字，
+     * 好让既有载荷保持原样（见 `ResultIds#wire`）。
+     */
+    @Column(name = "result_id", nullable = false, length = 255)
+    private String resultId;
 
     /** none | local_compensate | governed_external. */
     @Column(name = "revoke_class", nullable = false)
@@ -138,13 +151,13 @@ public class SideEffect {
      * 同上、但不带会话 —— 为没有会话可传的调用方、也为已发布的 artifact 而保留。见下面那个更宽的构造器。
      */
     public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
-                      Long resultId, String revokeClass, String argsHash, String afterSnapshot) {
+                      String resultId, String revokeClass, String argsHash, String afterSnapshot) {
         this(idempotencyKey, userId, toolName, resultType, resultId, revokeClass, argsHash, null,
                 afterSnapshot, null);
     }
 
     public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
-                      Long resultId, String revokeClass, String argsHash, String afterSnapshot,
+                      String resultId, String revokeClass, String argsHash, String afterSnapshot,
                       String conversationId) {
         this(idempotencyKey, userId, toolName, resultType, resultId, revokeClass, argsHash, null,
                 afterSnapshot, conversationId);
@@ -165,7 +178,7 @@ public class SideEffect {
      * 而签名多一个参数会让手上没有这个值的调用方编译不过。**新建**不传、得到 null —— 那正是「之前没有行」。
      */
     public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
-                      Long resultId, String revokeClass, String argsHash, String beforeSnapshot,
+                      String resultId, String revokeClass, String argsHash, String beforeSnapshot,
                       String afterSnapshot, String conversationId) {
         this(idempotencyKey, userId, toolName, resultType, resultId, revokeClass, argsHash,
                 beforeSnapshot, afterSnapshot, conversationId, null);
@@ -181,7 +194,7 @@ public class SideEffect {
      * 调用方编译不过。
      */
     public SideEffect(String idempotencyKey, String userId, String toolName, String resultType,
-                      Long resultId, String revokeClass, String argsHash, String beforeSnapshot,
+                      String resultId, String revokeClass, String argsHash, String beforeSnapshot,
                       String afterSnapshot, String conversationId, String executionId) {
         this.idempotencyKey = idempotencyKey;
         this.userId = userId;
@@ -212,7 +225,7 @@ public class SideEffect {
         return resultType;
     }
 
-    public Long getResultId() {
+    public String getResultId() {
         return resultId;
     }
 

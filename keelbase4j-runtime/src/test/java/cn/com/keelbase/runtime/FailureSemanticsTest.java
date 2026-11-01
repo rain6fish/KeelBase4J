@@ -157,7 +157,7 @@ class FailureSemanticsTest {
     private void unavailableIsNeverReportedAsRevoked() {
         SideEffect external = sideEffectRepository.save(new SideEffect(
                 "failure-semantics:fp7:" + UUID.randomUUID(), "carol", "sync_crm",
-                "crm_record", 42L, "governed_external", "hash-fp7", null));
+                "crm_record", "42", "governed_external", "hash-fp7", null));
 
         SideEffect after = sideEffects.revoke(external.getId(), new Principal("carol", "user"));
 
@@ -180,8 +180,8 @@ class FailureSemanticsTest {
         String args = "{\"note\":\"failure-semantics:fp1:" + UUID.randomUUID() + "\"}";
         Principal alice = new Principal("alice", "user");
 
-        SideEffect first = sideEffects.record(alice, "create_followup", "follow_up", 1L, args, "local_compensate");
-        SideEffect second = sideEffects.record(alice, "create_followup", "follow_up", 1L, args, "local_compensate");
+        SideEffect first = sideEffects.record(alice, "create_followup", "follow_up", "1", args, "local_compensate");
+        SideEffect second = sideEffects.record(alice, "create_followup", "follow_up", "1", args, "local_compensate");
 
         assertEquals(first.getId(), second.getId(), "a repeat call must reuse the existing effect");
     }
@@ -193,10 +193,10 @@ class FailureSemanticsTest {
     private void duplicateEffectKeyCannotFork() {
         String key = "failure-semantics:fp5:" + UUID.randomUUID();
         SideEffect winner = sideEffectRepository.saveAndFlush(
-                new SideEffect(key, "alice", "create_followup", "follow_up", 1L, "local_compensate", "hash-fp5", null));
+                new SideEffect(key, "alice", "create_followup", "follow_up", "1", "local_compensate", "hash-fp5", null));
 
         assertThrows(DataIntegrityViolationException.class, () -> sideEffectRepository.saveAndFlush(
-                new SideEffect(key, "alice", "create_followup", "follow_up", 2L, "local_compensate", "hash-fp5", null)));
+                new SideEffect(key, "alice", "create_followup", "follow_up", "2", "local_compensate", "hash-fp5", null)));
 
         // The same race driven through the service: the lookup misses, the insert hits the unique
         // key, and the call is an idempotent skip onto the winner's row — not a failure.
@@ -209,7 +209,7 @@ class FailureSemanticsTest {
         SideEffectService secondRacer = new SideEffectService(racing, mock(FollowUpRepository.class), mock(AuditService.class));
 
         SideEffect resolved = secondRacer.record(new Principal("alice", "user"), "create_followup",
-                "follow_up", 2L, "{}", "local_compensate");
+                "follow_up", "2", "{}", "local_compensate");
         assertEquals(winner.getId(), resolved.getId(), "the loser must reuse the winner's effect");
 
         // A conflict that is NOT this key must still fail: the re-read finds nothing, so the original
@@ -221,7 +221,7 @@ class FailureSemanticsTest {
         SideEffectService otherConflict = new SideEffectService(unrelated, mock(FollowUpRepository.class), mock(AuditService.class));
 
         assertThrows(DataIntegrityViolationException.class, () -> otherConflict.record(
-                new Principal("alice", "user"), "create_followup", "follow_up", 1L, "{}", "local_compensate"));
+                new Principal("alice", "user"), "create_followup", "follow_up", "1", "{}", "local_compensate"));
     }
 
     /** FP-4 — a DB error is rethrown, not swallowed into a fake idempotent hit. */
@@ -232,7 +232,7 @@ class FailureSemanticsTest {
         SideEffectService service = new SideEffectService(broken, mock(FollowUpRepository.class), mock(AuditService.class));
 
         assertThrows(DataAccessResourceFailureException.class, () -> service.record(
-                new Principal("alice", "user"), "create_followup", "follow_up", 1L, "{}", "local_compensate"));
+                new Principal("alice", "user"), "create_followup", "follow_up", "1", "{}", "local_compensate"));
         verify(broken, never()).save(any());
     }
 

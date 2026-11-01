@@ -1,0 +1,22 @@
+{
+  "id": 9311,
+  "toolName": "cancel_my_bpm_instance",
+  "conversationId": "conv-42-support",
+  "userId": "241",
+  "resultType": "bpm_process_instance",
+  "resultId": "262de6a9-d59d-11f1-9e88-681def59d09d",
+  "createdAt": "2026-11-01T03:19:41.000Z",
+  "targetExists": true,
+  "targetSoftDeleted": false,
+  "targetTitle": "撤回流程",
+  "revokeClass": "governed_external",
+  "revokeStatus": null,
+  "status": "executed",
+  "revocable": false,
+  "argsHash": "9c1d2e3f4a5b6c70",
+  "beforeSnapshot": null,
+  "afterSnapshot": "{\"id\":\"262de6a9-d59d-11f1-9e88-681def59d09d\",\"status\":4}",
+  "compensationGroup": null,
+  "parentEffectId": null,
+  "executionId": "3f6a0c2e-8d41-4f7b-a2c9-5e1d7b6a9c02"
+}

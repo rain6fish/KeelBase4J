@@ -123,7 +123,7 @@ public class SideEffectService {
      * 记下这次副作用，**不捕获**工具产出了什么。留给手上没有结果的调用方；运行时自己那条路走下面那个
      * 重载、并把结果交进来。
      */
-    public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
+    public SideEffect record(Principal principal, String toolName, String resultType, String resultId,
                              String argsJson, String revokeClass) {
         return record(principal, toolName, resultType, resultId, argsJson, revokeClass, null);
     }
@@ -139,7 +139,7 @@ public class SideEffectService {
      * <p>做成**重载**、而不去改上面那个方法：这个类住在一个**已发布**的 artifact 里，而签名多一个参数会让
      * 手上没有这个值的调用方编译不过。
      */
-    public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
+    public SideEffect record(Principal principal, String toolName, String resultType, String resultId,
                              String argsJson, String revokeClass, String afterSnapshot) {
         return record(principal, toolName, resultType, resultId, argsJson, revokeClass, afterSnapshot,
                 null);
@@ -159,7 +159,7 @@ public class SideEffectService {
      * <p>做成**重载**，理由与上面那个短重载相同：这个类住在一个**已发布**的 artifact 里。幂等键**不变** —— 它折进的是
      * 用户、工具与参数，会话不在这三者之中 —— 所以同一次调用无论从哪条会话来，都仍复用它自己的 effect。
      */
-    public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
+    public SideEffect record(Principal principal, String toolName, String resultType, String resultId,
                              String argsJson, String revokeClass, String afterSnapshot,
                              String conversationId) {
         return record(principal, toolName, resultType, resultId, argsJson, revokeClass, null,
@@ -180,7 +180,7 @@ public class SideEffectService {
      * <p>做成**重载**，理由与上面那个相同：这个类住在一个**已发布**的 artifact 里。**新建**传 null —— 那时没有行
      * —— 上面那个短调用做的正是这件事。
      */
-    public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
+    public SideEffect record(Principal principal, String toolName, String resultType, String resultId,
                              String argsJson, String revokeClass, String beforeSnapshot,
                              String afterSnapshot, String conversationId) {
         return record(principal, toolName, resultType, resultId, argsJson, revokeClass,
@@ -205,7 +205,7 @@ public class SideEffectService {
      * 是一次**复用**，它自己的 id 记在它自己的审计行上。在这里改写它，等于在一条什么都没写的路径上，给一次
      * **已经发生**的写重新贴标签。
      */
-    public SideEffect record(Principal principal, String toolName, String resultType, Long resultId,
+    public SideEffect record(Principal principal, String toolName, String resultType, String resultId,
                              String argsJson, String revokeClass, String beforeSnapshot,
                              String afterSnapshot, String conversationId, String executionId) {
         String key = idempotencyKey(principal.userId(), toolName, argsJson);
@@ -311,7 +311,7 @@ public class SideEffectService {
                     "no local compensation registered for resultType=" + effect.getResultType()
                             + " — register a SideEffectCompensator for it");
         }
-        FollowUp target = followUps.findById(effect.getResultId())
+        FollowUp target = followUps.findById(ResultIds.asLong(effect.getResultId()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "target not found"));
         target.setDeletedAt(Instant.now());
         followUps.save(target);

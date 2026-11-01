@@ -88,22 +88,25 @@
     },
     {
       "id": "trace-step",
-      "version": "v3",
-      "schema": "v3/trace-step.schema.json",
-      "title": "Conversation Trace Step（GET /ai/conversations/:id/trace data.steps[]，v3：`traceEffect` 声明 `status`——归一生命周期 executed/revoked/revoking_external/revoke_failed，轨迹一直下发、schema 此前未命名；v2 加 `outcome=pending_approval`；v1 为 approve/decline/timeout）",
+      "version": "v4",
+      "schema": "v4/trace-step.schema.json",
+      "title": "Conversation Trace Step（GET /ai/conversations/:id/trace data.steps[]；v4：`traceEffect.resultId` 可为字符串；v3 为 `traceEffect` 增加 `status`；v2 为 `outcome=pending_approval`；v1 为 approve/decline/timeout）",
       "source": "src/ai/trace/decision-trace.service.ts",
       "samples": [
+        "schemas/v4/samples/trace-step-effect-uuid.json",
         "schemas/v2/samples/trace-step.json",
         "schemas/v3/samples/trace-step-effect.json"
       ]
     },
     {
       "id": "side-effect-revoke",
-      "version": "v6",
-      "schema": "v6/side-effect-revoke.schema.json",
-      "title": "AI 写副作用 item / 执行轨迹 traceItem / 撤销结果 / 批量（v6：item/traceItem 加可选 executionId —— 同一次受治理执行的关联键；v5 为可选 userId「谁发起的」；v4 为级联补偿 compensationGroup+parentEffectId+cascade；v2 为 KB-6 revokeClass）",
+      "version": "v7",
+      "schema": "v7/side-effect-revoke.schema.json",
+      "title": "AI 写副作用 item / 执行轨迹 traceItem / 单条撤销结果 / 批量结果（v7：`resultId` 可为字符串——Flowable 等 UUID 型对象；v6 为可选 executionId；v5 为可选 userId；v4 为级联 compensationGroup+parentEffectId+cascade；v2 为 KB-6 revokeClass）",
       "source": "src/ai/tool-effects/ai-tool-effects.service.ts; src/ai/tool-effects/effect-composition.ts; src/ai/interfaces/tool.interface.ts",
       "samples": [
+        "schemas/v7/samples/side-effect-revoke-item-uuid.json",
+        "schemas/v7/samples/side-effect-revoke-trace-item-uuid.json",
         "schemas/v6/samples/side-effect-revoke-item-execution-id.json",
         "schemas/v6/samples/side-effect-revoke-trace-item-execution-id.json",
         "schemas/v6/samples/side-effect-revoke-item-no-execution-id.json",

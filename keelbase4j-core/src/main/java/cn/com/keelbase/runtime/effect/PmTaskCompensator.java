@@ -36,7 +36,7 @@ public class PmTaskCompensator implements SideEffectCompensator {
 
     @Override
     public void compensate(SideEffect effect) {
-        PmTask target = tasks.findById(effect.getResultId())
+        PmTask target = tasks.findById(ResultIds.asLong(effect.getResultId()))
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "target not found"));
         target.setDeletedAt(Instant.now());

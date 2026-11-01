@@ -7,6 +7,7 @@ import cn.com.keelbase.runtime.conversation.ConversationMessage;
 import cn.com.keelbase.runtime.conversation.ConversationMessageRepository;
 import cn.com.keelbase.runtime.conversation.ConversationTitle;
 import cn.com.keelbase.runtime.conversation.ConversationTitleRepository;
+import cn.com.keelbase.runtime.effect.ResultIds;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
@@ -322,7 +323,7 @@ public class ConversationController {
         Map<String, Object> traceEffect = new LinkedHashMap<>();
         traceEffect.put("effectId", effect.getId());
         traceEffect.put("resultType", effect.getResultType());
-        traceEffect.put("resultId", effect.getResultId());
+        traceEffect.put("resultId", ResultIds.wire(effect.getResultId()));
         traceEffect.put("revocable", !"none".equals(effect.getRevokeClass()));
         // The frozen v3 `traceEffect` requires `status` — the projection's normalized lifecycle
         // reading, passed through rather than derived a second time. The trace applies the same

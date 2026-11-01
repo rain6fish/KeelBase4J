@@ -73,7 +73,8 @@ public final class ToolDeclaration {
                 + "`, which this runtime governs as a write, but it declares no `resultType`. "
                 + "Without one the runtime would treat the write as a read: an approved execution "
                 + "would leave no side effect to audit or revoke. Fix: return the business result "
-                + "type from `resultType()` and make `execute` return a result with a numeric `id`; "
+                + "type from `resultType()` and make `execute` return a result whose `id` names the row"
+                + " — a number, or the text when the key is one; "
                 + "if the tool only reads, lower its risk level to R0-R2.";
     }
 }

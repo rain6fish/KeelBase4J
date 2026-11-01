@@ -31,19 +31,33 @@ class ChatRequestKeepsTheOldNameBindingTest {
     @Test
     void theOldNameStillBinds() throws Exception {
         ChatRequest old = json.readValue("{\"message\":\"m\",\"customerId\":7}", ChatRequest.class);
-        assertEquals(7L, old.targetId(), "the old key fills the generic slot");
+        assertEquals("7", old.targetId(), "the old key fills the generic slot, as the text it is now");
         assertEquals(7L, old.customerId(), "and the deprecated accessor still answers");
     }
 
     @Test
     void theNewNameBinds() throws Exception {
         ChatRequest now = json.readValue("{\"message\":\"m\",\"targetId\":9}", ChatRequest.class);
-        assertEquals(9L, now.targetId());
+        assertEquals("9", now.targetId(), "a number is handed over as the text of that number");
     }
 
     @Test
     void namingNeitherMeansItIsAbsent() throws Exception {
         ChatRequest none = json.readValue("{\"message\":\"m\"}", ChatRequest.class);
         assertNull(none.targetId(), "absent is absent, not zero");
+    }
+
+    @Test
+    void aTextIdFillsTheSameSlotAsANumber() throws Exception {
+        // The reason the slot carries text at all: a Flowable process instance is a UUID, and a body
+        // typed for numbers refused the turn before any route could read it.
+        //
+        // 槽位之所以携带文本，理由就是这一条：Flowable 流程实例是 UUID，而一个按数字定型的 body 在任何路由
+        // 读到它之前就拒了那一轮。
+        String uuid = "262de6a9-d59d-11f1-9e88-681def59d09d";
+        ChatRequest request = json.readValue(
+                "{\"message\":\"m\",\"targetId\":\"" + uuid + "\"}", ChatRequest.class);
+        assertEquals(uuid, request.targetId(), "a UUID fills the slot");
+        assertNull(request.customerId(), "the deprecated numeric accessor answers null rather than inventing one");
     }
 }

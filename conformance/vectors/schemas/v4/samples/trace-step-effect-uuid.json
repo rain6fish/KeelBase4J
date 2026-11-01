@@ -1,0 +1,17 @@
+{
+  "id": "effect-9311",
+  "type": "effect",
+  "time": "2026-11-01T03:19:41Z",
+  "toolName": "cancel_my_bpm_instance",
+  "effect": {
+    "effectId": 9311,
+    "resultType": "bpm_process_instance",
+    "resultId": "262de6a9-d59d-11f1-9e88-681def59d09d",
+    "targetTitle": "撤回流程",
+    "revocable": false,
+    "status": "executed",
+    "before": null,
+    "after": "{\"id\":\"262de6a9-d59d-11f1-9e88-681def59d09d\",\"status\":4}"
+  },
+  "agentId": "local"
+}

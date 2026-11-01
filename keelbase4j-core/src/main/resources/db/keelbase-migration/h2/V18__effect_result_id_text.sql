@@ -1,0 +1,20 @@
+-- The effect ledger names what a write produced, and not every business object is numbered.
+--
+-- `result_id` was BIGINT. A tool can only name the key its own object has, and a Flowable process
+-- instance's key is a UUID: the runtime accepted the tool's result, found no numeric id in it, and
+-- ended a write that had already landed as an unrecorded failure. The column takes text now, and the
+-- engine reads a number or a text id from the tool's result (see `GovernedExecutionEngine.resultId`).
+--
+-- Existing rows convert losslessly: a BIGINT written as text is the same id, and the wire still
+-- presents a canonical decimal id as a number (`ResultIds.wire`), so no stored effect changes shape.
+--
+-- 副作用账本说清一次写产出了什么，而**不是每个业务对象都有编号**。
+--
+-- `result_id` 曾是 BIGINT。工具只能点名它自己那个对象拥有的键，而 Flowable 流程实例的键是 UUID：运行时接受了
+-- 工具的结果、在其中找不到数字 id，于是把一次**已经落地**的写收成了一条记不下来的失败。这一列现在收文本，而引擎
+-- 从工具结果里读数字或文本 id（见 `GovernedExecutionEngine.resultId`）。
+--
+-- 存量行**无损转换**：一个写成文本的 BIGINT 仍是同一个 id，而 wire 上仍把规范十进制 id 呈现为数字
+-- （`ResultIds.wire`），故没有一条存下的 effect 改变形状。
+ALTER TABLE side_effects ALTER COLUMN result_id SET DATA TYPE VARCHAR(255);
+ALTER TABLE side_effects ALTER COLUMN result_id SET NOT NULL;
