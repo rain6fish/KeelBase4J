@@ -34,7 +34,7 @@ Each version is written in two blocks — English first, then Chinese — marked
   as an alias. **Source-compatible for HTTP callers, not for Java callers**: `ChatRequest.targetId()`
   now returns `String`, `SideEffect.getResultId()` now returns `String`, and the `SideEffectService.record`
   overloads take a `String` result id.
-- **The version is `0.1.16-SNAPSHOT`.** All eight poms; the published set is unchanged.
+- **The version is `0.1.16`.** All eight poms finish at `0.1.16`; the published set is unchanged.
 
 **中文**
 
@@ -54,7 +54,7 @@ Each version is written in two blocks — English first, then Chinese — marked
   `customerId` 作为别名照样绑。**对 HTTP 调用方兼容，对 Java 调用方不是**：`ChatRequest.targetId()` 现在返回
   `String`，`SideEffect.getResultId()` 现在返回 `String`，而 `SideEffectService.record` 的各重载收 `String`
   结果 id。
-- **版本为 `0.1.16-SNAPSHOT`。** 八个 pom；发布集合不变。
+- **版本为 `0.1.16`。** 八个 pom 最终落到 `0.1.16`；发布集合不变。
 
 ## [0.1.15] - 2026-10-29
 
