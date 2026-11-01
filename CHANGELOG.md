@@ -10,7 +10,7 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
-## [Unreleased] - 0.1.16-SNAPSHOT
+## [0.1.16] - 2026-11-01
 
 **English**
 
@@ -1298,7 +1298,7 @@ application depends on.
   发布什么一直是由 **reactor** 决定的，0.1.2 的 `release.yml` 头注已按实况写明。原文保留在上。]**
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.15...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.16...HEAD
 [0.1.3]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.1
