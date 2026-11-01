@@ -6,6 +6,7 @@ import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
 import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.domain.FollowUp;
 import cn.com.keelbase.runtime.domain.FollowUpRepository;
+import cn.com.keelbase.runtime.effect.ResultIds;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.effect.SideEffectService;
@@ -217,7 +218,7 @@ public class EffectController {
             m.put("userId", e.getUserId());
         }
         m.put("resultType", e.getResultType());
-        m.put("resultId", e.getResultId());
+        m.put("resultId", ResultIds.wire(e.getResultId()));
         // The governed execution that wrote this row, and the key that pairs it with that execution's
         // audit row (contract v6, optional there). Read from the column, never derived from tool +
         // user + time. It is not caller linkage, so the read-only reader receives it too: a UUID
@@ -284,6 +285,7 @@ public class EffectController {
     }
 
     private Optional<FollowUp> target(SideEffect e) {
-        return FOLLOW_UP.equals(e.getResultType()) ? followUps.findById(e.getResultId()) : Optional.empty();
+        return FOLLOW_UP.equals(e.getResultType())
+                ? followUps.findById(ResultIds.asLong(e.getResultId())) : Optional.empty();
     }
 }

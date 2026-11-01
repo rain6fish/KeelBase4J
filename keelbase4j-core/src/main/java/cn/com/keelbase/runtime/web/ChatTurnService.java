@@ -100,7 +100,22 @@ public class ChatTurnService {
         this.engine = engine;
     }
 
+    /**
+     * The same, for a caller that holds the id as the number it used to be.
+     *
+     * <p>Kept because a host written against the {@code Long} slot exists, and the slot now carries
+     * text. It is the same turn with the number written out, not a second path.
+     *
+     * 同上，给手上那个 id 仍是它从前那个数字的调用方。
+     *
+     * <p>留着是因为确实有照 `Long` 槽位写的宿主，而槽位现在携带文本。它就是同一轮、把数字写出来，
+     * 不是第二条路。
+     */
     public Turn run(String message, Long targetId, String conversationId, Principal principal) {
+        return run(message, targetId == null ? null : targetId.toString(), conversationId, principal);
+    }
+
+    public Turn run(String message, String targetId, String conversationId, Principal principal) {
         String id = conversations.openFor(conversationId, principal);
         conversations.append(id, principal, ConversationMessage.USER, message);
 
@@ -111,7 +126,8 @@ public class ChatTurnService {
         //
         // 通用槽位优先；调用方什么都没点名时，改去问这条会话自己的记录。那个回落是**样例模块自己的**概念，而
         // 没有这种概念的路由看到的只是这个键不存在 —— 这正是这个槽位通用化的意义。
-        context.put("targetId", targetId != null ? targetId : mentionedCustomer(id));
+        context.put("targetId",
+                targetId == null || targetId.isBlank() ? mentionedCustomer(id) : slotValue(targetId));
 
         IntentPlan plan = planner.plan(message, context).orElse(null);
         ExecutionOutcome outcome = plan == null
@@ -145,6 +161,31 @@ public class ChatTurnService {
      * to a tool with nobody to act on. So the most recent mention wins, and the caller's explicit id (handled by
      * the caller of this method) beats everything.
      */
+    /**
+     * The slot's value in the shape routes have always received: a number when the caller's id is the
+     * canonical decimal form of one, the text otherwise.
+     *
+     * <p>This is not a guess about which object the id names. A caller that posted {@code 7} posted a
+     * number and is handed one back, exactly as before the slot carried text; a caller that posted a
+     * UUID is handed the UUID. Canonical form is the rule so that nothing is rewritten — an id with a
+     * leading zero is text, because turning it into {@code 123} would be this method inventing a value
+     * the caller did not send.
+     *
+     * 槽位的值，按路由一直收到的那个形状：调用方的 id 是某个数字的规范十进制写法时给数字，否则给文本。
+     *
+     * <p>这不是对「这个 id 指哪个对象」做猜测。发 `7` 的调用方发的是数字，拿回的也是数字 —— 与槽位携带文本
+     * 之前完全一样；发 UUID 的调用方拿到 UUID。**规范写法**是这里定的规则，为的是一处也不改写 —— 带前导零的
+     * id 是文本，因为把它变成 `123` 等于本方法**造了一个调用方没发过的值**。
+     */
+    private static Object slotValue(String targetId) {
+        try {
+            long number = Long.parseLong(targetId);
+            return Long.toString(number).equals(targetId) ? number : targetId;
+        } catch (NumberFormatException notANumber) {
+            return targetId;
+        }
+    }
+
     private Long mentionedCustomer(String conversationId) {
         List<ConversationMessage> history = conversations.history(conversationId);
         for (int i = history.size() - 1; i >= 0; i--) {

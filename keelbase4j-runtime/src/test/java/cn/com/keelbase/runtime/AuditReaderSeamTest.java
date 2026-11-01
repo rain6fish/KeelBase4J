@@ -174,9 +174,9 @@ class AuditReaderSeamTest {
         effectOwnerA = "effect-a-" + run;
         effectOwnerB = "effect-b-" + run;
         effectAId = sideEffects.record(new Principal(effectOwnerA, Principal.ROLE_USER), "create_followup",
-                "follow_up", 1L, "{\"run\":\"" + run + "-a\"}", "local_compensate").getId();
+                "follow_up", "1", "{\"run\":\"" + run + "-a\"}", "local_compensate").getId();
         effectBId = sideEffects.record(new Principal(effectOwnerB, Principal.ROLE_USER), "create_followup",
-                "follow_up", 2L, "{\"run\":\"" + run + "-b\"}", "local_compensate").getId();
+                "follow_up", "2", "{\"run\":\"" + run + "-b\"}", "local_compensate").getId();
 
         confirmOwnerA = "confirm-a-" + run;
         confirmOwnerB = "confirm-b-" + run;

@@ -98,6 +98,6 @@ class RevocationIsAuditedTest {
     /** An effect of this user's, with the row it points at — what a revoke needs to have something to do. */
     private SideEffect anEffectOf(Principal user) {
         Long target = followUps.save(new FollowUp(1L, "note for " + user.userId(), null, user.userId())).getId();
-        return sideEffects.record(user, "create_followup", "follow_up", target, "{}", "local_compensate");
+        return sideEffects.record(user, "create_followup", "follow_up", String.valueOf(target), "{}", "local_compensate");
     }
 }

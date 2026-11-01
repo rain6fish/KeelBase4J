@@ -5,6 +5,7 @@ import cn.com.keelbase.protocol.CanonicalJson;
 import cn.com.keelbase.protocol.ConfirmationLifecycle;
 import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.authz.RuleDeniedException;
+import cn.com.keelbase.runtime.effect.ResultIds;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectService;
 import cn.com.keelbase.runtime.effect.WriteClaimService;
@@ -623,7 +624,7 @@ public class GovernedExecutionEngine {
         }
         Long effectId = null;
         if (result.success() && tool.resultType() != null) {
-            Long resultId = resultId(result.data());
+            String resultId = resultId(result.data());
             if (resultId == null) {
                 // A write that does not say *what* it produced cannot be recorded: the contract's effect
                 // object requires a `resultId`, and the ledger's column will not take null. By the time
@@ -798,7 +799,8 @@ public class GovernedExecutionEngine {
                 tool.name() + " -> ok (effect " + existing.getId() + " reused: the same call)",
                 false, "executed", tool.name(), conversationId, authorization, executionId);
         return ExecutionOutcome.executed(
-                existing.getResultId() == null ? null : Map.of("id", existing.getResultId()),
+                existing.getResultId() == null
+                        ? null : Map.of("id", ResultIds.wire(existing.getResultId())),
                 existing.getId());
     }
 
@@ -832,9 +834,32 @@ public class GovernedExecutionEngine {
                 || refused instanceof AccessDeniedException;
     }
 
-    private static Long resultId(Object data) {
-        if (data instanceof Map<?, ?> m && m.get("id") instanceof Number n) {
-            return n.longValue();
+    /**
+     * The row a write produced, out of the tool's own result — a number or a text id, as text.
+     *
+     * <p>What a tool can name is what its own object's key is, and not every business object is
+     * numbered. A UUID is as good an answer as {@code 42} is; refusing it left a write that had
+     * already landed with nothing to point at, which is the one thing the ledger exists to prevent.
+     * The id travels as text, and the wire gives integer ids back as numbers (see
+     * {@code ResultIds#wire}), so no existing effect changes shape.
+     *
+     * 一次写**产出的那一行**，从工具自己的结果里取 —— 数字或文本 id，都以文本取。
+     *
+     * <p>工具能点名的就是它自己那个对象的键，而**不是每个业务对象都有编号**。UUID 与 {@code 42} 一样是
+     * 个好答案；拒掉它，会让一次**已经落地**的写没有任何东西可指 —— 而那正是账本存在的唯一理由。id 以文本
+     * 传递，而 wire 上数字 id 仍写成数字（见 `ResultIds#wire`），故没有一个既有 effect 改变形状。
+     */
+    private static String resultId(Object data) {
+        if (!(data instanceof Map<?, ?> m)) {
+            return null;
+        }
+        Object id = m.get("id");
+        if (id instanceof Number number) {
+            return number.toString();
+        }
+        if (id instanceof CharSequence text) {
+            String value = text.toString().trim();
+            return value.isEmpty() ? null : value;
         }
         return null;
     }

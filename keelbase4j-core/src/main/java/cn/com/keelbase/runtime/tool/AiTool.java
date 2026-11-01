@@ -54,7 +54,9 @@ public interface AiTool {
      * <p><b>Declaring one is a promise about the result.</b> A tool that names a result type has its
      * execution recorded in the effect ledger, and the ledger — and the frozen contract — require the
      * effect to say <em>which</em> row it produced. So {@code execute} has to return a result whose
-     * {@code id} is a number, which in practice means a {@code Map} carrying a numeric {@code id}. A
+     * {@code id} names that row — in practice a {@code Map} carrying an {@code id} that is a number or
+     * a string. A text id is not a lesser one: a Flowable process instance is a UUID, and the ledger
+     * records it as the text it is. A
      * tool that declares a result type and then returns something else has written whatever it wrote
      * and left the runtime unable to record it: the run ends as a recorded failure, the effect is
      * unrecorded, and the claim on that call stays taken until its lease runs out. That is the honest
@@ -73,7 +75,7 @@ public interface AiTool {
      * 本工具创建的业务结果类型（例如 {@code follow_up}）；读则返回 null。
      *
      * <p><b>声明一个，就是就「结果」许下一个承诺。</b>点名了结果类型的工具，其执行会记进副作用账本；而账本
-     * （以及冻结的契约）要求 effect 说清它**产出了哪一行**。故 {@code execute} 必须交回一个 `id` 为数字的结果，
+     * （以及冻结的契约）要求 effect 说清它**产出了哪一行**。故 {@code execute} 必须交回一个**用 `id` 点名那一行**的结果（数字或字符串；文本 id 不是次一等的 —— Flowable 流程实例是 UUID，账本按它本来的文本记下），
      * 实践中即一个带数字 `id` 的 `Map`。一个声明了结果类型、却交回别的东西的工具，**写了它写的东西，却让运行时
      * 记不下来**：这次运行以**记录式失败**收尾、effect 不落、而这次调用的领取一直占着直到租约跑完。那是诚实的结局
      * —— 写可能已落地 —— 但**点名一个结果 id** 才是让它根本不发生的办法，而那是**工具**的事、不是运行时的事：

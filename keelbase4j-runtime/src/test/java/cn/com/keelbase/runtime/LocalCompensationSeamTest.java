@@ -156,7 +156,7 @@ class LocalCompensationSeamTest {
      * effect —— 第二条撤的就是第一条那一行了。
      */
     private SideEffect anEffectOf(Principal user, String resultType) {
-        return sideEffects.record(user, "some_write_tool", resultType, 1L,
+        return sideEffects.record(user, "some_write_tool", resultType, "1",
                 "{\"resultType\":\"" + resultType + "\"}", "local_compensate");
     }
 }
