@@ -118,7 +118,7 @@ public class SideEffectService {
      * Records the effect, with what the tool produced left uncaptured.
      *
      * <p>Kept as the shorter call for a caller that has no result to hand over; the runtime's own path
-     * uses {@link #record(Principal, String, String, Long, String, String, String)} and passes one.
+     * uses {@link #record(Principal, String, String, String, String, String, String)} and passes one.
      *
      * 记下这次副作用，**不捕获**工具产出了什么。留给手上没有结果的调用方；运行时自己那条路走下面那个
      * 重载、并把结果交进来。
