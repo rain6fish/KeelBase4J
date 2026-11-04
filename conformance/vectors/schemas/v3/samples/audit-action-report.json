@@ -1,0 +1,61 @@
+{
+  "period": { "since": "2026-09-01T00:00:00.000Z", "to": "2026-09-11T09:30:00.000Z" },
+  "summary": { "executed": 40, "approved": 15, "rejected": 1, "blocked": 3, "refused": 7, "errors": 5, "effects": 15 },
+  "byAction": [
+    { "action": "chat", "count": 214 },
+    { "action": "tool_call", "count": 121 },
+    { "action": "tool_confirmation", "count": 43 }
+  ],
+  "byDay": [
+    { "date": "2026-09-11", "executed": 22, "approved": 9, "rejected": 0, "blocked": 1, "refused": 4, "errors": 2 }
+  ],
+  "hashChain": {
+    "valid": true,
+    "checked": 128,
+    "brokenIndex": null,
+    "tableRows": 131,
+    "tableIds": { "min": 90001, "max": 90311, "count": 131, "digest": "0f1e2d3c4b5a6978" },
+    "verifiedIds": { "min": 90001, "max": 90310, "count": 128, "digest": "9a8b7c6d5e4f3021" },
+    "unverifiedIds": {
+      "min": 90212,
+      "max": 90311,
+      "count": 3,
+      "digest": "4a56531d331e313a",
+      "ids": [90212, 90300, 90311],
+      "truncated": false
+    }
+  },
+  "unaccounted": {
+    "min": 90240,
+    "max": 90240,
+    "count": 1,
+    "digest": "59f4e0b2c1a7d386",
+    "ids": [90240],
+    "truncated": false,
+    "reasons": { "pending": 1 }
+  },
+  "samples": [
+    {
+      "id": 90211,
+      "action": "tool_call",
+      "toolName": "create_followup_task",
+      "isError": false,
+      "errorMessage": null,
+      "businessEvent": "FollowupTaskCreated",
+      "evidence": null,
+      "agentId": null,
+      "createdAt": "2026-09-11T09:12:55.000Z"
+    }
+  ],
+  "effectDiffs": [
+    {
+      "id": 9281,
+      "toolName": "create_followup_task",
+      "resultType": "crm_task",
+      "resultId": 42,
+      "createdAt": "2026-09-11T09:12:56.000Z",
+      "before": null,
+      "after": { "status": "open", "assignee": "alex" }
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v2/api-response.schema.json",
+  "title": "REST 成功信封 ApiResponse — v2",
+  "description": "Unified success envelope (ResponseInterceptor; @Raw() skips it). v2 adds an **optional** `ordering` block, emitted only on reads that return ordered rows: which field decided the order, who controls that field, what happens on ties, and whether the position is covered by the hash chain. It is absent elsewhere on purpose — a field that is always present stops being read. Additive: not in `required`, so a v1-shaped envelope stays valid. Source: src/common/interfaces/api-response.interface.ts + src/common/interceptors/response.interceptor.ts + governance-shared/services/ordering.ts. / 统一成功响应信封。v2 加一个**可选**的 `ordering` 块，只在会返回有序行的读上出现：哪个字段决定了顺序、谁控制该字段、并列时怎么办、位置是否被哈希链覆盖。其他场合故意不出现 —— 一个永远存在的字段，最后就没人读了。**加性**：不进 `required`，故 v1 形态的信封仍然合法。",
+  "type": "object",
+  "required": ["code", "message", "data", "timestamp"],
+  "additionalProperties": false,
+  "definitions": {
+    "ordering": {
+      "type": "object",
+      "required": ["field", "direction", "controlledBy", "tiebreak", "attested"],
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": "string", "description": "Primary sort field the query actually used. / 查询实际使用的首要排序字段。" },
+        "direction": { "enum": ["asc", "desc"] },
+        "controlledBy": {
+          "enum": ["receiver", "producer"],
+          "description": "Who supplies the value: the receiver (server-generated) or the producer (client-supplied). A producer-supplied field lets the producer choose a position. / 谁提供这个值：接收方（服务端生成）或产出方（客户端提供）。产出方提供的字段让产出方挑位置。"
+        },
+        "tiebreak": {
+          "description": "Secondary key when the primary ties; null means ties are unordered, so page membership is not deterministic. / 并列时的次序键；null 表示无序，页成员因此不确定。",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["field", "direction"],
+              "additionalProperties": false,
+              "properties": {
+                "field": { "type": "string" },
+                "direction": { "enum": ["asc", "desc"] }
+              }
+            }
+          ]
+        },
+        "attested": {
+          "enum": ["chain-order", "none"],
+          "description": "chain-order: the row's relative position is bound by the hash chain. none: the position is stored but not covered — changing it would not break the chain. / chain-order = 相对位置由哈希链绑定；none = 位置存着但未被覆盖，改了也不会断链。"
+        }
+      }
+    }
+  },
+  "properties": {
+    "code": { "type": "number" },
+    "message": { "type": "string" },
+    "data": {},
+    "timestamp": { "type": "string", "format": "date-time" },
+    "ordering": { "$ref": "#/definitions/ordering" }
+  }
+}

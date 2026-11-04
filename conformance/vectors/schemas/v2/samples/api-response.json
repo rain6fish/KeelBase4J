@@ -1,0 +1,16 @@
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": [
+    { "id": 90211, "action": "tool_call", "createdAt": "2026-09-11T09:12:55.000Z" },
+    { "id": 90210, "action": "chat", "createdAt": "2026-09-11T09:11:02.000Z" }
+  ],
+  "timestamp": "2026-09-11T09:30:00Z",
+  "ordering": {
+    "field": "createdAt",
+    "direction": "desc",
+    "controlledBy": "receiver",
+    "tiebreak": { "field": "id", "direction": "desc" },
+    "attested": "none"
+  }
+}

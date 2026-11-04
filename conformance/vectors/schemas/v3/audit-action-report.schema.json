@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v3/audit-action-report.schema.json",
+  "title": "AI Action Report (GET /audit/action-report data) — v3",
+  "description": "AI Action Report compliance data. v3 adds two memberships and one accounting: `hashChain.tableIds` / `verifiedIds` / `unverifiedIds` fingerprint which rows the verdict covered (counts alone cannot be audited by a third party), and `unaccounted` names the tool rows that were in scope and landed in no counter at all — the read-side analogue of a refusal that leaves no artifact. Digest formula: sha256(ids sorted ascending, joined by \",\"), first 16 hex. / AI Action Report 合规证据包 data。v3 加了两处成员性与一处记账：`hashChain.tableIds` / `verifiedIds` / `unverifiedIds` 给结论覆盖了哪些行取指纹（只有计数时第三方核不了），`unaccounted` 点名那些在范围里、却一桶都不进的工具行 —— 读侧「拒绝不留痕迹」的对偶。摘要算法：sha256(升序 id 以 \",\" 连接) 取前 16 位十六进制。",
+  "type": "object",
+  "required": ["period", "summary", "byAction", "byDay", "hashChain", "unaccounted", "samples", "effectDiffs"],
+  "additionalProperties": false,
+  "definitions": {
+    "idSet": {
+      "type": "object",
+      "required": ["min", "max", "count", "digest"],
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": ["number", "null"] },
+        "max": { "type": ["number", "null"] },
+        "count": { "type": "number" },
+        "digest": { "type": "string" }
+      }
+    },
+    "idListing": {
+      "type": "object",
+      "required": ["min", "max", "count", "digest", "ids", "truncated"],
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": ["number", "null"] },
+        "max": { "type": ["number", "null"] },
+        "count": { "type": "number" },
+        "digest": { "type": "string" },
+        "ids": { "type": "array", "items": { "type": "number" } },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "unaccounted": {
+      "type": "object",
+      "required": ["min", "max", "count", "digest", "ids", "truncated", "reasons"],
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": ["number", "null"] },
+        "max": { "type": ["number", "null"] },
+        "count": { "type": "number" },
+        "digest": { "type": "string" },
+        "ids": { "type": "array", "items": { "type": "number" } },
+        "truncated": { "type": "boolean" },
+        "reasons": { "type": "object", "additionalProperties": { "type": "number" } }
+      }
+    }
+  },
+  "properties": {
+    "period": {
+      "type": "object",
+      "required": ["since", "to"],
+      "additionalProperties": false,
+      "properties": { "since": { "type": ["string", "null"] }, "to": { "type": "string" } }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["executed", "approved", "rejected", "blocked", "refused", "errors", "effects"],
+      "additionalProperties": false,
+      "properties": {
+        "executed": { "type": "number" },
+        "approved": { "type": "number" },
+        "rejected": { "type": "number" },
+        "blocked": { "type": "number" },
+        "refused": { "type": "number" },
+        "errors": { "type": "number" },
+        "effects": { "type": "number" }
+      }
+    },
+    "byAction": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action", "count"],
+        "additionalProperties": false,
+        "properties": { "action": { "type": "string" }, "count": { "type": "number" } }
+      }
+    },
+    "byDay": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["date", "executed", "approved", "rejected", "blocked", "refused", "errors"],
+        "additionalProperties": false,
+        "properties": {
+          "date": { "type": "string" },
+          "executed": { "type": "number" },
+          "approved": { "type": "number" },
+          "rejected": { "type": "number" },
+          "blocked": { "type": "number" },
+          "refused": { "type": "number" },
+          "errors": { "type": "number" }
+        }
+      }
+    },
+    "hashChain": {
+      "type": "object",
+      "required": ["valid", "checked", "brokenIndex", "tableRows", "tableIds", "verifiedIds", "unverifiedIds"],
+      "additionalProperties": false,
+      "properties": {
+        "valid": { "type": "boolean" },
+        "checked": { "type": "number" },
+        "brokenIndex": { "type": ["number", "null"] },
+        "tableRows": { "type": "number" },
+        "tableIds": { "$ref": "#/definitions/idSet" },
+        "verifiedIds": { "$ref": "#/definitions/idSet" },
+        "unverifiedIds": { "$ref": "#/definitions/idListing" }
+      }
+    },
+    "unaccounted": { "$ref": "#/definitions/unaccounted" },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "action", "isError", "createdAt"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "number" },
+          "action": { "type": "string" },
+          "toolName": { "type": ["string", "null"] },
+          "isError": { "type": "boolean" },
+          "errorMessage": { "type": ["string", "null"] },
+          "businessEvent": { "type": ["string", "null"] },
+          "evidence": { "type": ["string", "null"] },
+          "agentId": { "type": ["string", "null"] },
+          "createdAt": { "type": "string" }
+        }
+      }
+    },
+    "effectDiffs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "toolName", "resultType", "resultId", "createdAt"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "number" },
+          "toolName": { "type": "string" },
+          "resultType": { "type": "string" },
+          "resultId": { "type": ["number", "string"] },
+          "createdAt": { "type": "string" },
+          "before": { "description": "parseSnapshot(beforeSnapshot)——对象/标量/null 皆可" },
+          "after": { "description": "parseSnapshot(afterSnapshot)——对象/标量/null 皆可" }
+        }
+      }
+    }
+  }
+}
