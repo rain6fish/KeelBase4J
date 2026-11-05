@@ -12,6 +12,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -57,6 +59,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class SideEffectService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(SideEffectService.class);
+
     private final SideEffectRepository repository;
     private final FollowUpRepository followUps;
     private final AuditService audit;
@@ -69,6 +73,16 @@ public class SideEffectService {
      * 的类型」—— 正是这条缝出现之前这个类的行为。
      */
     private final Map<String, SideEffectCompensator> compensators;
+
+    /**
+     * Records a failed attempt after the failed transaction has rolled back. Optional for the same
+     * reason the short constructors are kept: this class lives in a published artifact and a caller
+     * that builds it by hand has nothing to inject.
+     *
+     * 在失败的事务回滚之后记下这次尝试。做成可选，理由与保留短构造器相同：这个类住在一个**已发布**的
+     * artifact 里，而手工构造它的调用方没有东西可注入。
+     */
+    private RevocationTransactions transactions;
 
     /**
      * The pre-seam shape, kept because a published artifact carries it: no compensators, so only the
@@ -225,8 +239,28 @@ public class SideEffectService {
         }
     }
 
+    /**
+     * The seam Spring uses to record a failed attempt outside this method's transaction. Package
+     * visible and optional: a hand-built instance keeps the published constructors' behaviour.
+     *
+     * Spring 记录失败尝试的那条缝，独立于本方法的事务。包内可见且可选：手工构造的实例保持已发布构造器的行为。
+     */
+    @Autowired(required = false)
+    void setRevocationTransactions(RevocationTransactions transactions) {
+        this.transactions = transactions;
+    }
+
     @Transactional
     public SideEffect revoke(Long effectId, Principal principal) {
+        try {
+            return revokeInTransaction(effectId, principal);
+        } catch (RevokeAttemptFailed failed) {
+            recordFailedAttempt(failed.effectId);
+            throw failed.compensationFailure;
+        }
+    }
+
+    private SideEffect revokeInTransaction(Long effectId, Principal principal) {
         SideEffect effect = repository.findById(effectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown side effect"));
         if (!principal.isManager() && !principal.userId().equals(effect.getUserId())) {
@@ -239,7 +273,17 @@ public class SideEffectService {
             return effect; // idempotent revoke
         }
         if ("local_compensate".equals(effect.getRevokeClass())) {
-            compensateLocally(effect);
+            try {
+                compensateLocally(effect);
+            } catch (RuntimeException compensationFailure) {
+                // Wrapped so the outer catch knows this is a failed attempt, not a refusal before the
+                // attempt (an unknown effect, somebody else's, or a non-revocable one). Those stay
+                // unmarked: a stranger must not be able to write a failure onto another caller's row.
+                //
+                // 包起来，好让外层知道这是**尝试之后**的失败，而不是尝试之前的拒绝（effect 不存在、不是你的、
+                // 不可撤销）。那些不标记：陌生人不该能往别人的行上写一笔失败。
+                throw new RevokeAttemptFailed(effectId, compensationFailure);
+            }
             effect.setRevokeStatus("revoked");
         } else {
             // governed_external etc. are out of scope for G1 — honest "compensating", never "revoked".
@@ -248,7 +292,10 @@ public class SideEffectService {
         SideEffect saved = repository.save(effect);
         // The actor, not the effect's owner: an operator revoking somebody else's effect is exactly
         // the case the trace has to be able to name. Written after the row moves, so a revoke that
-        // throws on the way (an unreachable target, say) leaves no line claiming it happened.
+        // throws on the way (an unreachable target, say) leaves no line claiming it happened. Such an
+        // attempt is not silent either: RevocationTransactions marks the effect `revoke_failed` in its
+        // own transaction once this one has rolled back. What stays absent is the success-shaped line,
+        // not the fact that somebody tried.
         //
         // The action is the contract's own `effect_revoke`, not `tool_call`: v2 added that value to
         // the frozen vocabulary for this exact act — a revocation of a real AI side effect leaves a
@@ -261,11 +308,58 @@ public class SideEffectService {
         // ——对**真实** AI 副作用的撤销要留一行，而在此之前状态变了却没有 AI 审计留痕（正是它堵上的那个
         // 逃逸口）。写成 `tool_call` 虽然仍在词表内，却把一次撤销抹平成了普通调用——读审计的人、以及从审计
         // 里算出来的率，从此分不出这一行是什么。
+        //
+        // 失败的尝试也不是无声的：`RevocationTransactions` 在本事务回滚之后用独立事务把 effect 标成
+        // `revoke_failed`。缺席的是**成功形状**的那一行，不是「有人试过」这个事实。
         audit.append("effect_revoke", principal.userId(),
                 saved.getToolName() + " revoked (effect " + saved.getId() + ", "
                         + saved.getRevokeClass() + " -> " + saved.getRevokeStatus() + ")",
                 false, "revoked", saved.getToolName());
         return saved;
+    }
+
+    /**
+     * Mark the effect as the one a failed attempt was made on — in its own transaction, because the
+     * attempt's transaction is about to roll back. The attempt stays distinguishable from "never
+     * tried" without writing a success-shaped audit row: the chain still gets nothing, and the effect
+     * itself carries {@code revoke_failed}. A retry is allowed — {@link #revoke} only short-circuits
+     * on {@code revoked}.
+     *
+     * 把这个 effect 标成**失败尝试**的对象 —— 用独立事务，因为那次尝试的事务即将回滚。于是「试过但失败」
+     * 与「从未尝试」仍可区分，且**不写成功形状的审计行**：链上仍然什么也不多，而 effect 自己带着
+     * {@code revoke_failed}。重试是允许的 —— {@link #revoke} 只在 {@code revoked} 上短路。
+     */
+    private void recordFailedAttempt(Long effectId) {
+        if (transactions == null) {
+            LOG.warn("a failed revocation of effect {} was not recorded: no transaction helper", effectId);
+            return;
+        }
+        try {
+            transactions.markFailed(effectId);
+        } catch (RuntimeException notRecorded) {
+            // The original failure is what the caller must see; a failed record is reported and lost.
+            // 调用方必须看到的是原失败；记录失败只报告、不掩盖。
+            LOG.warn("a failed revocation of effect {} was not recorded: {}", effectId,
+                    notRecorded.toString());
+        }
+    }
+
+    /**
+     * The compensation threw after the checks passed. It carries the original exception so the web
+     * layer still answers with the status the compensator chose (404, 409, ...).
+     *
+     * 检查通过之后补偿抛了异常。它带着原异常，好让 web 层仍按补偿器选的状态作答（404、409……）。
+     */
+    private static final class RevokeAttemptFailed extends RuntimeException {
+
+        private final Long effectId;
+        private final RuntimeException compensationFailure;
+
+        private RevokeAttemptFailed(Long effectId, RuntimeException compensationFailure) {
+            super(compensationFailure.getMessage(), null, false, false);
+            this.effectId = effectId;
+            this.compensationFailure = compensationFailure;
+        }
     }
 
     /**

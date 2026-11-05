@@ -30,16 +30,19 @@ import org.springframework.web.server.ResponseStatusException;
  *
  * <p>Before the seam, that path named one entity, so every other type ended in a conflict — and
  * because the conflict is thrown before the audit line, it left no trace at all. The unregistered
- * case here is what keeps the registered one honest: if an unregistered type quietly produced a row,
- * "there is a path" and "there is not" would read the same from outside, which is exactly the
- * difference between PASS and SKIP on the rate that counts revocations.
+ * case here is what keeps the registered one honest: if an unregistered type quietly produced a
+ * success-shaped row, "there is a path" and "there is not" would read the same from outside, which
+ * is exactly the difference between PASS and SKIP on the rate that counts revocations. A conflict
+ * still leaves no success row; the effect itself now says {@code revoke_failed}, which is the fact
+ * the old shape could not carry.
  *
  * 本地补偿这条缝：部署自己的 {@code resultType} 变得可撤销，而什么都没注册的类型，以一句**点名该注册什么**的话
  * 被拒。
  *
  * <p>这条缝之前，那条路只点名一个实体，别的类型一律以冲突收场 —— 而那个冲突抛在审计行**之前**，什么都不留。
- * 本类里「没注册」那个用例正是让「已注册」那个**站得住**的东西：若一个没注册的类型悄悄产出一行，那么「有路」
- * 与「没路」从外面读起来就一样了 —— 而那正是「按撤销数算的那个率」上 `PASS` 与 `SKIP` 的差别。
+ * 本类里「没注册」那个用例正是让「已注册」那个**站得住**的东西：若一个没注册的类型悄悄产出一条**成功形状**的行，
+ * 那么「有路」与「没路」从外面读起来就一样了 —— 而那正是「按撤销数算的那个率」上 `PASS` 与 `SKIP` 的差别。
+ * 冲突仍然不留下成功行；effect 自己现在说 {@code revoke_failed}，那是旧形状装不下的那个事实。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -107,7 +110,7 @@ class LocalCompensationSeamTest {
     }
 
     @Test
-    void anUnregisteredTypeIsRefusedAndLeavesNoTraceOfTheAttempt() {
+    void anUnregisteredTypeIsRefusedAndTheAttemptIsMarkedFailed() {
         Principal alice = new Principal("alice", "user");
         SideEffect effect = anEffectOf(alice, UNREGISTERED_TYPE);
         long before = audit.count();
@@ -123,9 +126,9 @@ class LocalCompensationSeamTest {
         assertTrue(refused.getReason().contains(UNREGISTERED_TYPE),
                 "and which type it is missing for: " + refused.getReason());
         assertEquals(before, audit.count(),
-                "and nothing was written — an attempt that leaves a line would read as a path that exists");
-        assertEquals("executed", effects.findById(effect.getId()).orElseThrow().getRevokeStatus(),
-                "the effect is untouched: neither revoked nor left half-compensated");
+                "no success-shaped line is written — the chain must not read this as a path that worked");
+        assertEquals("revoke_failed", effects.findById(effect.getId()).orElseThrow().getRevokeStatus(),
+                "the effect says the attempt failed, so 'tried and failed' differs from 'never tried'");
     }
 
     @Test
