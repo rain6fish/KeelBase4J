@@ -1540,6 +1540,19 @@ public class JavaGenerator {
                         }
                     }
 
+                    /** A revoke was attempted and the compensation threw: the row says so, and stays retryable. */
+                    /** 撤销试过、补偿抛了：这一行把它说出来，并保持可重试。 */
+                    public synchronized void setRevokeFailed(Long id) {
+                        for (int i = 0; i < effects.size(); i++) {
+                            Effect e = effects.get(i);
+                            if (e.id().equals(id)) {
+                                effects.set(i, new Effect(e.id(), e.userId(), e.toolName(), e.resultType(),
+                                        e.resultId(), e.revokeClass(), "revoke_failed", e.argsHash(),
+                                        e.afterSnapshot(), e.createdAt(), e.conversationId()));
+                            }
+                        }
+                    }
+
                     /** Every effect, oldest first. Narrowing and paging it is the caller's business. */
                     public synchronized List<Effect> all() {
                         return List.copyOf(effects);
@@ -4299,21 +4312,43 @@ public class JavaGenerator {
                         // created is soft-deleted. That is what makes `local_compensate` an honest class
                         // for it — an effect labelled compensable that compensates nothing would offer the
                         // console a button that only flips a flag.
-                        target(effect).ifPresent(row -> {
-                            row.setDeletedAt(Instant.now());
-                            %sRepository.save(row);
-                        });
+                        //
+                        // 本地补偿是**做出来**的、不是宣布出来的：这个 effect 建的那一行被软删。那才让
+                        // `local_compensate` 对它是个诚实的分类 —— 一个贴着可补偿标签、却什么也没补偿的
+                        // effect，只会给控制台一个**只翻标志位**的按钮。
+                        try {
+                            target(effect).ifPresent(row -> {
+                                row.setDeletedAt(Instant.now());
+                                %sRepository.save(row);
+                            });
+                        } catch (RuntimeException compensationFailure) {
+                            // The attempt failed after the checks passed: the effect says `revoke_failed`
+                            // and the chain gets an `effect_revoke + failed` row. The success row is not
+                            // written — what the reader must not see is a success that did not happen.
+                            //
+                            // 检查通过之后的尝试失败了：effect 说 `revoke_failed`，链上得到
+                            // `effect_revoke + failed`。成功行不写 —— 读的人不该看到的是一次**并未发生**
+                            // 的成功。
+                            sideEffects.setRevokeFailed(id);
+                            audit.append("effect_revoke", principal.userId(),
+                                    effect.toolName() + " revoke failed (effect " + id + "): "
+                                            + compensationFailure.getMessage(),
+                                    true, "failed", effect.toolName(), effect.conversationId());
+                            throw compensationFailure;
+                        }
                         sideEffects.setRevoked(id);
                         // A revocation leaves a line of its own, as every other governance transition in
                         // this application does: the contract froze `effect_revoke` for exactly this act,
                         // and the note that added it says what it closed — a status that moved with no AI
                         // audit line at all. Written after the row moves, so a revoke that throws on the
-                        // way (an unwritable target, say) leaves no line claiming it happened.
+                        // way (an unwritable target, say) leaves no line claiming it happened — the catch
+                        // above leaves a `failed` row instead, which is the honest record of the attempt.
                         //
                         // 撤销在链上留一行自己的记录，与这个应用里其它每一次治理迁移一样：契约**为这一
                         // 动作**冻结了 `effect_revoke`，而加上它的那句说明写明了它堵的是什么——状态动了、
                         // 却一条 AI 审计行都没有。这一行写在行移动**之后**，故中途抛异常（比如目标写不
-                        // 进去）不会留下「声称撤了」的行。
+                        // 进去）不会留下「声称撤了」的行 —— 上面的 catch 会留下一行 `failed`，那才是这次
+                        // 尝试的诚实记录。
                         audit.append("effect_revoke", principal.userId(),
                                 effect.toolName() + " revoked (effect " + id + ")",
                                 false, "revoked", effect.toolName(), effect.conversationId());
@@ -4355,13 +4390,16 @@ public class JavaGenerator {
                         // different vocabularies — `status` says what happened to the effect, `revokeStatus`
                         // says where the revoke is (null while none was ever attempted). The stored values
                         // map onto them without a guess: `executed` means no revoke has been tried, so the
-                        // revoke field is null; `revoked` means both.
+                        // revoke field is null; `revoked` means both; `revoke_failed` means an attempt was
+                        // made and did not land, which the status field says outright.
                         //
                         // 一条存储字段喂着契约的**两个**字段，而两者词表不同 —— `status` 说 effect 怎么了，
                         // `revokeStatus` 说撤销走到哪（**从未撤销过则为 null**）。存进来的取值不需要猜就能对上：
-                        // `executed` ＝ 还没试过撤销 ⇒ 撤销字段为 null；`revoked` ＝ 两者都是。
+                        // `executed` ＝ 还没试过撤销 ⇒ 撤销字段为 null；`revoked` ＝ 两者都是；
+                        // `revoke_failed` ＝ 试过、没落地，由 status 字段直接说出来。
                         String stored = effect.revokeStatus();
-                        view.put("status", "revoked".equals(stored) ? "revoked" : "executed");
+                        view.put("status", "revoked".equals(stored) ? "revoked"
+                                : "revoke_failed".equals(stored) ? "revoke_failed" : "executed");
                         view.put("revokeStatus", "executed".equals(stored) ? null : stored);
 
                         // The frozen `traceItem`'s remaining three, answered with what this application has:
@@ -4383,9 +4421,15 @@ public class JavaGenerator {
                         view.put("parentEffectId", null);
 
                         // What the console renders the revoke button on, decided here rather than
-                        // re-derived there — the rule the runtime applies too.
+                        // re-derived there — the rule the runtime applies too. A failed attempt stays
+                        // retryable: the row is still there and nothing was compensated.
+                        //
+                        // 控制台按什么渲染撤销按钮，在这里定、不在那边重推 —— 与运行时同一条。失败的尝试
+                        // 仍可重试：行还在、什么也没补偿。
                         view.put("revocable",
-                                !"none".equals(effect.revokeClass()) && "executed".equals(effect.revokeStatus()));
+                                !"none".equals(effect.revokeClass())
+                                        && ("executed".equals(effect.revokeStatus())
+                                            || "revoke_failed".equals(effect.revokeStatus())));
                         return view;
                     }
 

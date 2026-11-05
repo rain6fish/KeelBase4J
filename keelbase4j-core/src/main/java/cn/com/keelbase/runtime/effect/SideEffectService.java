@@ -255,7 +255,7 @@ public class SideEffectService {
         try {
             return revokeInTransaction(effectId, principal);
         } catch (RevokeAttemptFailed failed) {
-            recordFailedAttempt(failed.effectId);
+            recordFailedAttempt(failed.effectId, principal.userId(), failed.compensationFailure);
             throw failed.compensationFailure;
         }
     }
@@ -293,9 +293,10 @@ public class SideEffectService {
         // The actor, not the effect's owner: an operator revoking somebody else's effect is exactly
         // the case the trace has to be able to name. Written after the row moves, so a revoke that
         // throws on the way (an unreachable target, say) leaves no line claiming it happened. Such an
-        // attempt is not silent either: RevocationTransactions marks the effect `revoke_failed` in its
-        // own transaction once this one has rolled back. What stays absent is the success-shaped line,
-        // not the fact that somebody tried.
+        // attempt is not silent either: once this transaction rolls back, RevocationTransactions marks
+        // the effect `revoke_failed` and appends an `effect_revoke + failed` row on the chain, each in
+        // a transaction of its own. What stays absent is the success-shaped line, not the fact that
+        // somebody tried.
         //
         // The action is the contract's own `effect_revoke`, not `tool_call`: v2 added that value to
         // the frozen vocabulary for this exact act — a revocation of a real AI side effect leaves a
@@ -309,8 +310,9 @@ public class SideEffectService {
         // 逃逸口）。写成 `tool_call` 虽然仍在词表内，却把一次撤销抹平成了普通调用——读审计的人、以及从审计
         // 里算出来的率，从此分不出这一行是什么。
         //
-        // 失败的尝试也不是无声的：`RevocationTransactions` 在本事务回滚之后用独立事务把 effect 标成
-        // `revoke_failed`。缺席的是**成功形状**的那一行，不是「有人试过」这个事实。
+        // 失败的尝试也不是无声的：本事务回滚之后，`RevocationTransactions` 用各自独立的事务把 effect 标成
+        // `revoke_failed`、并在链上追加一行 `effect_revoke + failed`。缺席的是**成功形状**的那一行，不是
+        // 「有人试过」这个事实。
         audit.append("effect_revoke", principal.userId(),
                 saved.getToolName() + " revoked (effect " + saved.getId() + ", "
                         + saved.getRevokeClass() + " -> " + saved.getRevokeStatus() + ")",
@@ -319,17 +321,19 @@ public class SideEffectService {
     }
 
     /**
-     * Mark the effect as the one a failed attempt was made on — in its own transaction, because the
-     * attempt's transaction is about to roll back. The attempt stays distinguishable from "never
-     * tried" without writing a success-shaped audit row: the chain still gets nothing, and the effect
-     * itself carries {@code revoke_failed}. A retry is allowed — {@link #revoke} only short-circuits
-     * on {@code revoked}.
+     * Leave the failed attempt where a reader can find it: on the effect row
+     * ({@code revoke_status = revoke_failed}) and on the audit chain
+     * ({@code effect_revoke + failed}). Both are written in transactions of their own, because the
+     * attempt's transaction is about to roll back. They are separate writes so one failing cannot
+     * cost the other; the original compensation failure is what the caller must see either way. A
+     * retry is allowed — {@link #revoke} only short-circuits on {@code revoked}.
      *
-     * 把这个 effect 标成**失败尝试**的对象 —— 用独立事务，因为那次尝试的事务即将回滚。于是「试过但失败」
-     * 与「从未尝试」仍可区分，且**不写成功形状的审计行**：链上仍然什么也不多，而 effect 自己带着
-     * {@code revoke_failed}。重试是允许的 —— {@link #revoke} 只在 {@code revoked} 上短路。
+     * 把这次失败尝试留在读的人找得到的地方：effect 行上（{@code revoke_status = revoke_failed}）与审计链上
+     * （{@code effect_revoke + failed}）。两者都用**各自的事务**写，因为那次尝试的事务即将回滚。分开写是为了
+     * 一个失败不让另一个也丢；无论哪种情况，调用方必须看到的是原来的补偿失败。重试是允许的 ——
+     * {@link #revoke} 只在 {@code revoked} 上短路。
      */
-    private void recordFailedAttempt(Long effectId) {
+    private void recordFailedAttempt(Long effectId, String actor, RuntimeException compensationFailure) {
         if (transactions == null) {
             LOG.warn("a failed revocation of effect {} was not recorded: no transaction helper", effectId);
             return;
@@ -339,7 +343,13 @@ public class SideEffectService {
         } catch (RuntimeException notRecorded) {
             // The original failure is what the caller must see; a failed record is reported and lost.
             // 调用方必须看到的是原失败；记录失败只报告、不掩盖。
-            LOG.warn("a failed revocation of effect {} was not recorded: {}", effectId,
+            LOG.warn("a failed revocation of effect {} was not marked: {}", effectId,
+                    notRecorded.toString());
+        }
+        try {
+            transactions.appendFailed(effectId, actor, compensationFailure.getMessage());
+        } catch (RuntimeException notRecorded) {
+            LOG.warn("a failed revocation of effect {} was not put on the chain: {}", effectId,
                     notRecorded.toString());
         }
     }
