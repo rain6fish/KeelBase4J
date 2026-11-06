@@ -57,7 +57,8 @@ public class CoverageGaps {
             "packageHasEffectWithoutSnapshot",
             "packageHasOpenDispute",
             "packageHasStalledRevoke",
-            "packageHasChatRow");
+            "packageHasChatRow",
+            "externalWriteTargetWithoutStatusQuery");
 
     private static final Comparator<CoverageGap> DISPLAY_ORDER =
             Comparator.comparingInt(CoverageGap::severityRank).thenComparing(CoverageGap::id);

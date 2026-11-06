@@ -111,6 +111,8 @@ public class CoverageService {
         facts.put("sharedCacheAcrossDeployments", properties.isSharedCacheAcrossDeployments());
         facts.put("nonDiscreteActionSurfacesExposed",
                 properties.isNonDiscreteActionSurfacesExposed());
+        facts.put("externalWriteTargetWithoutStatusQuery",
+                properties.isExternalWriteTargetWithoutStatusQuery());
         facts.put("packageHasExternalAnchor", false);
         facts.put("packageHasEffectWithoutSnapshot", withoutSnapshot > 0);
         facts.put("packageHasOpenDispute", false);

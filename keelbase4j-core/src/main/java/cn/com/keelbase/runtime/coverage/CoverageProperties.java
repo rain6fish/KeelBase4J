@@ -39,6 +39,16 @@ public class CoverageProperties {
     /** One cache serves more than one deployment. / 一个缓存服务于不止一个部署。 */
     private boolean sharedCacheAcrossDeployments;
 
+    /**
+     * An external write target offers no read-only status query, so a timed-out write cannot be
+     * resolved after the fact. This is the deployment's fact, not one the runtime can read from its
+     * own tables; the default is false — the runtime does not claim the gap for a target it cannot see.
+     *
+     * 外部写目标不提供只读状态查询，故超时的写无法事后对账。这是**部署方**的事实，不是运行时能从自己的表里
+     * 读出来的；默认 false —— 运行时不为一个自己看不见的目标认领这条缺口。
+     */
+    private boolean externalWriteTargetWithoutStatusQuery;
+
     public String getHost() {
         return host;
     }
@@ -77,5 +87,13 @@ public class CoverageProperties {
 
     public void setSharedCacheAcrossDeployments(boolean sharedCacheAcrossDeployments) {
         this.sharedCacheAcrossDeployments = sharedCacheAcrossDeployments;
+    }
+
+    public boolean isExternalWriteTargetWithoutStatusQuery() {
+        return externalWriteTargetWithoutStatusQuery;
+    }
+
+    public void setExternalWriteTargetWithoutStatusQuery(boolean externalWriteTargetWithoutStatusQuery) {
+        this.externalWriteTargetWithoutStatusQuery = externalWriteTargetWithoutStatusQuery;
     }
 }
