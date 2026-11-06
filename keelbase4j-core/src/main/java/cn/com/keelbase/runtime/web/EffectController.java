@@ -253,7 +253,14 @@ public class EffectController {
         // 对上：`executed` ＝ 还没试过撤销 ⇒ 撤销字段为 null；`revoked` ＝ 两者都是；而 `compensating`
         // 是**撤销**的状态，所以 effect 自己的 status 在补偿结束前**仍是 `executed`**。
         String stored = e.getRevokeStatus();
-        m.put("status", "revoked".equals(stored) ? "revoked" : "executed");
+        // `revoke_failed` is the third reading the frozen enum already declares: a revocation was
+        // attempted and did not land. Mapping it to `executed` (the old two-way branch) would erase
+        // exactly the distinction this ledger exists to carry.
+        //
+        // `revoke_failed` 是冻结枚举早已声明的第三种读数：撤销**试过**、没成。把它映成 `executed`
+        // （旧的二选一）会抹掉这本账正存在的那个区分。
+        m.put("status", "revoked".equals(stored) ? "revoked"
+                : "revoke_failed".equals(stored) ? "revoke_failed" : "executed");
         m.put("revokeStatus", "executed".equals(stored) ? null : stored);
 
         // The frozen `traceItem`'s remaining three, answered with what this runtime has:
@@ -279,8 +286,14 @@ public class EffectController {
         m.put("parentEffectId", null);
 
         // What the console renders the revoke button on, decided here rather than re-derived there.
+        // A failed attempt is retryable: the effect is still there and nothing was compensated, so
+        // hiding the button would strand exactly the row an operator needs to act on.
+        //
+        // 失败过的尝试仍可重试：effect 还在、什么也没补偿；把按钮藏起来，正好把运维需要处置的那一行晾在原地。
         m.put("revocable",
-                !"none".equals(e.getRevokeClass()) && "executed".equals(e.getRevokeStatus()));
+                !"none".equals(e.getRevokeClass())
+                        && ("executed".equals(e.getRevokeStatus())
+                            || "revoke_failed".equals(e.getRevokeStatus())));
         return m;
     }
 

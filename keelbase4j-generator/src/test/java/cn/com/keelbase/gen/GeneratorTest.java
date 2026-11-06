@@ -280,16 +280,24 @@ class GeneratorTest {
                     "a console row requires '" + field + "'");
         }
         // The contract gives `status` and `revokeStatus` different vocabularies, so one stored field
-        // cannot be written into both — the row would claim a revoke that was never attempted.
+        // cannot be written into both — the row would claim a revoke that was never attempted. A
+        // failed attempt is the third reading: `revoke_failed` reaches both fields without pretending
+        // the revoke happened.
         //
         // 契约给 `status` 与 `revokeStatus` 的是**两套词表**，所以一条存储字段不能同时写进两者 ——
-        // 那样这一行会声称一次**从未试过**的撤销。
+        // 那样这一行会声称一次**从未试过**的撤销。失败的尝试是**第三种**读数：`revoke_failed` 进两个
+        // 字段，同时不假装撤销发生过。
         assertTrue(governance.contains(
-                        "view.put(\"status\", \"revoked\".equals(stored) ? \"revoked\" : \"executed\")"),
+                        "\"revoke_failed\".equals(stored) ? \"revoke_failed\" : \"executed\""),
                 "the effect's own status is derived rather than the revoke's word copied");
         assertTrue(governance.contains(
                         "view.put(\"revokeStatus\", \"executed\".equals(stored) ? null : stored)"),
                 "and the revoke field is null while no revoke was ever attempted");
+        assertTrue(governance.contains("\"revoke_failed\".equals(effect.revokeStatus())"),
+                "a failed attempt stays retryable, not stranded behind a hidden button");
+        assertTrue(Files.readString(out.resolve("src/main/java/com/example/crm/ai/SideEffectStore.java"))
+                        .contains("public synchronized void setRevokeFailed(Long id)"),
+                "the store carries the failed state the console reads");
         // `afterSnapshot` is only honest if it is captured where the result still is what the decision
         // produced, and only carries a value if the store keeps it.
         //
@@ -321,6 +329,10 @@ class GeneratorTest {
         // 的状态变化。
         assertTrue(governance.contains("audit.append(\"effect_revoke\", principal.userId(),"),
                 "a revocation is audited, under the contract's own value for it");
+        assertTrue(governance.contains("sideEffects.setRevokeFailed(id)"),
+                "a compensation that throws marks the effect `revoke_failed`");
+        assertTrue(governance.contains("true, \"failed\", effect.toolName()"),
+                "and the chain gets a failed row, not a success-shaped one");
         // The attempt is written before the tool runs, so "who tried" does not depend on the result
         // line — the same row the runtime writes (D36 ②). Ordering is the assertion: a fix that wrote
         // both after the fact would satisfy a presence check and give nothing.

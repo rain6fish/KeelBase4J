@@ -75,6 +75,14 @@ class RevocationIsAuditedTest {
         // 词表为**这一动作**在 v2 里给出的取值——不是 `tool_call`：后者虽仍在词表内，却把一次撤销抹平成
         // 普通调用，读的人（以及从这些行算出来的率）从此分不出两者。
         assertEquals("effect_revoke", line.getAction(), "the frozen vocabulary's own value for a revocation");
+        // The success row and a failed attempt share the action and differ in the outcome: `revoked`
+        // here, `failed` there. A reader must be able to tell the two endings apart without parsing
+        // the detail text.
+        //
+        // 成功行与失败尝试共用 action、在 outcome 上分开：这里是 `revoked`，那里是 `failed`。读的人
+        // 不解析 detail 文本也分得清两种结局。
+        assertEquals("revoked", line.getOutcome(),
+                "a successful revoke says revoked; an attempted-but-failed one says failed");
         assertTrue(line.getDetail().contains("revoked"),
                 "and says what happened: " + line.getDetail());
     }
