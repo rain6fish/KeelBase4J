@@ -14,6 +14,20 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 **English**
 
+### Fixed
+
+- **A revocation that fails is recorded, on the effect and on the chain.** `SideEffectService.revoke`
+  wrote its audit line only after the compensation succeeded, so a compensator that threw rolled the
+  whole transaction back and the attempt vanished: the effect stayed `executed`, the chain gained
+  nothing, and "tried and failed" read exactly like "never tried". A failed local compensation now
+  leaves `revoke_status = revoke_failed` — written by a `REQUIRES_NEW` recorder while the failed
+  transaction is abandoned — and its own audit row (`effect_revoke` + `failed`) under the vendored
+  `ai-audit-log-outcome` v3, which is additive: a success still reads `revoked`. Refusals before the
+  attempt (unknown effect, not yours, not revocable) stay unmarked, so nobody can stamp a failure onto
+  somebody else's row. The effect list and the trace project the value, a failed attempt stays
+  retryable, and generated applications get the same two endings from the generator, whose output was
+  regenerated rather than hand-edited.
+
 ### Added
 
 - **A blocked call records which record it meant to touch.** A call the gate refuses on risk level
@@ -29,7 +43,36 @@ Each version is written in two blocks — English first, then Chinese — marked
   blocked call changes: the row is still `is_error`, the outcome is still `blocked`, and the gate still
   refuses before the policy is consulted.
 
+### Changed
+
+- **The contract pin is `v1.19.0`, and the vendored snapshot follows it.** v1.18.0 published the
+  membership-report populations (`tableIds`, `verifiedIds`, `unverifiedIds`, `unaccounted`) and an
+  optional `ordering` block on `api-response` v2; v1.19.0 adds the additive `ai-audit-log-outcome` v3
+  the failed-revoke row needs. Snapshots are exported from the tags themselves, so the parked
+  membership change is not carried.
+- **The conformance set mirrors two more coverage gaps from the main repository.** AW-17's
+  `target-status-unavailable` and AW-12's record-review gaps are in `conformance/coverage-gaps.json`,
+  and the closed fact set plus `CoverageService` carry the facts they read:
+  `externalWriteTargetWithoutStatusQuery` behind the deployment flag
+  `keelbase.coverage.external-write-target-without-status-query` (default false — this runtime does not
+  claim the gap for a target it cannot see), and "this runtime writes no review receipts, so every row
+  it wrote is unreviewed".
+
+### Docs
+
+- The `0.1.16` entry states `0.1.16`, not `0.1.16-SNAPSHOT`.
+
 **中文**
+
+### 修复
+
+- **失败的撤销现在被记下来 —— 记在 effect 上，也记在链上。** `SideEffectService.revoke` 过去只在补偿成功
+  之后才写审计行，故补偿器一抛异常整笔事务回滚、尝试消失：effect 仍是 `executed`，链上什么也不多，
+  「试过但失败」读起来与「从未尝试」一模一样。失败的本地补偿现在留下 `revoke_status = revoke_failed`
+  —— 由 `REQUIRES_NEW` 的记录器在失败事务被放弃的同时写下 —— 以及它自己的一行审计
+  （`effect_revoke` + `failed`），后者依据 vendored 的 `ai-audit-log-outcome` v3；那是加性的：成功仍读
+  `revoked`。尝试之前的拒绝（effect 不存在、不是你的、不可撤销）不标记，故谁也不能往别人的行上盖失败。
+  清单与轨迹投影这个取值，失败的尝试仍可重试；生成的应用由生成器得到同样的两种结局，生成物重出、未手改。
 
 ### 新增
 
@@ -42,6 +85,21 @@ Each version is written in two blocks — English first, then Chinese — marked
   投影**机械地**读回，故它的拼写是这一行契约的一部分；追加处的那段注释写明了这一点。被拦下的调用其余
   一律不变：这一行仍是 `is_error`、结局仍是 `blocked`，闸仍在读策略之前就拒掉。
 
+### 变更
+
+- **契约 pin 是 `v1.19.0`，vendored 快照跟随。** v1.18.0 公布了成员性报表的人口
+  （`tableIds`、`verifiedIds`、`unverifiedIds`、`unaccounted`）以及 `api-response` v2 上可选的
+  `ordering` 块；v1.19.0 加上失败撤销行所需的加性 `ai-audit-log-outcome` v3。快照取自 tag 本身，故被压住的
+  成员性改动不在其中。
+- **一致性集合再镜像主仓的两条覆盖缺口。** AW-17 的 `target-status-unavailable` 与 AW-12 的记录复核缺口进了
+  `conformance/coverage-gaps.json`，闭集与 `CoverageService` 带上它们读取的事实：
+  `externalWriteTargetWithoutStatusQuery` 由部署开关
+  `keelbase.coverage.external-write-target-without-status-query` 提供（默认 false —— 运行时不为看不见的
+  目标认领缺口），以及「本运行时不写复核回执，故它写下的每一行都未复核」。
+
+### 文档
+
+- `0.1.16` 条目改记 `0.1.16`，不再是 `0.1.16-SNAPSHOT`。
 
 ## [0.1.16] - 2026-11-01
 
