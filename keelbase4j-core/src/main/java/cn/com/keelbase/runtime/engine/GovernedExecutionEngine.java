@@ -138,7 +138,22 @@ public class GovernedExecutionEngine {
                 //
                 // 成因词进**人读的那句话**；依据进**行上** —— 读者问「凭什么拒它」的地方，而那里此前只有一个词
                 // 可答。用的是**与交回调用方同一份**冻结形状。
-                audit.append("tool_call", principal.userId(), toolName + " blocked (" + cause + ")", true,
+                //
+                // The object the call meant to touch rides in the same sentence. A blocked call writes
+                // no ledger row and raises no confirmation, so without this the row said what was
+                // refused and never what it was about — and no read face could recover that, because
+                // the arguments left with the request. It goes on the row for the same reason the
+                // reasons do: the row is what a reader asks, and a later reader cannot ask the caller.
+                // The suffix is read back mechanically (the console's six-question projection), so its
+                // spelling is part of this line's contract: ` · intended object #<key>`.
+                //
+                // 这次调用**本来要动**的那条记录，就写在同一句里。被拦下的调用既不写台账、也不发确认，故没有
+                // 这一段时，那一行只说得出「拒了什么」、说 **不出它是冲着什么去的** —— 而任何读面都补不回来：
+                // 实参随请求一起走了。它落在行上的理由与依据相同：**行**才是读者发问的地方，而后来的人问不到
+                // 调用方。这个后缀会被**机械地**读回（控制台的六问投影），故它的拼写是这一行契约的一部分：
+                // ` · intended object #<key>`。
+                audit.append("tool_call", principal.userId(),
+                        toolName + " blocked (" + cause + ")" + intendedObject(args), true,
                         "blocked", toolName, conversationId,
                         CanonicalJson.json(reasons.toWire()));
                 return new ExecutionOutcome("blocked", reasons.toWire(), null, null,
@@ -860,6 +875,80 @@ public class GovernedExecutionEngine {
         if (id instanceof CharSequence text) {
             String value = text.toString().trim();
             return value.isEmpty() ? null : value;
+        }
+        return null;
+    }
+
+    /**
+     * The business key a blocked proposal named, as the suffix the row carries — ` · intended object #12`
+     * — or an empty string when the arguments do not name exactly one.
+     *
+     * <p>Narrow on purpose. A blocked call leaves nothing behind but its arguments, and a key read out of
+     * an ambiguous map would point a reader at the wrong record — worse than pointing at none, because
+     * it would then be printed as a fact. So: the value under `id` when there is one; else the value
+     * under the single name ending in `Id` (a tool that declares `projectId`, say); else the single
+     * numeric value; and nothing when two candidates tie.
+     *
+     * 被拦下的提议**点名的那条记录**的键，作为行上的后缀 —— ` · intended object #12` —— 实参说不出
+     * **恰好一个**时回空串。
+     *
+     * <p>**故意收窄。** 一个被拦下的调用留下的只有它的实参，而从一张含糊的 map 里读出来的键会把读者指向
+     * **错的**那条记录 —— 比指不出更糟，因为那会被当成事实印出来。故：有 `id` 就用它；否则用**唯一那个**
+     * 以 `Id` 结尾的键（例如声明了 `projectId` 的工具）；否则用**唯一那个**数值；两个候选并列时什么都不写。
+     */
+    static String intendedObject(Map<String, Object> args) {
+        if (args == null || args.isEmpty()) {
+            return "";
+        }
+        Long key = wholeNumber(args.get("id"));
+        if (key == null) {
+            List<Long> byName = args.entrySet().stream()
+                    .filter(entry -> entry.getKey() != null && entry.getKey().endsWith("Id"))
+                    .map(entry -> wholeNumber(entry.getValue()))
+                    .filter(value -> value != null)
+                    .toList();
+            if (byName.size() == 1) {
+                key = byName.get(0);
+            }
+        }
+        if (key == null) {
+            List<Long> numbers = args.values().stream()
+                    .map(GovernedExecutionEngine::wholeNumber)
+                    .filter(value -> value != null)
+                    .toList();
+            if (numbers.size() == 1) {
+                key = numbers.get(0);
+            }
+        }
+        return key == null ? "" : " · intended object #" + key;
+    }
+
+    /**
+     * A whole, non-negative number — a key — or null. A JSON number arrives as a `Double` as often as a
+     * `Long`, so a value that is not whole is refused rather than truncated into some other record's key.
+     *
+     * 一个整数、非负的数（一个键），或者 null。JSON 数值读进来常常是 `Double` 而不是 `Long`，故**不是整数**
+     * 的值一律拒掉，而不是截断成另一条记录的键。
+     */
+    private static Long wholeNumber(Object value) {
+        if (value instanceof Number number) {
+            double asDouble = number.doubleValue();
+            if (asDouble < 0 || asDouble != Math.floor(asDouble) || asDouble > Long.MAX_VALUE) {
+                return null;
+            }
+            return number.longValue();
+        }
+        if (value instanceof CharSequence text) {
+            String trimmed = text.toString().trim();
+            if (trimmed.isEmpty() || trimmed.length() > 19) {
+                return null;
+            }
+            try {
+                long parsed = Long.parseLong(trimmed);
+                return parsed < 0 ? null : parsed;
+            } catch (NumberFormatException notANumber) {
+                return null;
+            }
         }
         return null;
     }

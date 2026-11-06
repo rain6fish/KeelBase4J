@@ -197,6 +197,8 @@ class PmReferenceLoopTest {
                 "the block is on the audit chain: " + line.getDetail());
         assertTrue(line.getDetail().contains("risk_policy"),
                 "and names the check that refused it: " + line.getDetail());
+        assertTrue(line.getDetail().contains(" · intended object #" + project),
+                "and says which record the call meant to touch: " + line.getDetail());
         assertEquals("blocked", line.getOutcome());
     }
 
