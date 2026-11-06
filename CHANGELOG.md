@@ -10,6 +10,39 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [0.1.17] - 2026-11-06
+
+**English**
+
+### Added
+
+- **A blocked call records which record it meant to touch.** A call the gate refuses on risk level
+  writes an audit row and nothing else — no ledger row, no confirmation record — so its arguments were
+  the one thing that never reached storage, and a reader asking "which business object was that about"
+  could only be told "not recorded". The block branch now appends ` · intended object #<key>` to the
+  row's sentence, on the existing `detail` column: no new column, no new action, no new field on the
+  wire. The key is read **narrowly** — the value under `id`, else the value under the single name ending
+  in `Id` (`delete_project(projectId)`), else the single numeric value, and nothing when two candidates
+  tie, because a key read out of an ambiguous map would be printed as a fact and point at the wrong
+  record. The suffix is read back mechanically by a host console's six-question projection, so its
+  spelling is part of the line's contract; the comment at the append site says so. Nothing else about a
+  blocked call changes: the row is still `is_error`, the outcome is still `blocked`, and the gate still
+  refuses before the policy is consulted.
+
+**中文**
+
+### 新增
+
+- **被拦下的调用记下它本来要动哪条记录。** 闸门按风险级拒掉的调用只写一行审计、别的什么都没有 ——
+  没有台账行、没有确认记录 —— 于是它的实参成了唯一从未落盘的东西，读者问「这次是冲着哪个业务对象去的」
+  只能得到「未记录」。阻断分支现在把 ` · intended object #<key>` 追加到那一行的话尾，落在既有的
+  `detail` 列上：没有新列、没有新动作、wire 上没有新字段。键读得**窄** —— 先取 `id` 下的值，否则取
+  唯一那个以 `Id` 结尾的键（`delete_project(projectId)`），否则取唯一那个数值；两个候选并列时什么都
+  不写，因为从含糊的 map 里读出来的键会被当成事实印出来，指向错的记录。这个后缀会被宿主控制台的六问
+  投影**机械地**读回，故它的拼写是这一行契约的一部分；追加处的那段注释写明了这一点。被拦下的调用其余
+  一律不变：这一行仍是 `is_error`、结局仍是 `blocked`，闸仍在读策略之前就拒掉。
+
+
 ## [0.1.16] - 2026-11-01
 
 **English**
@@ -1298,7 +1331,7 @@ application depends on.
   发布什么一直是由 **reactor** 决定的，0.1.2 的 `release.yml` 头注已按实况写明。原文保留在上。]**
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.16...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.17...HEAD
 [0.1.3]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.1
