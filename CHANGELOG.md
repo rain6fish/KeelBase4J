@@ -56,7 +56,7 @@ Each version is written in two blocks — English first, then Chinese — marked
   `externalWriteTargetWithoutStatusQuery` behind the deployment flag
   `keelbase.coverage.external-write-target-without-status-query` (default false — this runtime does not
   claim the gap for a target it cannot see), and "this runtime writes no review receipts, so every row
-  it wrote is unreviewed".
+  it wrote is unreviewed". The `audit-payload` v3 schema those review rows are described by is **not** vendored: the snapshot carries only what the contract at the pin carries, and `v1.19.0` does not publish it.
 
 ### Docs
 
@@ -95,7 +95,7 @@ Each version is written in two blocks — English first, then Chinese — marked
   `conformance/coverage-gaps.json`，闭集与 `CoverageService` 带上它们读取的事实：
   `externalWriteTargetWithoutStatusQuery` 由部署开关
   `keelbase.coverage.external-write-target-without-status-query` 提供（默认 false —— 运行时不为看不见的
-  目标认领缺口），以及「本运行时不写复核回执，故它写下的每一行都未复核」。
+  目标认领缺口），以及「本运行时不写复核回执，故它写下的每一行都未复核」。 复核行所依据的 `audit-payload` v3 schema **不在** vendored 语料里：快照只带契约 pin 带着的东西，而 `v1.19.0` 没有发布它。
 
 ### 文档
 
