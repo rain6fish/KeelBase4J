@@ -119,12 +119,13 @@
     },
     {
       "id": "audit-payload",
-      "version": "v2",
+      "version": "v3",
       "schema": "audit-payload.schema.json",
-      "title": "AI 审计哈希链 canonical payload（v2：action 枚举 + effect_revoke，AU-5）",
-      "source": "src/ai/audit/audit.service.ts:435-467; src/ai/audit/ai-audit-log.entity.ts",
+      "title": "AI audit chain canonical payload (v3: the action enum gains `audit_review`, a human review receipt on the same chain; AW-12) / AI 审计哈希链 canonical payload（v3：action 枚举新增 `audit_review` —— 同一条链上的人类复核回执；AW-12）",
+      "source": "src/ai/audit/audit.service.ts:435-467; src/ai/audit/ai-audit-log.entity.ts; src/governance-shared/services/audit-review.service.ts",
       "samples": [
-        "schemas/v2/samples/audit-payload.json"
+        "schemas/v2/samples/audit-payload.json",
+        "schemas/v3/samples/audit-payload-review.json"
       ]
     },
     {
