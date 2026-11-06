@@ -58,7 +58,14 @@ public class CoverageGaps {
             "packageHasOpenDispute",
             "packageHasStalledRevoke",
             "packageHasChatRow",
-            "externalWriteTargetWithoutStatusQuery");
+            "externalWriteTargetWithoutStatusQuery",
+            // AW-12: the two facts the record-review gaps read. This runtime writes no review
+            // receipts, so it never configures a reviewer and every row it writes stays unreviewed —
+            // the coverage statement says so instead of staying silent.
+            // AW-12：记录复核那两条缺口读取的两个事实。本运行时不写复核回执，故从不会配置复核人、它写下
+            // 的每一行都保持未复核 —— 覆盖声明如实说出来，而不是保持沉默。
+            "recordReviewConfigured",
+            "packageHasUnreviewedRows");
 
     private static final Comparator<CoverageGap> DISPLAY_ORDER =
             Comparator.comparingInt(CoverageGap::severityRank).thenComparing(CoverageGap::id);

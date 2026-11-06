@@ -118,6 +118,12 @@ public class CoverageService {
         facts.put("packageHasOpenDispute", false);
         facts.put("packageHasStalledRevoke", stalledRevoke > 0);
         facts.put("packageHasChatRow", chatRows > 0);
+        // AW-12: this runtime has no review configuration and writes no review receipts, so every row
+        // it wrote is unreviewed. Both values are the honest ones for this runtime, not a placeholder.
+        // AW-12：本运行时没有复核配置、也不写复核回执，故它写下的每一行都是未复核的。这两个取值是
+        // 本运行时**如实**的答案，不是占位。
+        facts.put("recordReviewConfigured", false);
+        facts.put("packageHasUnreviewedRows", auditRows > 0);
 
         // Only the sources this statement actually read — the list is "what was consulted", not
         // "what exists in the system".

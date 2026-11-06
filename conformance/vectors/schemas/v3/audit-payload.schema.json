@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "v3/audit-payload.schema.json",
+  "title": "AI Audit Chain Payload — v3",
+  "description": "AI audit chain canonical payload (§2.3; shared by the write path, chain verification and evidence export). v3 adds `audit_review` to the `action` enum: a human review receipt about rows already on this chain is itself a row of the same chain, so «reviewed» cannot be back-filled without breaking a signature (AW-12). It is not an AI action — its `outcome` is always null, which the outcome vector already covers under `any-other-action`. Every other field is byte-for-byte v2. v2 stays published and its rows remain legal. → schemas/v2/audit-payload.schema.json.\n\n审计哈希链 canonical payload（§2.3，写入、校验、导出共用）。v3：`action` 枚举新增 `audit_review` —— 对**已写入本链的审计行**的人类复核回执，本身就是**同一条链**上的一行，于是「已复核」不能被事后补写而不破签（AW-12）。它不是 AI 动作 —— `outcome` 恒为 null，结局向量已用 `any-other-action` 覆盖。其余字段与 v2 逐字相同。v2 保持已发布的样子、其行仍然合法。→ schemas/v2/audit-payload.schema.json。",
+  "type": "object",
+  "required": ["userId", "action"],
+  "additionalProperties": false,
+  "properties": {
+    "userId": { "type": "string" },
+    "conversationId": { "type": ["string", "null"] },
+    "action": {
+      "type": "string",
+      "enum": ["chat", "tool_call", "navigate", "error", "login", "plan", "analyze", "knowledge", "delegate", "tool_confirmation", "flow_node", "content_blocked", "effect_revoke", "audit_review"]
+    },
+    "detail": { "type": ["string", "null"] },
+    "model": { "type": ["string", "null"] },
+    "provider": { "type": ["string", "null"] },
+    "promptTokens": { "type": ["number", "null"] },
+    "completionTokens": { "type": ["number", "null"] },
+    "durationMs": { "type": ["number", "null"] },
+    "isError": { "type": "boolean" },
+    "errorMessage": { "type": ["string", "null"] },
+    "authorization": { "type": ["string", "null"] },
+    "feedback": { "type": "null" },
+    "feedbackNote": { "type": "null" },
+    "businessEvent": { "type": ["string", "null"] },
+    "evidence": { "type": ["string", "null"] },
+    "agentId": { "type": ["string", "null"] },
+    "sessionId": { "type": ["string", "null"] },
+    "parentActionId": { "type": ["string", "null"] },
+    "callerAgentId": { "type": ["string", "null"] },
+    "delegationContext": { "type": ["string", "null"] },
+    "businessIntent": { "type": ["string", "null"] },
+    "source": { "type": ["string", "null"] }
+  }
+}

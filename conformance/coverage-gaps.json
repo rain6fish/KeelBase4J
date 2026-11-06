@@ -171,6 +171,38 @@
       ],
       "statement": "An external write target offers no read-only status query, so a timed-out write cannot be resolved after the fact; the ledger keeps it as unknown rather than guessing, and the absence of a recorded effect for such a write is not evidence that it did not happen.",
       "origin": "AW-17"
+    },
+    {
+      "id": "record-review-unassigned",
+      "severity": "high",
+      "affects": "whole_deployment",
+      "verdictImpact": "unknown",
+      "appliesWhen": [
+        {
+          "fact": "recordReviewConfigured",
+          "equals": false
+        },
+        {
+          "fact": "packageHasUnreviewedRows",
+          "equals": true
+        }
+      ],
+      "statement": "No reviewer or review cadence is configured, so nothing in this system assigns anyone to read these records; the presence of rows is not evidence that anyone read them.",
+      "origin": "AW-12 / F-44 / F-47"
+    },
+    {
+      "id": "record-review-unreviewed-window",
+      "severity": "high",
+      "affects": "this_package",
+      "verdictImpact": "unknown",
+      "appliesWhen": [
+        {
+          "fact": "packageHasUnreviewedRows",
+          "equals": true
+        }
+      ],
+      "statement": "Rows in this window have no review receipt on the audit chain, so whether anyone read them cannot be established; an unreviewed record is not a reviewed one.",
+      "origin": "AW-12 / F-47"
     }
   ]
 }
