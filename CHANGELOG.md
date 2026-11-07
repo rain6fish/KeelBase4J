@@ -45,11 +45,13 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### Changed
 
-- **The contract pin is `v1.20.0`, and the vendored snapshot follows it.** v1.18.0 published the
+- **The contract pin is `v1.21.0`, and the vendored snapshot follows it.** v1.18.0 published the
   membership-report populations (`tableIds`, `verifiedIds`, `unverifiedIds`, `unaccounted`) and an
   optional `ordering` block on `api-response` v2; v1.19.0 added the additive `ai-audit-log-outcome` v3
-  the failed-revoke row needs; v1.20.0 adds the additive `audit-payload` v3 whose `action` enum
-  carries `audit_review`, the row a human review receipt uses. Snapshots are exported from the tags
+  the failed-revoke row needs; v1.20.0 added the additive `audit-payload` v3 whose `action` enum
+  carries `audit_review`, the row a human review receipt uses; v1.21.0 adds the additive
+  `audit-payload` v4 whose `action` enum carries `claim_release`, the row an operator leaves when
+  releasing a write hold whose outcome stayed unknown. Snapshots are exported from the tags
   themselves, so the parked membership change is not carried.
 - **The conformance set mirrors two more coverage gaps from the main repository.** AW-17's
   `target-status-unavailable` and AW-12's record-review gaps are in `conformance/coverage-gaps.json`,
@@ -58,7 +60,7 @@ Each version is written in two blocks — English first, then Chinese — marked
   `keelbase.coverage.external-write-target-without-status-query` (default false — this runtime does not
   claim the gap for a target it cannot see), and "this runtime writes no review receipts, so every row
   it wrote is unreviewed". The `audit-payload` v3 schema those review rows are described by is
-  vendored with this pin: `v1.20.0` publishes it, so the snapshot carries it like every other
+  vendored with this pin: `v1.20.0` published it, so the snapshot carries it like every other
   published schema.
 
 ### Docs
@@ -90,18 +92,19 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### 变更
 
-- **契约 pin 是 `v1.20.0`，vendored 快照跟随。** v1.18.0 公布了成员性报表的人口
+- **契约 pin 是 `v1.21.0`，vendored 快照跟随。** v1.18.0 公布了成员性报表的人口
   （`tableIds`、`verifiedIds`、`unverifiedIds`、`unaccounted`）以及 `api-response` v2 上可选的
   `ordering` 块；v1.19.0 加上失败撤销行所需的加性 `ai-audit-log-outcome` v3；v1.20.0 加上加性的
-  `audit-payload` v3 —— 它的 `action` 枚举带上 `audit_review`，即人类复核回执所用的行类型。快照取自
-  tag 本身，故被压住的成员性改动不在其中。
+  `audit-payload` v3 —— 它的 `action` 枚举带上 `audit_review`，即人类复核回执所用的行类型；v1.21.0
+  加上加性的 `audit-payload` v4 —— 它的 `action` 枚举带上 `claim_release`，即运维释放一份结局始终未知的
+  写占位时留下的行类型。快照取自 tag 本身，故被压住的成员性改动不在其中。
 - **一致性集合再镜像主仓的两条覆盖缺口。** AW-17 的 `target-status-unavailable` 与 AW-12 的记录复核缺口进了
   `conformance/coverage-gaps.json`，闭集与 `CoverageService` 带上它们读取的事实：
   `externalWriteTargetWithoutStatusQuery` 由部署开关
   `keelbase.coverage.external-write-target-without-status-query` 提供（默认 false —— 运行时不为看不见的
   目标认领缺口），以及「本运行时不写复核回执，故它写下的每一行都未复核」。复核行所依据的
   `audit-payload` v3 schema **随本次 pin 进入** vendored 语料：`v1.20.0` 发布了它，故快照与其它已发布
-  schema 一样带上它。
+  schema 一样带上它；`v1.21.0` 的 v4 同理。
 
 ### 文档
 

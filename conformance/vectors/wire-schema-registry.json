@@ -119,13 +119,14 @@
     },
     {
       "id": "audit-payload",
-      "version": "v3",
-      "schema": "v3/audit-payload.schema.json",
-      "title": "AI audit chain canonical payload (v3: the action enum gains `audit_review`, a human review receipt on the same chain; AW-12) / AI 审计哈希链 canonical payload（v3：action 枚举新增 `audit_review` —— 同一条链上的人类复核回执；AW-12）",
-      "source": "src/ai/audit/audit.service.ts:435-467; src/ai/audit/ai-audit-log.entity.ts; src/governance-shared/services/audit-review.service.ts",
+      "version": "v4",
+      "schema": "v4/audit-payload.schema.json",
+      "title": "AI audit chain canonical payload (v4: the action enum gains `claim_release`, releasing a stuck write hold is a row on the same chain; AW-16) / AI 审计哈希链 canonical payload（v4：action 枚举新增 `claim_release` —— 释放滞留写占位是同一条链上的一行；AW-16）",
+      "source": "src/ai/audit/audit.service.ts:435-467; src/ai/audit/ai-audit-log.entity.ts; src/governance-shared/services/audit-review.service.ts; src/governance-shared/services/write-claim-decision.service.ts",
       "samples": [
         "schemas/v2/samples/audit-payload.json",
-        "schemas/v3/samples/audit-payload-review.json"
+        "schemas/v3/samples/audit-payload-review.json",
+        "schemas/v4/samples/audit-payload-claim-release.json"
       ]
     },
     {
