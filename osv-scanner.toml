@@ -1,0 +1,39 @@
+# osv-scanner configuration for this repository.
+#
+# The `dependency-scan` job in `.github/workflows/ci.yml` runs the scan against this file. Its only
+# entries are vulnerabilities this repository *already* carries and has deliberately not fixed yet.
+# They are listed by ID, not by a severity threshold, so the gate still fails on anything new: an
+# entry here is a dated decision with a reason, not a filter. Both entries below come from the same
+# dependency and both need the same fix — an MCP SDK major bump — which is a change to what this
+# repository depends on, not a hardening of the JDK it runs on, and is therefore tracked separately
+# rather than folded into a security patch.
+#
+# ── 中文 ──
+#
+# 本仓的 osv-scanner 配置。
+#
+# `.github/workflows/ci.yml` 的 `dependency-scan` job 用这个文件跑扫描。这里**只有**本仓**已经带着、
+# 且已有意暂不修**的漏洞。它们按 ID 逐条列出，而不是按严重级别设阈值，所以闸对任何**新增**项照样失败：
+# 这里的一条是一个带理由、带日期的决定，不是一层过滤。下面两条来自同一个依赖、也需要同一个修法 ——
+# 把 MCP SDK 抬一个大版本 —— 而那改的是本仓**依赖什么**，不是加固它**跑在哪个 JDK** 上，因此单独跟踪，
+# 不塞进一次安全补丁里。
+
+[[IgnoredVulns]]
+id = "GHSA-hv2w-8mjj-jw22"
+# Hardcoded wildcard CORS in the MCP Java SDK's HTTP transports; fixed in 0.18.3. `keelbase4j-mcp`
+# declares mcp-core 0.18.0. The same bump that clears the entry below clears this one, so fixing it
+# alone (0.18.3) would leave the dependency moved without the vulnerability class being gone.
+#
+# MCP Java SDK 的 HTTP 传输里硬编码了通配 CORS；0.18.3 修复。`keelbase4j-mcp` 用的是 mcp-core 0.18.0。
+# 清掉下面那条的那次升级会一并清掉这条，所以只修这条（升到 0.18.3）等于动了依赖而这个漏洞类别还在。
+reason = "MCP Java SDK hardcoded wildcard CORS (fixed in 0.18.3); keelbase4j-mcp declares mcp-core 0.18.0 and the fix ships with the major bump tracked for GHSA-8jxr-pr72-r468"
+
+[[IgnoredVulns]]
+id = "GHSA-8jxr-pr72-r468"
+# DNS rebinding against an MCP server; fixed only in 1.0.0, so no 0.18.x release clears it. Reaching
+# 1.0.0 or later is a major-version change to the dependency the adapter is written against — it can
+# break the adapter's API use and has to be judged on its own, not smuggled into a JDK hardening change.
+#
+# 针对 MCP 服务器的 DNS rebinding；只有 1.0.0 修，所以任何 0.18.x 都清不掉。升到 1.0.0 或更高，是把适配器
+# 所针对的那个依赖抬一个大版本 —— 它可能打断适配器对 API 的用法，必须单独判断，不能夹带进一次 JDK 加固。
+reason = "MCP Java SDK DNS rebinding (fixed only in 1.0.0; no 0.18.x clears it) — a major-version dependency bump outside this hardening change; tracked separately"

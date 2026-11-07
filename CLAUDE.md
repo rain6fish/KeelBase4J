@@ -47,11 +47,14 @@ bash scripts/check-bilingual-comments.sh  # 注释的双语形状（默认只报
 KEELBASE_PG_URL=jdbc:postgresql://localhost:5432/keelbase mvn test -Dtest=PostgresMigrationTest
 ```
 
-CI（`.github/workflows/ci.yml`）门禁四件事：`conformance`（`mvn verify`，**跑 JDK 17 与 JDK 25 两条腿**
-—— 产物仍按 17 构建，第二条腿只声明「构建与测试在新 JDK 上跑通」，不抬基线）+ `vector-drift`
+CI（`.github/workflows/ci.yml`）的门禁：`conformance`（`mvn verify`，**跑 JDK 17 与 JDK 25 两条腿**
+—— 产物仍按 17 构建，第二条腿只声明「构建与测试在新 JDK 上跑通」，不抬基线；两条腿都断言 JDK 构建号
+不低于 17.0.21+9 / 25.0.5+8，判据落在 `Temurin-<版本>+<构建号>` 那一行，见 `scripts/check-jdk-build.sh`）+ `vector-drift`
 （`sync-vectors.sh --check`）+ `bilingual-comments`（`check-bilingual-comments.sh --strict`；先跑 `--self-test`，
 故解释器不对时会以自身失败、而不是以「报零」通过）+ `release-rehearsal`（发布集合在 release profile 下构建，
-含 sources 与 javadoc；同样跑 **17 与 25 两条腿** —— javadoc 的 doclint 是最可能与新 JDK 不合的一环）。
+含 sources 与 javadoc；同样跑 **17 与 25 两条腿** —— javadoc 的 doclint 是最可能与新 JDK 不合的一环）+
+`dependency-scan`（`osv-scanner` 扫各 `pom.xml` 声明的依赖；镜像按摘要钉死，`--no-resolve` 故只扫**直接**
+依赖，被忽略的 ID 及其理由见仓根 `osv-scanner.toml`）。
 
 ⚠️ **打 `v*` tag 会触发发布**（`.github/workflows/release.yml`）：先复现向量、再查两仓漂移、再校验
 发布集合，然后把**四个 artifact**（父 pom · `keelbase4j-protocol` · `keelbase4j-core` ·
