@@ -30,6 +30,11 @@
 #      it and cannot be red for any other reason. The lag behind the newest contract release is reported
 #      by the same job as a warning, never as a red: CT-4 makes one window behind the normal state
 #      between the moments a pin is allowed to move.
+#   7. dependency-scan — no dependency this repository declares is a known-vulnerable version. Not a
+#      conformance claim either. It was added because the JDK the runtime sits on turned out to be a
+#      security input (CVE-2026-91403 / CVE-2026-114820, fixed at a build number the version string
+#      cannot distinguish), and the same question had never been asked of anything else on the
+#      classpath.
 #
 # ── 中文 ──
 #
@@ -56,6 +61,9 @@
 #      期间没有任何东西在看。这道闸只读本仓库——不检出兄弟仓、不联网——所以那种状态在造成它的那次推送
 #      上就是红的，也不会为别的任何原因变红。落后最新契约发布多少，由同一个 job 以警告报告，永不变红：
 #      CT-4 把「落后一个窗口」定成 pin 允许移动的那些时刻之间的常态。
+#   7. dependency-scan —— 本仓声明的依赖里，没有任何一个是已知的脆弱版本。这也算不上一致性声明。它之所以
+#      被加进来，是因为运行时脚下的那个 JDK 被证明是一项安全输入（CVE-2026-91403 / CVE-2026-114820，
+#      修复线落在一个版本串分辨不出的构建号上），而同一个问题此前从未被问过 classpath 上的其它任何东西。
 name: CI
 
 on:
@@ -96,6 +104,36 @@ jobs:
           cache: maven
       - name: Reproduce the frozen protocol vectors
         run: mvn -B -ntp verify
+      # The JDK this leg runs on is a security input, not only a build input. CVE-2026-91403 and
+      # CVE-2026-114820 are fixed at Temurin 17.0.21+9 / 25.0.5+8, and Oracle's risk matrix lists the
+      # same version strings ("17.0.21") among the *affected* versions — so the version string cannot
+      # answer the question, and the build number after the `+` is the only part of the line that can.
+      # `scripts/check-jdk-build.sh` reads that line and fails below the fix line.
+      #
+      # The legs stay on the floating `17` / `25` majors on purpose. Pinning the exact build does not
+      # resolve for 25: Adoptium publishes it as `25.0.5+8.0.LTS`, and its exact-version lookup for
+      # `25.0.5+8` answers 404 — which is the query setup-java makes. A leg that cannot be set up is
+      # a red for a reason this gate does not name.
+      #
+      # 这条腿所用的 JDK 不只是构建输入，也是安全输入。CVE-2026-91403 与 CVE-2026-114820 的修复线是
+      # Temurin 17.0.21+9 / 25.0.5+8，而 Oracle 的风险矩阵把**同样的版本串**（「17.0.21」）列在**受影响**
+      # 版本里 —— 所以版本串回答不了这个问题，`+` 之后的构建号是这一行里唯一能回答它的部分。
+      # `scripts/check-jdk-build.sh` 读那一行，低于修复线就失败。
+      #
+      # 两条腿**有意**仍挂在浮动的 `17` / `25` 大版本上。钉死精确构建号对 25 解析不出来：Adoptium 把它发布成
+      # `25.0.5+8.0.LTS`，而它按精确版本查 `25.0.5+8` 会得到 404 —— 那正是 setup-java 发出的查询。
+      # 一条装不起来的腿，是一道红得说不出自己名字的闸。
+      - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820
+        run: |
+          set -euo pipefail
+          case "${{ matrix.java }}" in
+            17) fix=17.0.21+9 ;;
+            25) fix=25.0.5+8 ;;
+            *) echo "no fix line recorded for JDK ${{ matrix.java }}" >&2
+               echo "widening the matrix means recording the fix line for the new major first" >&2
+               exit 1 ;;
+          esac
+          bash scripts/check-jdk-build.sh "$fix"
 
   vector-drift:
     name: Vendored snapshot matches its sources
@@ -313,6 +351,25 @@ jobs:
         run: mvn -B -ntp -DskipTests install -pl keelbase4j-runtime -am
       - name: Build the publish set, sources and javadoc included
         run: mvn -B -ntp -Prelease -DskipTests -pl 'keelbase4j-springai,!keelbase4j-runtime' -am package
+      # The same assertion as in conformance, on the same two legs, and here for a second reason: this
+      # is the job that answers "would a release build on this JDK", so the build the release would
+      # actually run on is worth naming. See the conformance job for why the check reads the build
+      # number rather than the version string, and why the legs are not pinned to an exact build.
+      #
+      # 与 conformance 相同的断言、同样的两条腿，在这里多一个理由：这个 job 回答的正是「一次发布会不会在这个
+      # JDK 上构建出来」，所以发布真正会跑的那个构建值得被点名。为什么读构建号而不是版本串、为什么两条腿不钉
+      # 死精确构建号，见 conformance job 里那段说明。
+      - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820
+        run: |
+          set -euo pipefail
+          case "${{ matrix.java }}" in
+            17) fix=17.0.21+9 ;;
+            25) fix=25.0.5+8 ;;
+            *) echo "no fix line recorded for JDK ${{ matrix.java }}" >&2
+               echo "widening the matrix means recording the fix line for the new major first" >&2
+               exit 1 ;;
+          esac
+          bash scripts/check-jdk-build.sh "$fix"
       # The same count release.yml asserts, asserted here as well: there it is the last thing between
       # a mistake and Maven Central, here it is the first thing that notices one.
       - name: The publish set is still exactly four modules
@@ -360,3 +417,52 @@ jobs:
       - name: No released coordinate holds a jar this tree built
         run: bash scripts/check-m2-drift.sh --strict
 
+
+  dependency-scan:
+    name: No declared dependency is a known-vulnerable version
+    runs-on: ubuntu-latest
+    # The same question as the JDK assertion, asked of everything else on the classpath. It reads the
+    # manifests rather than the published artifacts: nothing here has to be built, and a vulnerable
+    # version is visible in a `pom.xml` before anyone runs it.
+    #
+    # Pinned by digest, for the reason the demo's Dockerfile is pinned by digest — a floating tag is a
+    # different program next month. To move it, pull, run it against this repository, and take the new
+    # digest from `docker inspect`; do not edit the digest by hand.
+    #
+    # `--no-resolve` is deliberate and it costs coverage: only the dependencies each `pom.xml` declares
+    # are scanned, not the ones they pull in. Without it the scan tries to resolve this repository's own
+    # coordinates (`cn.com.keelbase:keelbase4j-core:0.1.17` and friends) from Maven Central, where they
+    # are not and never will be for the modules the publish set excludes — the same trap release.yml
+    # pre-installs around. That failure makes the scanner exit 127 with zero vulnerabilities found, i.e.
+    # a red for a reason this gate does not name. Transitive scanning needs a populated Maven repository
+    # mounted into the container, which is a step nobody has verified here; until it is, the narrower
+    # scan is the one that can be trusted to be red only for its own reason.
+    #
+    # `osv-scanner.toml` carries the only two ignored IDs. They are ignored by ID with a written reason,
+    # not by a severity threshold, so anything new still fails this job.
+    #
+    # ── 中文 ──
+    #
+    # 与 JDK 断言同一个问题，只是问的是 classpath 上其余每一样东西。它读的是清单而不是已发布的产物：这里
+    # 什么都不必先构建，而一个脆弱的版本在任何人运行它之前就写在 `pom.xml` 里。
+    #
+    # 按摘要钉死，理由与演示的 Dockerfile 按摘要钉死相同 —— 浮动标签下个月就是另一个程序了。要换，就重新
+    # 拉取、拿它对本仓跑一遍、从 `docker inspect` 取新摘要；不要手改摘要。
+    #
+    # `--no-resolve` 是**有意**的，而且它拿覆盖面换：只扫每个 `pom.xml` 自己声明的依赖，不扫它们带进来的。
+    # 不加它，扫描会去 Maven Central 解析本仓自己的坐标（`cn.com.keelbase:keelbase4j-core:0.1.17` 之类），
+    # 而发布集合排除掉的那些模块在那里没有、也永远不会有 —— 正是 release.yml 用预安装绕开的同一个坑。
+    # 那个失败会让扫描器在**零漏洞**的情况下以 127 退出，也就是一道红得说不出自己名字的闸。要扫传递依赖，
+    # 得把一个填过的 Maven 仓库挂进容器，而这一步在这里没人验过；在验过之前，扫得更窄的这道，才是那道
+    # 可以信它只为自己理由变红的闸。
+    #
+    # `osv-scanner.toml` 里放着唯一被忽略的两条 ID。它们按 ID 逐条忽略并附书面理由，不是按严重级别设阈值，
+    # 所以任何新增项照样让这个 job 失败。
+    steps:
+      - uses: actions/checkout@v5
+      - name: Scan every dependency manifest against the OSV database
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" \
+            ghcr.io/google/osv-scanner@sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0 \
+            scan source --config /src/osv-scanner.toml --no-resolve -r /src

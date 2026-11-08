@@ -98,6 +98,24 @@ jobs:
       # checkout already, so the tag is verified by the same suite a push is.
       - name: Reproduce the frozen protocol vectors
         run: mvn -B -ntp verify
+      # The release job is where this assertion matters most. Everything else that would notice a
+      # vulnerable JDK does so on a push, where the answer is cheap; here the answer decides what the
+      # published artifact was built on, and a tag cannot be taken back.
+      #
+      # `scripts/check-jdk-build.sh` reads the build number off the `Temurin-<version>+<build>` line,
+      # because CVE-2026-91403 / CVE-2026-114820 are listed by *version string* in Oracle's risk matrix
+      # and the version string is therefore the same for a fixed and an affected build. See the
+      # conformance job in ci.yml for the whole reasoning.
+      #
+      # 发布 job 是这条断言最要紧的地方。其它任何会察觉出有漏洞 JDK 的地方都在一次推送上作答，而那里的答案
+      # 很便宜；在这里，答案决定已发布产物是在哪个 JDK 上构建出来的，而 tag 收不回来。
+      #
+      # `scripts/check-jdk-build.sh` 从 `Temurin-<版本>+<构建号>` 那一行读构建号，因为 CVE-2026-91403 /
+      # CVE-2026-114820 在 Oracle 的风险矩阵里是按**版本串**列的，于是已修与受影响的两个构建的版本串一模一样。
+      # 完整理由见 ci.yml 的 conformance job。
+      - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820
+        run: bash scripts/check-jdk-build.sh 17.0.21+9
+
 
       # ci.yml gates this on main and on pull requests, but a tag can be cut from a commit that never
       # went through either — and publishing an implementation whose vendored vectors have drifted
