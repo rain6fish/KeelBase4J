@@ -45,14 +45,18 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### Changed
 
-- **The contract pin is `v1.21.0`, and the vendored snapshot follows it.** v1.18.0 published the
+- **The contract pin is `v1.22.0`, and the vendored snapshot follows it.** v1.18.0 published the
   membership-report populations (`tableIds`, `verifiedIds`, `unverifiedIds`, `unaccounted`) and an
   optional `ordering` block on `api-response` v2; v1.19.0 added the additive `ai-audit-log-outcome` v3
   the failed-revoke row needs; v1.20.0 added the additive `audit-payload` v3 whose `action` enum
-  carries `audit_review`, the row a human review receipt uses; v1.21.0 adds the additive
+  carries `audit_review`, the row a human review receipt uses; v1.21.0 added the additive
   `audit-payload` v4 whose `action` enum carries `claim_release`, the row an operator leaves when
-  releasing a write hold whose outcome stayed unknown. Snapshots are exported from the tags
-  themselves, so the parked membership change is not carried.
+  releasing a write hold whose outcome stayed unknown; v1.22.0 adds the `audit-chain-anchor` v1 wire
+  object — a periodic, SM2-signed commitment to the two audit chains' tails (`rows` / `lastId` /
+  `lastHash` at `observedAt`), so a tail deletion that leaves no evidence-package digest behind is
+  visible beside the package anchor. This repository vendors the schema; producing or verifying such
+  an anchor is not yet part of the runtime. Snapshots are exported from the tags themselves, so the
+  parked membership change is not carried.
 - **The conformance set mirrors two more coverage gaps from the main repository.** AW-17's
   `target-status-unavailable` and AW-12's record-review gaps are in `conformance/coverage-gaps.json`,
   and the closed fact set plus `CoverageService` carry the facts they read:
@@ -92,12 +96,15 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### 变更
 
-- **契约 pin 是 `v1.21.0`，vendored 快照跟随。** v1.18.0 公布了成员性报表的人口
+- **契约 pin 是 `v1.22.0`，vendored 快照跟随。** v1.18.0 公布了成员性报表的人口
   （`tableIds`、`verifiedIds`、`unverifiedIds`、`unaccounted`）以及 `api-response` v2 上可选的
   `ordering` 块；v1.19.0 加上失败撤销行所需的加性 `ai-audit-log-outcome` v3；v1.20.0 加上加性的
   `audit-payload` v3 —— 它的 `action` 枚举带上 `audit_review`，即人类复核回执所用的行类型；v1.21.0
   加上加性的 `audit-payload` v4 —— 它的 `action` 枚举带上 `claim_release`，即运维释放一份结局始终未知的
-  写占位时留下的行类型。快照取自 tag 本身，故被压住的成员性改动不在其中。
+  写占位时留下的行类型；v1.22.0 新增 `audit-chain-anchor` v1 wire 对象 —— 对两条审计链尾的定期
+  SM2 签名承诺（`observedAt` 时的 `rows` / `lastId` / `lastHash`），于是不留下任何证据包 digest 的
+  尾部删除也能与包锚并列可见。本仓 vendor 该 schema；产出或校验这类锚尚未进入运行时。快照取自 tag
+  本身，故被压住的成员性改动不在其中。
 - **一致性集合再镜像主仓的两条覆盖缺口。** AW-17 的 `target-status-unavailable` 与 AW-12 的记录复核缺口进了
   `conformance/coverage-gaps.json`，闭集与 `CoverageService` 带上它们读取的事实：
   `externalWriteTargetWithoutStatusQuery` 由部署开关

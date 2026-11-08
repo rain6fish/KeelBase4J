@@ -152,6 +152,16 @@
       ]
     },
     {
+      "id": "audit-chain-anchor",
+      "version": "v1",
+      "schema": "audit-chain-anchor.schema.json",
+      "title": "审计链尾锚记录（hs11 §6.1：某时刻两条审计链的行数、末行 id 与末行 hash，SM2 签名，与证据包锚并列发布）",
+      "source": "docs/hs11-audit-chain.spec.md §6.1; Server-NestJS/scripts/build-chain-anchor.ts (producer, planned); Server-NestJS/src/ai/audit/chain-anchor.ts (verifier, planned)",
+      "samples": [
+        "schemas/v1/samples/audit-chain-anchor.json"
+      ]
+    },
+    {
       "id": "my-confirmation-item",
       "version": "v2",
       "schema": "my-confirmation-item.schema.json",

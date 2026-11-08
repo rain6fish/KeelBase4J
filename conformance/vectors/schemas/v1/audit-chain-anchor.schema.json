@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "audit-chain-anchor.schema.json",
+  "title": "Audit Chain Anchor（审计链尾锚记录）— v1",
+  "description": "A periodic commitment to the audit chains' tails (docs/hs11-audit-chain.spec.md §6.1): at `observedAt` the chain had this many chained rows (`hash IS NOT NULL`) and this last row. It complements the evidence-package anchor instead of replacing it: the package anchor says \"this day's set of packages was not swapped\", this record says \"at this moment the chain reached here, and its last row was this\". Together they let a third party tell a deleted tail from an untouched one — the package anchor alone cannot, because a chain row that belongs to no exported package leaves no digest behind. Publishing and receiving the record are the deployer's obligation (off-domain publication); a self-held anchor is an empty promise.\n\nBoundaries, stated so the record cannot be read as more than it is: only `aiAudit` and `operationAudit` are covered — the side-effect chain (`effect-chain.ts`) is a third chain and is deliberately out of scope. `rows` counts chained rows only, so deleting a legacy row with `hash IS NULL` is invisible here. Nothing after `observedAt` is covered; those rows wait for the next anchor. The producer reads the same database it anchors, so the record proves \"the chain looked like this at that moment\", not \"the chain was correct at that moment\". `observedAt` is inside the SM2 signature (otherwise \"which moment\" could be moved); `publishedAt` stays outside it, as in the package anchor.\n\n一条对审计链尾的定期承诺（docs/hs11-audit-chain.spec.md §6.1）：在 `observedAt` 这一刻，链上有这么多已入链的行（`hash IS NOT NULL`），末行是这一行。它与证据包锚并列而非取代：包锚说「该日这批包没被换」，本记录说「该时刻链到这里、末行是它」。两者合起来，第三方才能把「尾部被删」与「尾部未动」区分开 —— 单靠包锚做不到，因为不属于任何已导出证据包的链行不会留下 digest。记录的发布与接收是部署方的义务（域外发布）；自持锚是空心承诺。\n\n边界写明，以免被读成更多：只覆盖 `aiAudit` 与 `operationAudit` —— 副作用链（`effect-chain.ts`）是第三条独立的链，有意不在范围内。`rows` 只数已入链的行，故删除一条 `hash IS NULL` 的遗留行在此不可见。`observedAt` 之后的写入不在覆盖内，等下一次锚。生产者读的就是它要锚的库，故记录证明的是「该时刻链长这样」，不是「该时刻链是对的」。`observedAt` 在 SM2 签名覆盖内（否则「锚的是哪一刻」可被挪动）；`publishedAt` 与包锚一样留在签名外。",
+  "type": "object",
+  "required": ["period", "date", "observedAt", "chains", "rootDigest", "publishedAt", "sm2"],
+  "additionalProperties": false,
+  "properties": {
+    "period": {
+      "description": "Anchor period. Only `daily` today, matching the package anchor. / 锚的周期粒度；当前仅 `daily`，与证据包锚一致。",
+      "const": "daily"
+    },
+    "date": {
+      "description": "The UTC date the anchor is labelled with (YYYY-MM-DD). / 锚所标记的 UTC 日期（YYYY-MM-DD）。",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "observedAt": {
+      "description": "The moment the chains were read; inside the signature, so the observation time cannot be moved. RFC3339 / ISO-8601 UTC. / 读取两条链的时刻；在签名覆盖内，故观测时间不可被挪动。RFC3339 / ISO-8601 UTC。",
+      "type": "string",
+      "format": "date-time"
+    },
+    "chains": {
+      "description": "The two chains this record commits to. Both keys are required; `null` means \"no chained row existed at `observedAt`\", never \"unknown\". / 本记录承诺的两条链。两个键都必需；`null` 表示「该时刻该链没有已入链的行」，绝不是「未知」。",
+      "type": "object",
+      "required": ["aiAudit", "operationAudit"],
+      "additionalProperties": false,
+      "properties": {
+        "aiAudit": {
+          "description": "AI audit chain tail, or null when it had no chained row. / AI 审计链尾；该链没有已入链行时为 null。",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["rows", "lastId", "lastHash"],
+              "additionalProperties": false,
+              "properties": {
+                "rows": {
+                  "description": "Chained rows at `observedAt` (`hash IS NOT NULL`) — the same denominator as chain verification. / 该时刻已入链的行数（`hash IS NOT NULL`）—— 与链校验同一分母。",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lastId": {
+                  "description": "Id of the largest chained row. / 已入链行中 id 最大的那一行的 id。",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lastHash": {
+                  "description": "Hash of that last chained row. / 该末行的 hash。",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          ]
+        },
+        "operationAudit": {
+          "description": "Operation audit chain tail, or null when it had no chained row. / 操作审计链尾；该链没有已入链行时为 null。",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["rows", "lastId", "lastHash"],
+              "additionalProperties": false,
+              "properties": {
+                "rows": {
+                  "description": "Chained rows at `observedAt` (`hash IS NOT NULL`). / 该时刻已入链的行数（`hash IS NOT NULL`）。",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lastId": {
+                  "description": "Id of the largest chained row. / 已入链行中 id 最大的那一行的 id。",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lastHash": {
+                  "description": "Hash of that last chained row. / 该末行的 hash。",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "rootDigest": {
+      "description": "Digest over the claim itself: `sha256(canonicalJSON({period, date, observedAt, chains}))`, so a third party can recompute it and the SM2 signature covers the observed moment and both tails. / 对声称本身的摘要：`sha256(canonicalJSON({period, date, observedAt, chains}))`，第三方可复现，且 SM2 签名覆盖观测时刻与两条链尾。",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "publishedAt": {
+      "description": "When the record was produced/published; a declared time outside the signature, as in the package anchor. / 记录生成/发布时刻；与包锚一样是签名外的声明时间。",
+      "type": "string",
+      "format": "date-time"
+    },
+    "sm2": {
+      "description": "SM2 signature over `rootDigest` (UTF-8 bytes); the definition is inlined to avoid a cross-version `$id` collision. / 对 `rootDigest`（UTF-8 字节）的 SM2 签名；定义内联，避免跨版本 `$id` 冲突。",
+      "type": "object",
+      "required": ["alg", "encoding", "userId", "publicKey", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "const": "SM2-with-SM3" },
+        "encoding": { "enum": ["raw", "der"] },
+        "userId": { "type": "string" },
+        "publicKey": { "type": "string", "pattern": "^(04[0-9a-f]{128}|0[23][0-9a-f]{64})$" },
+        "keyId": { "type": "string" },
+        "certChain": { "type": "array", "items": { "type": "string" } },
+        "value": { "type": "string", "pattern": "^[0-9a-f]+$" }
+      }
+    },
+    "tsa": {
+      "description": "Optional RFC3161 timestamp, opt-in like the package anchor. / 可选 RFC3161 可信时间戳，与包锚一样 opt-in。",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tokenUrl": { "type": "string" },
+        "token": { "type": "string" }
+      }
+    }
+  }
+}

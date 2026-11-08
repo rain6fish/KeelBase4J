@@ -1,0 +1,27 @@
+{
+  "period": "daily",
+  "date": "2026-11-08",
+  "observedAt": "2026-11-08T00:05:00.000Z",
+  "chains": {
+    "aiAudit": {
+      "rows": 1234,
+      "lastId": 98765,
+      "lastHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+    },
+    "operationAudit": {
+      "rows": 567,
+      "lastId": 4321,
+      "lastHash": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+    }
+  },
+  "rootDigest": "270abc5a2a8f7ee73ef464ee4d7756e425aaa018703f63cd51d065b1c244e4e3",
+  "publishedAt": "2026-11-08T00:06:12.000Z",
+  "sm2": {
+    "alg": "SM2-with-SM3",
+    "encoding": "raw",
+    "userId": "1234567812345678",
+    "publicKey": "04ababababababababababababababababababababababababababababababababcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "keyId": "demo-chain-anchor-2026-11",
+    "value": "5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e"
+  }
+}
