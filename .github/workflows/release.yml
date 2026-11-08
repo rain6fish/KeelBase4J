@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   publish:
@@ -41,6 +42,25 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # The tag must already be a release: its commit on main, and green in CI.
+      # A tag can be cut from a branch commit or from a commit whose CI never ran;
+      # either one publishes an artifact that no gate has seen. This fails first.
+      #
+      # tag 必须已经是一个发布：提交在 main 上，且在 CI 里绿。tag 可以打在分支提交上、
+      # 或打在 CI 从未跑过的提交上；两者都会发布一份没有门禁看过的产物。这一步先失败。
+      - name: The tag is on main and its commit ran CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse "${GITHUB_REF}^{commit}")
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$commit" origin/main
+          test "$(gh run list --commit "$commit" --workflow CI --limit 20 --json status,conclusion \
+            --jq 'any(.[]; .status == "completed" and .conclusion == "success")')" = "true"
 
       # A tag cannot be taken back, and it can be cut from a commit that never went through ci.yml —
       # the same gap the drift check below was added for. `contract-pin` in ci.yml catches a
