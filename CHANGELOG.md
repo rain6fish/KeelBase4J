@@ -10,6 +10,26 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [Unreleased]
+
+**English**
+
+### Changed
+
+- **The version is `0.1.18-SNAPSHOT`.** All eight poms move from `0.1.17` to `0.1.18-SNAPSHOT`. `v0.1.17`
+  is published (tag object `94aab9a9e5` points at commit `2189212`), and CI's `version-coordinate` job
+  refuses a tree that keeps building under a released number; on a clean runner no `0.1.18` tag exists,
+  so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
+  change.
+
+**中文**
+
+### 变更
+
+- **版本为 `0.1.18-SNAPSHOT`。** 八个 pom 由 `0.1.17` 抬到 `0.1.18-SNAPSHOT`。`v0.1.17` 已发布（tag 对象
+  `94aab9a9e5` 指向提交 `2189212`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
+  拒绝的；在干净 runner 上不存在 `0.1.18` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
+
 ## [0.1.17] - 2026-11-06
 
 **English**
