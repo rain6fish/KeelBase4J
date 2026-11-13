@@ -10,16 +10,25 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
-## [Unreleased]
+## [0.1.18] - 2026-11-13
 
 **English**
 
-### Changed
+### Added
 
-- **The version is `0.1.18-SNAPSHOT`.** All eight poms move from `0.1.17` to `0.1.18-SNAPSHOT`. `v0.1.17`
-  is published (tag object `94aab9a9e5` points at commit `2189212`), and CI's `version-coordinate` job
-  refuses a tree that keeps building under a released number; on a clean runner no `0.1.18` tag exists,
-  so the install no longer lands on a published coordinate.
+- **The audit read face takes the range's end and a business object.** `GET /audit/logs` accepted a
+  start and no end, and had no object filter, so an auditor's question — "everything that happened to
+  customer #9005 last week" — could only be answered by scanning a bounded window on the console side.
+  It now takes `until` (a closed upper bound on the row's own time) and `objectType` + `objectId`: the
+  effects carrying that pair give their execution ids, and the rows of exactly those executions are
+  the answer, applied before paging. Half an object filter is a **400** rather than a silently wider
+  read; an object nothing touched is a no-match rather than the whole chain; a deployment with no
+  effect ledger answers **503** rather than an empty page that would read as "nothing happened". No
+  contract field was added — the endpoint's parameters are not part of the frozen row schema. The host
+  console now sends all three alongside `since`; an older runtime ignores the unknown parameters while
+  the console's own narrowing still decides, so the answer is the same under either.
+
+### Changed
 
 - **The contract pin is `v1.22.0`, and the vendored snapshot follows it.** v1.21.0 added the additive
   `audit-payload` v4 whose `action` enum carries `claim_release`, the row an operator leaves when
@@ -33,11 +42,17 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 **中文**
 
-### 变更
+### 新增
 
-- **版本为 `0.1.18-SNAPSHOT`。** 八个 pom 由 `0.1.17` 抬到 `0.1.18-SNAPSHOT`。`v0.1.17` 已发布（tag 对象
-  `94aab9a9e5` 指向提交 `2189212`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
-  拒绝的；在干净 runner 上不存在 `0.1.18` 的 tag，安装不再落进已发布坐标。
+- **审计读面收下区间的终点与业务对象。** `GET /audit/logs` 只收起点、没有终点，也没有对象过滤，于是审计员
+  那个问题 —— 「客户 #9005 上周发生过什么」—— 只能在控制台一侧扫一段有界窗口才答得出。它现在收 `until`
+  （行自己时间上的闭合上界）与 `objectType` + `objectId`：带该对的副作用给出它们的执行 id，**恰好**那些
+  执行的行就是答案，且在分页之前施加。半个对象过滤是 **400**、不是悄悄放宽的读；没有东西碰过的对象是
+  「无匹配」、不是整条链；没有副作用台账的部署答 **503**、不是一个会被读成「什么都没发生」的空页。**没有
+  新增契约字段** —— 端点的参数不属于冻结的行 schema。宿主控制台现在把三个参数与 `since` 一并发送；旧运行时
+  忽略不认识的参数，而控制台自己的收窄照旧决定，故两种运行时下答案一致。
+
+### 变更
 
 - **契约 pin 是 `v1.22.0`，vendored 快照跟随。** v1.21.0 加上加性的 `audit-payload` v4 —— 它的
   `action` 枚举带上 `claim_release`，即运维释放一份结局始终未知的写占位时留下的行类型；v1.22.0 新增
@@ -1431,7 +1446,8 @@ application depends on.
   发布什么一直是由 **reactor** 决定的，0.1.2 的 `release.yml` 头注已按实况写明。原文保留在上。]**
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.17...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.18...HEAD
+[0.1.18]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.18
 [0.1.3]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.1
