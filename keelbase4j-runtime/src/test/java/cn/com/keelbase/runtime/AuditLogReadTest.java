@@ -9,6 +9,8 @@ import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.protocol.Vectors;
 import cn.com.keelbase.protocol.WireSchemas;
 import cn.com.keelbase.runtime.audit.AuditService;
+import cn.com.keelbase.runtime.effect.SideEffect;
+import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -75,6 +77,9 @@ class AuditLogReadTest {
 
     @Autowired
     AuditService audit;
+
+    @Autowired
+    SideEffectRepository sideEffects;
 
     @Value("${keelbase.delegation.secret}")
     String delegationSecret;
@@ -227,5 +232,61 @@ class AuditLogReadTest {
                     "`" + unsupported + "` cannot be honoured here, so it must be refused: "
                             + response);
         }
+    }
+
+    /**
+     * The period's end and the business object narrow the chain on the server.
+     *
+     * <p>Before this, an auditor asking "everything that happened to customer #9005 last week" had to
+     * scan a bounded window on the console side: the read face took a start but not an end, and no
+     * object at all. Both are filters this deployment *can* apply — the end from the row's own time,
+     * the object through the ledger row of the execution that touched it — so both are applied here
+     * rather than refused. The two failure modes are pinned with them: an object nothing touched
+     * answers "no rows" (not the whole chain), and half a filter is refused (not widened).
+     *
+     * 区间的终点与业务对象在服务端收窄链。
+     *
+     * <p>在此之前，审计员问「客户 #9005 上周发生过什么」时，只能在控制台一侧扫一段有界窗口：读面只有一个
+     * 起点、没有终点，也完全没有对象。这两样都是本部署**能施加**的筛选 —— 终点取自行自己的时间，对象经那次
+     * 碰过它的执行的台账行 —— 故这里**施加**它们，而不是拒绝。两种失效模式一并钉住：没有东西碰过的对象答
+     * 「没有行」（不是整条链），半个过滤条件被拒绝（不是被放宽）。
+     */
+    @Test
+    void thePeriodsEndAndTheBusinessObjectNarrowTheChain() {
+        String who = "object-" + UUID.randomUUID();
+        String wanted = "wanted-" + UUID.randomUUID();
+        String other = "other-" + UUID.randomUUID();
+        String wantedExecution = "exec-" + UUID.randomUUID();
+        String otherExecution = "exec-" + UUID.randomUUID();
+        audit.append("tool_call", who, "touched the customer", false, "executed", "create_followup",
+                null, null, wantedExecution);
+        audit.append("tool_call", who, "touched something else", false, "executed", "create_followup",
+                null, null, otherExecution);
+        sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup",
+                "crm_customer", wanted, "local_compensate", "hash", null, null, null,
+                wantedExecution));
+        sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup",
+                "crm_customer", other, "local_compensate", "hash", null, null, null,
+                otherExecution));
+
+        List<?> byObject = rows("?objectType=crm_customer&objectId=" + wanted, ADMIN);
+        assertEquals(1, byObject.size(), "the object filter answers only the rows of that object");
+        assertEquals("touched the customer", ((Map<?, ?>) byObject.get(0)).get("detail"));
+
+        assertTrue(rows("?objectType=crm_customer&objectId=missing-" + UUID.randomUUID(), ADMIN)
+                        .isEmpty(),
+                "an object nothing touched is a no-match, not the whole chain");
+
+        assertEquals(1,
+                rows("?objectType=crm_customer&objectId=" + wanted + "&until=2099-01-01", ADMIN).size(),
+                "a period ending after the row must include it");
+        assertTrue(rows("?objectType=crm_customer&objectId=" + wanted + "&until=2000-01-01", ADMIN)
+                        .isEmpty(),
+                "a period ending before the row must exclude it");
+
+        assertEquals(400, get("/audit/logs?objectType=crm_customer", ADMIN).getStatusCode().value(),
+                "half an object filter must be refused rather than widened");
+        assertEquals(400, get("/audit/logs?objectId=1", ADMIN).getStatusCode().value(),
+                "half an object filter must be refused rather than widened");
     }
 }

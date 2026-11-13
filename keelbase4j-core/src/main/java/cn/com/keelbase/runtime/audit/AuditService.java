@@ -2,13 +2,18 @@
 package cn.com.keelbase.runtime.audit;
 
 import cn.com.keelbase.protocol.AuditChain;
+import cn.com.keelbase.runtime.effect.SideEffect;
+import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.governance.GovernancePolicyStore;
 import jakarta.persistence.criteria.Predicate;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +45,7 @@ public class AuditService {
     private final GovernancePolicyStore policy;
     private final String chainKey;
     private final ExecutionTraceLinkService traceLinks;
+    private final SideEffectRepository sideEffects;
 
     public AuditService(AuditLogRepository repository, AuditChainHeadRepository heads,
                         GovernancePolicyStore policy,
@@ -47,16 +53,25 @@ public class AuditService {
         this(repository, heads, policy, chainKey, null);
     }
 
-    @Autowired
     public AuditService(AuditLogRepository repository, AuditChainHeadRepository heads,
                         GovernancePolicyStore policy,
                         @Value("${keelbase.audit.hmac-key}") String chainKey,
                         ExecutionTraceLinkService traceLinks) {
+        this(repository, heads, policy, chainKey, traceLinks, null);
+    }
+
+    @Autowired
+    public AuditService(AuditLogRepository repository, AuditChainHeadRepository heads,
+                        GovernancePolicyStore policy,
+                        @Value("${keelbase.audit.hmac-key}") String chainKey,
+                        ExecutionTraceLinkService traceLinks,
+                        SideEffectRepository sideEffects) {
         this.repository = repository;
         this.heads = heads;
         this.policy = policy;
         this.chainKey = chainKey;
         this.traceLinks = traceLinks;
+        this.sideEffects = sideEffects;
     }
 
     /**
@@ -336,6 +351,32 @@ public class AuditService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> rows(String userId, Instant since, Boolean isError,
                                           int limit, int offset) {
+        return rows(userId, since, null, isError, limit, offset, null);
+    }
+
+    /**
+     * The same read, with the end of the range and a business-object filter on it.
+     *
+     * <p>The window is closed at both ends, like the reference's; the object filter is a set of row
+     * ids already selected by {@link #objectRowIds}, applied **before** paging so a page can never
+     * contain a row the object filter did not select. An empty set is "nothing matched", never "no
+     * filter" — the same distinction the reference makes.
+     *
+     * 同一条读，多了一个区间的终点与一个业务对象过滤。
+     *
+     * <p>区间两端闭合，与参照实现一致；对象过滤是一组已由 {@link #objectRowIds} 选出的行 id，在**分页之前**
+     * 施加，故一页里不可能有对象过滤没选中的行。空集合的意思是「没有匹配」，**不是**「没有过滤」—— 与参照
+     * 实现同一条区分。
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> rows(String userId, Instant since, Instant until, Boolean isError,
+                                          int limit, int offset, Collection<Long> objectRowIds) {
+        // "Nothing matched" has to short-circuit: an empty IN list would otherwise be dropped as if
+        // there had been no filter at all, turning a no-match into the whole chain.
+        // 「没有匹配」必须短路：空 IN 清单否则会被当成「没有过滤」丢掉，把无匹配变成整条链。
+        if (objectRowIds != null && objectRowIds.isEmpty()) {
+            return List.of();
+        }
         Specification<AuditLog> filter = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             if (userId != null) {
@@ -344,8 +385,14 @@ public class AuditService {
             if (since != null) {
                 predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), since));
             }
+            if (until != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), until));
+            }
             if (isError != null) {
                 predicates.add(cb.equal(root.get("error"), isError));
+            }
+            if (objectRowIds != null) {
+                predicates.add(root.get("id").in(objectRowIds));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
@@ -378,6 +425,40 @@ public class AuditService {
      * 不是推出来的，因为这一列自 {@code V14__execution_link} 起就在存它，而那次执行写下的副作用行上
      * 带的是**同一个值**。
      */
+    /**
+     * The chain rows that touched one business object: the effects carrying that `(resultType,
+     * resultId)` give their execution ids, and the rows of exactly those executions come back. A
+     * deployment with no effect ledger answers "no rows", not "no filter".
+     *
+     * 碰过同一条业务对象的链上那些行：带该 `(resultType, resultId)` 的副作用给出它们的执行 id，取回**恰好**
+     * 那些执行的行。没有台账的部署答「没有行」、不是「没有过滤」。
+     */
+    /**
+     * Whether this deployment can answer a business-object filter at all — it needs the ledger.
+     *
+     * 本部署能不能答业务对象过滤 —— 它需要台账。
+     */
+    public boolean hasEffectLedger() {
+        return sideEffects != null;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Long> objectRowIds(String resultType, String resultId) {
+        if (sideEffects == null) {
+            return List.of();
+        }
+        Set<String> executions = new LinkedHashSet<>();
+        for (SideEffect effect : sideEffects.findByResultTypeAndResultId(resultType, resultId)) {
+            if (effect.getExecutionId() != null) {
+                executions.add(effect.getExecutionId());
+            }
+        }
+        if (executions.isEmpty()) {
+            return List.of();
+        }
+        return repository.findByExecutionIdIn(executions).stream().map(AuditLog::getId).toList();
+    }
+
     private static Map<String, Object> row(AuditLog log) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", log.getId());
