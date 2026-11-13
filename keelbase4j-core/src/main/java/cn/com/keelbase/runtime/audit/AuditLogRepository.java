@@ -40,6 +40,16 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long>,
     List<AuditLog> findByExecutionIdOrderByIdAsc(String executionId);
 
     /**
+     * The rows of many executions at once — how a business-object filter narrows the chain: the
+     * effects that touched one object give their execution ids, and this returns the rows of exactly
+     * those executions. An empty list means "no execution", which the reader answers as "no match".
+     *
+     * 一次取多次执行的行 —— 业务对象过滤据此收窄链：碰过那条对象的副作用给出它们的执行 id，这里取回
+     * **恰好**那些执行的行。空清单的意思是「没有执行」，读面据此答「无匹配」。
+     */
+    List<AuditLog> findByExecutionIdIn(java.util.Collection<String> executionIds);
+
+    /**
      * How many rows were written at or after {@code since} — the "is the chain receiving anything"
      * reading the integration-health surface reports. It is a count, not a freshness verdict: an
      * idle deployment legitimately writes none in a day, so the reading is shown next to the most

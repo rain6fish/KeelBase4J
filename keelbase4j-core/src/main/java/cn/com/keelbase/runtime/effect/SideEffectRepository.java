@@ -22,6 +22,15 @@ public interface SideEffectRepository extends JpaRepository<SideEffect, Long>,
      */
     List<SideEffect> findByExecutionIdOrderByIdAsc(String executionId);
 
+    /**
+     * Every effect that touched one business object — the ledger side of the object filter. The key
+     * is the pair, never the id alone: `#12` of two different types are two different objects.
+     *
+     * 碰过同一条业务对象的全部副作用 —— 对象过滤的台账那一侧。键取那一**对**，绝不只看 id：两种类型各自的
+     * `#12` 是两条不同的对象。
+     */
+    List<SideEffect> findByResultTypeAndResultId(String resultType, String resultId);
+
     /** The effects a conversation's calls produced, oldest first — a trace's effect steps. */
     List<SideEffect> findByConversationIdOrderByIdAsc(String conversationId);
 

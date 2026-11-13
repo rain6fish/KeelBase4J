@@ -81,26 +81,35 @@ public class AuditController {
     }
 
     /**
-     * The rows on the chain, filtered by caller and by period.
+     * The rows on the chain, filtered by caller, by a closed period, and by business object.
      *
-     * <p>The reference's query is the shape this answers: a caller, a period, an outcome, and a
-     * window. Two things it offers are deliberately not answered here — agent and organisation
-     * identity, and the authorization-verdict view — because this runtime records none of those on
-     * an audit row. They are <em>refused</em> rather than ignored: a filter that is accepted and not
-     * applied returns a list that looks filtered and is not, and nothing downstream can tell the
-     * difference, which is worse than an error that says so.
+     * <p>The reference's query is the shape this answers: a caller, a period, an outcome, a window —
+     * and now the period's end (`until`) and an object (`objectType` + `objectId`), which is what an
+     * auditor's question needs ("everything that happened to customer #9005, last week"). The object
+     * is resolved through the ledger: the effects carrying that pair give their execution ids, and
+     * the rows of exactly those executions are the answer. Two things the reference offers are still
+     * deliberately not answered here — agent and organisation identity, and the authorization-verdict
+     * view — because this runtime records none of those on an audit row. They are <em>refused</em>
+     * rather than ignored: a filter that is accepted and not applied returns a list that looks
+     * filtered and is not, and nothing downstream can tell the difference, which is worse than an
+     * error that says so.
      *
-     * <p>链上的那些行，按调用者和一段时间筛选。
+     * <p>链上的那些行，按调用者、按闭合的区间、按业务对象筛选。
      *
-     * <p>它答的就是参照实现那条查询的形状：一个调用者、一段时间、一个结果、一个窗口。参照实现另有**两样**这里
-     * **刻意不答** —— agent 与组织身份、以及授权结论那个视图 —— 因为本运行时在审计行上**一个都不记**。它们是
-     * **被拒绝**的、不是被忽略的：一个**被接受却没被施加**的筛选回出来的是一份**看着像筛过、其实没有**的列表，
-     * 而下游分不出这个区别 —— 那比一个**把话说出来**的错误更糟。
+     * <p>它答的就是参照实现那条查询的形状：一个调用者、一段时间、一个结果、一个窗口 —— 现在还加上区间的
+     * **终点**（`until`）与**对象**（`objectType` + `objectId`），那正是审计员那个问题的两个要件（「客户
+     * #9005 上周发生过什么」）。对象经台账解析：带该对的副作用给出它们的执行 id，**恰好**那些执行的行就是
+     * 答案。参照实现另有的两样仍**刻意不答** —— agent 与组织身份、以及授权结论那个视图 —— 因为本运行时在
+     * 审计行上**一个都不记**。它们是**被拒绝**的、不是被忽略的：一个**被接受却没被施加**的筛选回出来的是一份
+     * **看着像筛过、其实没有**的列表，而下游分不出这个区别 —— 那比一个**把话说出来**的错误更糟。
      */
     @GetMapping("/audit/logs")
     public List<Map<String, Object>> logs(
             @RequestParam(required = false) String userId,
             @RequestParam(required = false) String since,
+            @RequestParam(required = false) String until,
+            @RequestParam(required = false) String objectType,
+            @RequestParam(required = false) String objectId,
             @RequestParam(required = false) String isError,
             @RequestParam(required = false) String agentId,
             @RequestParam(required = false) String orgId,
@@ -124,12 +133,32 @@ public class AuditController {
                     "this deployment records no authorisation verdict on an audit row, so it cannot "
                             + "answer the denied view");
         }
+        // Half an object filter is a 400, not a silently wider read: an input error that widens the
+        // answer is the failure this guard exists to stop.
+        // 半个对象过滤是 400、不是悄悄放宽的读：一个把答案放大的输入错误，正是这条护栏要拦的。
+        if ((objectType == null) != (objectId == null)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "objectType and objectId must be given together");
+        }
+
+        // A deployment without an effect ledger cannot answer this filter. Saying 503 is the honest
+        // answer; an empty page would read as "nothing happened to that object".
+        // 没有台账的部署答不了这个过滤。**503** 才是如实的答复；一个空页会被读成「那条对象什么都没发生」。
+        if (objectType != null && !audit.hasEffectLedger()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "this deployment has no effect ledger, so it cannot search by business object");
+        }
+        List<Long> objectRows = objectType == null
+                ? null
+                : audit.objectRowIds(objectType, objectId);
 
         return audit.rows(userId,
                 since == null ? null : instant(since),
+                until == null ? null : instant(until),
                 outcome(isError),
                 Math.min(Math.max(limit, 1), MAX_LIMIT),
-                Math.min(Math.max(offset, 0), MAX_OFFSET));
+                Math.min(Math.max(offset, 0), MAX_OFFSET),
+                objectRows);
     }
 
     /**
