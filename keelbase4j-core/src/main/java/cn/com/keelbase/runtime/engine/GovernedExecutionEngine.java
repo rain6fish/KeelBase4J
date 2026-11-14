@@ -369,9 +369,10 @@ public class GovernedExecutionEngine {
         //
         // C-3：这是**一次尝试**、不是一次结局 —— 与 intent 行同形（结局在它后面那一行，见
         // `executeApproved` 尾部那条）。故用 `attempted`，而不是为「重试」另造一个值。
+        String executionId = newExecutionId();
         audit.append("tool_confirmation", retriedBy.userId(), req.getToolName() + " execution retried",
-                false, "attempted", req.getToolName(), req.getConversationId());
-        return executeApproved(req, initiator(req, retriedBy));
+                false, "attempted", req.getToolName(), req.getConversationId(), null, executionId);
+        return executeApproved(req, initiator(req, retriedBy), executionId);
     }
 
     /**
@@ -398,9 +399,19 @@ public class GovernedExecutionEngine {
         // than it was raised, and this request has no conversation of its own.
         //
         // 会话从**行**里读、不从这次请求读：确认被回答的时刻晚于它被签发，而这次请求本身没有会话。
+        //
+        // The approval row carries the execution it authorizes, and that is what lets the object read
+        // face find it: the execution's effect names the object, the effect names its execution id, and
+        // the rows of that execution now include the decision. Without it the row was invisible to
+        // `objectType` + `objectId` — the write was found and the person who approved it was not.
+        //
+        // 批准行带上**它所授权的那次执行**，对象读面正是凭这一点找到它：执行的 effect 点名对象、
+        // effect 带执行 id，而那次执行的行如今包括这次裁决。没有它，这一行对 `objectType` + `objectId`
+        // 不可见 —— 写找得到，批准它的人找不到。
+        String executionId = newExecutionId();
         audit.append("tool_confirmation", decider.userId(), tool.name() + " approved (" + via + ")",
-                false, "approved", tool.name(), req.getConversationId());
-        return executeApproved(req, initiator(req, decider));
+                false, "approved", tool.name(), req.getConversationId(), null, executionId);
+        return executeApproved(req, initiator(req, decider), executionId);
     }
 
     /**
@@ -420,6 +431,18 @@ public class GovernedExecutionEngine {
      * **都通过**。条件才是让「至多一次尝试」成立的东西，也是拒绝一条**已成功**的行的东西。
      */
     private ExecutionOutcome executeApproved(ConfirmationRequest req, Principal initiator) {
+        return executeApproved(req, initiator, newExecutionId());
+    }
+
+    /**
+     * The same, with the execution id the decision's own row already carries — so the approval row and
+     * the attempt it started name one execution rather than two.
+     *
+     * 同上，并带上**裁决自己那行已经写着**的执行 id —— 好让批准行与它开启的那次尝试指同一次执行，
+     * 而不是各指一次。
+     */
+    private ExecutionOutcome executeApproved(ConfirmationRequest req, Principal initiator,
+                                             String executionId) {
         AiTool tool = registry.require(req.getToolName());
         // The row then records that an attempt took it, so an attempt that never reports back reads as
         // such instead of as "approved, nothing happened". The claim is the lease — an attempt the
@@ -447,7 +470,7 @@ public class GovernedExecutionEngine {
             // 而让这次写跑起来的是**那个人的回答** —— 它留在确认行与旁边那条 `approved` 行上。依据留空，让「凭什么
             // 放它」在**真正写了东西的那一行**上答不出来；依据是**两件事合起来**，不只是那次批准本身。
             outcome = run(tool, parseArgs(req.getArgsJson()), initiator, req.getConversationId(),
-                    CanonicalJson.json(governance.reasons(tool, initiator).toWire()));
+                    CanonicalJson.json(governance.reasons(tool, initiator).toWire()), executionId);
         } catch (RuntimeException failed) {
             // The tool threw instead of answering. The attempt is recorded as failed and keeps its
             // claim on purpose: clearing it would say the attempt never happened, and a claim with no
@@ -582,14 +605,26 @@ public class GovernedExecutionEngine {
      */
     private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal,
                                  String conversationId, String authorization) {
+        return run(tool, args, principal, conversationId, authorization, newExecutionId());
+    }
+
+    /**
+     * The same, with the id supplied rather than minted — the approval path has already put it on the
+     * decision's row, and one attempt must not answer to two names.
+     *
+     * 同上，id 由调用方给、不在这里生成 —— 审批路径已经把它写在裁决行上，而一次尝试不该有两个名字。
+     */
+    private ExecutionOutcome run(AiTool tool, Map<String, Object> args, Principal principal,
+                                 String conversationId, String authorization, String executionId) {
         String argsJson = CanonicalJson.json(args);
-        // One id per attempt, minted before anything is written: the intent row needs it first, and
+        // One id per attempt, settled before anything is written: the intent row needs it first, and
         // every later row of this execution reads it off here. It is deliberately not derived from the
-        // call's content — two identical calls are two attempts, and each must be separable.
+        // call's content — two identical calls are two attempts, and each must be separable. The
+        // approval path supplies it because its own row was written before this method ran.
         //
-        // 每次尝试一个 id，在任何行写下之前生成：intent 行最先要它，而这次执行后面的每一行都从这里取。
-        // 它刻意**不**从调用的内容推导 —— 两次相同的调用就是两次尝试，必须能分开。
-        String executionId = UUID.randomUUID().toString();
+        // 每次尝试一个 id，在任何行写下之前定下：intent 行最先要它，而这次执行后面的每一行都从这里取。
+        // 它刻意**不**从调用的内容推导 —— 两次相同的调用就是两次尝试，必须能分开。审批路径由调用方传入，
+        // 因为它自己那一行在本方法运行之前就已写下。
         ToolResult result;
         boolean claimed = false;
         try {
@@ -956,5 +991,16 @@ public class GovernedExecutionEngine {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> parseArgs(String argsJson) {
         return (Map<String, Object>) cn.com.keelbase.protocol.Json.parse(argsJson);
+    }
+
+    /**
+     * One id per attempt, minted before any row is written. Not derived from the call's content: two
+     * identical calls are two attempts and each must be separable.
+     *
+     * 每次尝试一个 id，在任何行写下之前生成。它刻意**不**从调用的内容推导：两次相同的调用就是两次尝试，
+     * 必须能分开。
+     */
+    private static String newExecutionId() {
+        return UUID.randomUUID().toString();
     }
 }

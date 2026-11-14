@@ -22,6 +22,19 @@ Each version is written in two blocks — English first, then Chinese — marked
   so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
   change.
 
+### Fixed
+
+- **Object search keeps the approval row that let a write through.** `GET /audit/logs?objectType=…&objectId=…`
+  selected rows by execution id, and the `tool_confirmation approved` row carried none: the write was
+  found and the second person who approved it was not, so the six-question read could not name the
+  approver. An approval row (and a retry's attempt row) now carries the execution it authorized, and
+  the object answer includes the decision beside the write. No contract field, route or action was
+  added — `executionId` is the optional v6 correlation key and simply gains these rows. **Rows written
+  before this change keep a null id on their approval row and stay unlinkable:** the link was never
+  recorded, and rebuilding it from tool name, conversation and timestamps is the guess
+  `V14__execution_link` exists to refuse. A blocked, pending or declined proposal still has no
+  execution and is not part of the object answer — it is a mention of the object, not a write to it.
+
 **中文**
 
 ### 变更
@@ -29,6 +42,16 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **版本为 `0.1.19-SNAPSHOT`。** 八个 pom 由 `0.1.18` 抬到 `0.1.19-SNAPSHOT`。`v0.1.18` 已发布（tag 对象
   `5f3a7cb9d5` 指向提交 `2fa836c`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
   拒绝的；在干净 runner 上不存在 `0.1.19` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
+
+### 修复
+
+- **对象检索保留放行那次写的那条批准行。** `GET /audit/logs?objectType=…&objectId=…` 按执行 id 选行，而
+  `tool_confirmation approved` 那一行不带执行 id：写找得到、批准它的第二个人找不到，六问读面因此点不出
+  批准人。批准行（以及重试的那条尝试行）现在带着它所授权的那次执行，对象答案把裁决放在写旁边。**没有新增
+  契约字段、路由或动作** —— `executionId` 是 v6 那个可选关联键，只是多了这几行。**本次改动之前写下的行，
+  批准行上仍是 null、仍然接不回来：** 那条关联从未被记录过，而用工具名、会话与时间戳去重建它，正是
+  `V14__execution_link` 立在那里要拒绝的**猜**。被拦截、待决与否决的提议仍然没有执行，故仍不在对象答案里
+  —— 它们是对这条对象的**提及**，不是对它的**写**。
 
 ## [0.1.18] - 2026-11-13
 
@@ -45,8 +68,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   read; an object nothing touched is a no-match rather than the whole chain; a deployment with no
   effect ledger answers **503** rather than an empty page that would read as "nothing happened". No
   contract field was added — the endpoint's parameters are not part of the frozen row schema. The host
-  console now sends all three alongside `since`; an older runtime ignores the unknown parameters while
-  the console's own narrowing still decides, so the answer is the same under either.
+  console now sends all three alongside `since`. **An older runtime does not answer the same query
+  alike:** 0.1.17 has no such parameters, Spring ignores unknown query parameters rather than refusing
+  them, and the console can only narrow the rows it already holds — so an older runtime answers the
+  wider list. This entry said the opposite; the correction is part of the object-search fix below.
 
 ### Changed
 
@@ -69,8 +94,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   （行自己时间上的闭合上界）与 `objectType` + `objectId`：带该对的副作用给出它们的执行 id，**恰好**那些
   执行的行就是答案，且在分页之前施加。半个对象过滤是 **400**、不是悄悄放宽的读；没有东西碰过的对象是
   「无匹配」、不是整条链；没有副作用台账的部署答 **503**、不是一个会被读成「什么都没发生」的空页。**没有
-  新增契约字段** —— 端点的参数不属于冻结的行 schema。宿主控制台现在把三个参数与 `since` 一并发送；旧运行时
-  忽略不认识的参数，而控制台自己的收窄照旧决定，故两种运行时下答案一致。
+  新增契约字段** —— 端点的参数不属于冻结的行 schema。宿主控制台现在把三个参数与 `since` 一并发送。**旧运行时
+  答同一条查询答得不一样：** 0.1.17 没有这些形参，Spring 对不认识的查询参数是**忽略**、不是拒绝，而控制台只能
+  收窄它**已经拿到**的那些行 —— 故旧运行时答的是**更宽**的那份列表。本条原先写的是相反的结论；更正随下面那条
+  对象检索修复一并落下。
 
 ### 变更
 

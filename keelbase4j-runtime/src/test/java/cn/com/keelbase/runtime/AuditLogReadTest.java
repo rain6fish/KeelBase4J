@@ -9,8 +9,15 @@ import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.protocol.Vectors;
 import cn.com.keelbase.protocol.WireSchemas;
 import cn.com.keelbase.runtime.audit.AuditService;
+import cn.com.keelbase.runtime.domain.Customer;
+import cn.com.keelbase.runtime.domain.CustomerRepository;
+import cn.com.keelbase.runtime.domain.FollowUp;
+import cn.com.keelbase.runtime.domain.FollowUpRepository;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
+import cn.com.keelbase.runtime.engine.ExecutionOutcome;
+import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
+import cn.com.keelbase.runtime.identity.Principal;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +87,15 @@ class AuditLogReadTest {
 
     @Autowired
     SideEffectRepository sideEffects;
+
+    @Autowired
+    GovernedExecutionEngine engine;
+
+    @Autowired
+    CustomerRepository customers;
+
+    @Autowired
+    FollowUpRepository followUps;
 
     @Value("${keelbase.delegation.secret}")
     String delegationSecret;
@@ -288,5 +304,55 @@ class AuditLogReadTest {
                 "half an object filter must be refused rather than widened");
         assertEquals(400, get("/audit/logs?objectId=1", ADMIN).getStatusCode().value(),
                 "half an object filter must be refused rather than widened");
+    }
+
+    /**
+     * An R4 write found by its object carries the approval row, so the six-question read can name the
+     * second person who let it through.
+     *
+     * <p>Before this, object search selected only the rows carrying an execution id, and the approval
+     * row carried none: the write was found and "who approved it" had no row to read. The approval now
+     * names the execution it authorized, and the read face returns it beside the write. A block, a
+     * pending proposal and a decline stay out — they are mentions of the object, not writes to it.
+     *
+     * 按对象找回来的一笔 R4 写带着那条批准行，于是六问读面点得出放行它的第二个人。
+     *
+     * <p>在此之前，对象检索只选带执行 id 的行，而批准行一个都不带：写找得到，「是谁批的」却没有一行可读。
+     * 批准行现在点名它所授权的那次执行，读面把它与写一起回出来。拦截、待决与否决仍不在其中 —— 它们是对
+     * 这条对象的提及，不是对它的写。
+     */
+    @Test
+    void anApprovedWriteIsFoundByItsObjectWithTheRowThatNamesTheApprover() {
+        Long customerId = customers.save(new Customer("Object Read Co", "low", "alice")).getId();
+        ExecutionOutcome asked = engine.execute("escalate_customer", Map.of("customerId", customerId),
+                new Principal("alice", "user"));
+        assertEquals("requires_approval", asked.status(), "R4 waits for a second person");
+
+        ExecutionOutcome approved = engine.decideApproval(asked.token(),
+                new Principal("carol", "admin"), "approve");
+        assertEquals("executed", approved.status(), "the second person's answer runs the write");
+
+        FollowUp written = followUps.findByCustomerIdAndDeletedAtIsNull(customerId).stream()
+                .findFirst().orElseThrow();
+        List<?> found = rows("?objectType=follow_up&objectId=" + written.getId(), ADMIN);
+
+        Map<?, ?> executed = found.stream()
+                .map(row -> (Map<?, ?>) row)
+                .filter(row -> "tool_call".equals(row.get("action"))
+                        && "executed".equals(row.get("outcome")))
+                .findFirst().orElse(null);
+        Map<?, ?> approval = found.stream()
+                .map(row -> (Map<?, ?>) row)
+                .filter(row -> "tool_confirmation".equals(row.get("action"))
+                        && "approved".equals(row.get("outcome")))
+                .findFirst().orElse(null);
+
+        assertTrue(executed != null, "the write's own rows are in the answer: " + found);
+        assertTrue(approval != null,
+                "the approval row must be beside the write it let through: " + found);
+        assertEquals("carol", approval.get("userId"),
+                "the fifth question reads the approver off this row");
+        assertEquals(executed.get("executionId"), approval.get("executionId"),
+                "one execution, one id: the decision and the attempt it started are the same execution");
     }
 }

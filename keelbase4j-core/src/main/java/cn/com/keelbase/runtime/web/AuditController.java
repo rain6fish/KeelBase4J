@@ -87,21 +87,30 @@ public class AuditController {
      * and now the period's end (`until`) and an object (`objectType` + `objectId`), which is what an
      * auditor's question needs ("everything that happened to customer #9005, last week"). The object
      * is resolved through the ledger: the effects carrying that pair give their execution ids, and
-     * the rows of exactly those executions are the answer. Two things the reference offers are still
-     * deliberately not answered here — agent and organisation identity, and the authorization-verdict
-     * view — because this runtime records none of those on an audit row. They are <em>refused</em>
-     * rather than ignored: a filter that is accepted and not applied returns a list that looks
-     * filtered and is not, and nothing downstream can tell the difference, which is worse than an
-     * error that says so.
+     * the rows of exactly those executions are the answer. That set is the **writes that landed** —
+     * the intent and result rows of each attempt and, since an approval row carries the execution it
+     * authorized, the decision that let it through. A row written before the approval carried that id
+     * (0.1.18 and earlier) has no link to walk and stays out; there the answer is the write alone. A
+     * block, a pending proposal and a decline have no execution and are not in it either: they are
+     * mentions of the object, not writes to it. Two things the reference offers are still deliberately
+     * not answered here — agent and organisation identity, and the authorization-verdict view —
+     * because this runtime records none of those on an audit row. They are <em>refused</em> rather
+     * than ignored: a filter that is accepted and not applied returns a list that looks filtered and
+     * is not, and nothing downstream can tell the difference, which is worse than an error that says
+     * so.
      *
      * <p>链上的那些行，按调用者、按闭合的区间、按业务对象筛选。
      *
      * <p>它答的就是参照实现那条查询的形状：一个调用者、一段时间、一个结果、一个窗口 —— 现在还加上区间的
      * **终点**（`until`）与**对象**（`objectType` + `objectId`），那正是审计员那个问题的两个要件（「客户
      * #9005 上周发生过什么」）。对象经台账解析：带该对的副作用给出它们的执行 id，**恰好**那些执行的行就是
-     * 答案。参照实现另有的两样仍**刻意不答** —— agent 与组织身份、以及授权结论那个视图 —— 因为本运行时在
-     * 审计行上**一个都不记**。它们是**被拒绝**的、不是被忽略的：一个**被接受却没被施加**的筛选回出来的是一份
-     * **看着像筛过、其实没有**的列表，而下游分不出这个区别 —— 那比一个**把话说出来**的错误更糟。
+     * 答案。这个集合是**已落地的那些写** —— 每次尝试的 intent 行与结果行，以及（因为批准行带着它所授权的
+     * 那次执行）放行它的那次裁决。批准行带上这个 id **之前**（0.1.18 及更早）写下的行没有关联可走，仍不在
+     * 其中；那种数据下答案只有那一笔写。拦截、待决与否决也没有执行，故同样不在其中：它们是对这条对象的
+     * **提及**，不是对它的**写**。参照实现另有的两样仍**刻意不答** —— agent 与组织身份、以及授权结论那个
+     * 视图 —— 因为本运行时在审计行上**一个都不记**。它们是**被拒绝**的、不是被忽略的：一个**被接受却没被
+     * 施加**的筛选回出来的是一份**看着像筛过、其实没有**的列表，而下游分不出这个区别 —— 那比一个**把话说
+     * 出来**的错误更糟。
      */
     @GetMapping("/audit/logs")
     public List<Map<String, Object>> logs(

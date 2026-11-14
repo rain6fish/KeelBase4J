@@ -85,18 +85,22 @@ public class AuditLog {
 
     /**
      * The execution this row belongs to, or null when no execution produced it — a block, a pending
-     * decision, an approval or a decline. The intent row, the result row and the side-effect row of
-     * one execution share this value, which is what pairs them without guessing from the conversation,
-     * the tool name and the timestamps (see {@code V14__execution_link}). Not part of the hashed
-     * payload, so adding it beside the chain leaves every existing chain verifiable.
+     * decision or a decline. The intent row, the result row and the side-effect row of one execution
+     * share this value, which is what pairs them without guessing from the conversation, the tool name
+     * and the timestamps (see {@code V14__execution_link}). An <b>approval</b> row carries the
+     * execution it authorized and a retry row the attempt it started, so the object read face finds
+     * the decision beside the write it let through instead of returning the write alone. Not part of
+     * the hashed payload, so adding it beside the chain leaves every existing chain verifiable.
      *
      * <p>The id names an <em>attempt</em>: making the same call twice yields two ids, and an attempt
      * that reuses an effect it already produced still gets its own — the effect row keeps the id of
      * the execution that actually wrote it.
      *
-     * 本行所属的**执行**；没有执行产出它时为 null —— 拦截、待决、批准、否决都是这样。同一次执行的 intent 行、
+     * 本行所属的**执行**；没有执行产出它时为 null —— 拦截、待决、否决都是这样。同一次执行的 intent 行、
      * 结果行与副作用行共享这个值，正是它把三行配上、而不必从会话、工具名与时间戳去猜（见
-     * `V14__execution_link`）。不进哈希载荷，故把它加在链**旁边**不破坏任何既有链。
+     * `V14__execution_link`）。**批准**行带的是它所授权的那次执行、重试行带的是它开启的那次尝试，于是对象
+     * 读面在写旁边找得到放行它的那次裁决，而不是只回那一笔写。不进哈希载荷，故把它加在链**旁边**不破坏任何
+     * 既有链。
      *
      * <p>这个 id 指的是一次**尝试**：同一次调用做两遍会拿到两个 id；即使一次尝试复用了它此前产出的 effect，
      * 它自己也仍有一个 —— effect 行保留**真正写下它**的那次执行的 id。
