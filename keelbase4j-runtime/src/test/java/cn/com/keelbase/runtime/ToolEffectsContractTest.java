@@ -115,18 +115,22 @@ class ToolEffectsContractTest {
     }
 
     /**
-     * One governed execution is one correlation key, and both surfaces carry it with the same value.
+     * One governed execution is one correlation key, and every surface carries it with the same value —
+     * the decision that authorized it included.
      *
      * <p>The effect list and the audit chain are written by the same call, but they are read through
-     * two different projections; a client pairs them by {@code executionId} only if both project the
-     * column. The contract made the field optional (v6), so a projection that forgot it would still
-     * validate — which is why this asserts the pairing itself rather than the field's presence alone.
+     * different projections; a client pairs them by {@code executionId} only if every projection
+     * carries the column. The contract made the field optional (v6), so a projection that forgot it
+     * would still validate — which is why this asserts the pairing itself rather than the field's
+     * presence alone. The confirmation's approval row belongs to the execution it authorized, and it
+     * is what lets the object read face name the approver beside the write.
      *
-     * 一次受治理执行就是一个关联键，而两个面带的是**同一个值**。
+     * 一次受治理执行就是一个关联键，而**每个面**带的都是**同一个值** —— 包括放行它的那次裁决。
      *
-     * <p>副作用清单与审计链由同一次调用写下，却经**两个不同的投影**读出；只有当两边都投影了那一列，
-     * 客户端才能按 {@code executionId} 把它们配起来。契约把该字段定为可选（v6），故**漏掉它**的投影照样
-     * 能通过校验 —— 这正是这里断言**配对本身**、而不只是字段存在的原因。
+     * <p>副作用清单与审计链由同一次调用写下，却经**不同的投影**读出；只有当每个投影都带着那一列，客户端
+     * 才能按 {@code executionId} 把它们配起来。契约把该字段定为可选（v6），故**漏掉它**的投影照样能通过
+     * 校验 —— 这正是这里断言**配对本身**、而不只是字段存在的原因。确认的批准行属于它所授权的那次执行，
+     * 对象读面正是凭这一点在写旁边点名批准人。
      */
     @Test
     void theEffectAndItsAuditRowCarryTheSameExecutionId() {
@@ -150,13 +154,22 @@ class ToolEffectsContractTest {
         // Read as the administrator, because the chain is not a roster every caller may read.
         // 以管理员身份读，因为这条链不是每个调用方都能读的花名册。
         List<?> auditRows = Envelopes.data(getAs("/audit/logs?userId=alice&limit=100", "carol"));
-        long matching = auditRows.stream()
+        List<?> matching = auditRows.stream()
                 .map(row -> (Map<?, ?>) row)
-                .filter(row -> executionId.equals(row.get("executionId")))
-                .count();
-        assertEquals(2, matching,
-                "the attempted and executed audit rows of that execution both carry the same key — "
-                        + "and no other row does");
+                .filter(row -> executionId.equals(((Map<?, ?>) row).get("executionId")))
+                .toList();
+        assertEquals(3, matching.size(),
+                "the approval, attempted and executed audit rows of that execution all carry the same "
+                        + "key — and no other row does");
+        assertTrue(matching.stream().map(row -> ((Map<?, ?>) row).get("outcome"))
+                        .toList().containsAll(List.of("approved", "attempted", "executed")),
+                "the decision is beside the write it let through: " + matching);
+        Map<?, ?> decision = matching.stream()
+                .map(row -> (Map<?, ?>) row)
+                .filter(row -> "approved".equals(row.get("outcome")))
+                .findFirst().orElseThrow();
+        assertEquals("alice", decision.get("userId"),
+                "and the approval row names the person who answered");
     }
 
     private Map<String, Object> get(String path) {

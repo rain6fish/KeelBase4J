@@ -169,19 +169,21 @@ public class AuditService {
 
     /**
      * The same, plus the execution this row belongs to — the key that pairs the intent, result and
-     * side-effect rows of one attempt.
+     * side-effect rows of one attempt. An approval passes the execution it authorizes (and a retry the
+     * attempt it starts), which is how the object read face reaches the decision beside the write; a
+     * block, a pending decision and a decline pass null, and a row written before the column existed
+     * has no id to carry.
      *
      * <p>An overload for the reason the shorter calls are: a published artifact carries their
-     * signatures, and a signature that gains a parameter breaks a caller with none to pass. A row
-     * written through the shorter call carries null — a block, a pending decision, an approval or a
-     * decline is not part of an execution, and a row written before the column existed has no id to
-     * carry. The link is stored beside the chain, not inside it (see {@code V14__execution_link}).
+     * signatures, and a signature that gains a parameter breaks a caller with none to pass. The link
+     * is stored beside the chain, not inside it (see {@code V14__execution_link}).
      *
-     * 同上，另加本行所属的**执行** —— 正是它把同一次尝试的 intent、结果与副作用三行配到一起。
+     * 同上，另加本行所属的**执行** —— 正是它把同一次尝试的 intent、结果与副作用三行配到一起。批准行传入它
+     * 所授权的那次执行（重试行传入它开启的那次尝试），对象读面正是凭这一点在写旁边够到那次裁决；拦截、待决与
+     * 否决传 null，而在本列存在之前写下的行没有 id 可带。
      *
      * <p>做成**重载**，理由与那些更短的调用相同：**已发布**的 artifact 带着它们的签名，而签名多一个参数会让
-     * 手上没有这个值的调用方编译不过。走短签名的行带 null —— 拦截、待决、批准、否决都不属于任何一次执行，
-     * 而在本列存在之前写下的行没有 id 可带。这条链**存在链旁边、不在链里面**（见 `V14__execution_link`）。
+     * 手上没有这个值的调用方编译不过。这条链**存在链旁边、不在链里面**（见 `V14__execution_link`）。
      */
     @Transactional
     public AuditLog append(String action, String userId, String detail, boolean isError,
@@ -405,6 +407,45 @@ public class AuditService {
     }
 
     /**
+     * Whether this deployment can answer a business-object filter at all — it needs the ledger.
+     *
+     * 本部署能不能答业务对象过滤 —— 它需要台账。
+     */
+    public boolean hasEffectLedger() {
+        return sideEffects != null;
+    }
+
+    /**
+     * The chain rows that touched one business object: the effects carrying that `(resultType,
+     * resultId)` give their execution ids, and the rows of exactly those executions come back — the
+     * intent and result rows of the attempt, <b>and the approval row that authorized it</b>, which
+     * carries the same id. A block, a pending proposal and a decline have no execution and are
+     * therefore not here; the answer is "the rows of the writes that landed", not every mention of the
+     * object. A deployment with no effect ledger answers "no rows", not "no filter".
+     *
+     * 碰过同一条业务对象的链上那些行：带该 `(resultType, resultId)` 的副作用给出它们的执行 id，取回**恰好**
+     * 那些执行的行 —— 这次尝试的 intent 行与结果行，**以及授权它的那条批准行**（它带同一个 id）。拦截、待决
+     * 与否决没有执行，故不在这里；答案是「**已落地的那些写**的行」，不是对这条对象的每一次提及。没有台账的
+     * 部署答「没有行」、不是「没有过滤」。
+     */
+    @Transactional(readOnly = true)
+    public List<Long> objectRowIds(String resultType, String resultId) {
+        if (sideEffects == null) {
+            return List.of();
+        }
+        Set<String> executions = new LinkedHashSet<>();
+        for (SideEffect effect : sideEffects.findByResultTypeAndResultId(resultType, resultId)) {
+            if (effect.getExecutionId() != null) {
+                executions.add(effect.getExecutionId());
+            }
+        }
+        if (executions.isEmpty()) {
+            return List.of();
+        }
+        return repository.findByExecutionIdIn(executions).stream().map(AuditLog::getId).toList();
+    }
+
+    /**
      * One row, in the frozen {@code ai-audit-log-row} shape — the fields this runtime has, and nothing
      * beyond them ({@code additionalProperties} is false, so a guess would be a violation rather than
      * a courtesy). It was six; C-3 added {@code outcome} and {@code tool}, which the runtime's own
@@ -425,40 +466,6 @@ public class AuditService {
      * 不是推出来的，因为这一列自 {@code V14__execution_link} 起就在存它，而那次执行写下的副作用行上
      * 带的是**同一个值**。
      */
-    /**
-     * The chain rows that touched one business object: the effects carrying that `(resultType,
-     * resultId)` give their execution ids, and the rows of exactly those executions come back. A
-     * deployment with no effect ledger answers "no rows", not "no filter".
-     *
-     * 碰过同一条业务对象的链上那些行：带该 `(resultType, resultId)` 的副作用给出它们的执行 id，取回**恰好**
-     * 那些执行的行。没有台账的部署答「没有行」、不是「没有过滤」。
-     */
-    /**
-     * Whether this deployment can answer a business-object filter at all — it needs the ledger.
-     *
-     * 本部署能不能答业务对象过滤 —— 它需要台账。
-     */
-    public boolean hasEffectLedger() {
-        return sideEffects != null;
-    }
-
-    @Transactional(readOnly = true)
-    public List<Long> objectRowIds(String resultType, String resultId) {
-        if (sideEffects == null) {
-            return List.of();
-        }
-        Set<String> executions = new LinkedHashSet<>();
-        for (SideEffect effect : sideEffects.findByResultTypeAndResultId(resultType, resultId)) {
-            if (effect.getExecutionId() != null) {
-                executions.add(effect.getExecutionId());
-            }
-        }
-        if (executions.isEmpty()) {
-            return List.of();
-        }
-        return repository.findByExecutionIdIn(executions).stream().map(AuditLog::getId).toList();
-    }
-
     private static Map<String, Object> row(AuditLog log) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", log.getId());
