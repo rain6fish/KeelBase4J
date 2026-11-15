@@ -10,17 +10,9 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
-## [Unreleased]
+## [0.1.19] - 2026-11-15
 
 **English**
-
-### Changed
-
-- **The version is `0.1.19-SNAPSHOT`.** All eight poms move from `0.1.18` to `0.1.19-SNAPSHOT`. `v0.1.18`
-  is published (tag object `5f3a7cb9d5` points at commit `2fa836c`), and CI's `version-coordinate` job
-  refuses a tree that keeps building under a released number; on a clean runner no `0.1.19` tag exists,
-  so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
-  change.
 
 ### Fixed
 
@@ -34,14 +26,12 @@ Each version is written in two blocks — English first, then Chinese — marked
   recorded, and rebuilding it from tool name, conversation and timestamps is the guess
   `V14__execution_link` exists to refuse. A blocked, pending or declined proposal still has no
   execution and is not part of the object answer — it is a mention of the object, not a write to it.
+- **The `0.1.18` entry's claim about older runtimes is corrected.** It said an older runtime answers
+  the same query alike; it does not. Spring ignores unknown query parameters rather than refusing
+  them, so a runtime without the object filter answers the wider list. The correction sits in the
+  `0.1.18` section itself.
 
 **中文**
-
-### 变更
-
-- **版本为 `0.1.19-SNAPSHOT`。** 八个 pom 由 `0.1.18` 抬到 `0.1.19-SNAPSHOT`。`v0.1.18` 已发布（tag 对象
-  `5f3a7cb9d5` 指向提交 `2fa836c`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
-  拒绝的；在干净 runner 上不存在 `0.1.19` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
 
 ### 修复
 
@@ -52,6 +42,9 @@ Each version is written in two blocks — English first, then Chinese — marked
   批准行上仍是 null、仍然接不回来：** 那条关联从未被记录过，而用工具名、会话与时间戳去重建它，正是
   `V14__execution_link` 立在那里要拒绝的**猜**。被拦截、待决与否决的提议仍然没有执行，故仍不在对象答案里
   —— 它们是对这条对象的**提及**，不是对它的**写**。
+- **`0.1.18` 条目里关于旧运行时的那句陈述已更正。** 原文说旧运行时对同一条查询答得一样；并非如此。
+  Spring 对不认识的查询参数是**忽略**、不是拒绝，故没有对象过滤的运行时答的是**更宽**的那份列表。
+  更正落在 `0.1.18` 一节本身。
 
 ## [0.1.18] - 2026-11-13
 
@@ -1493,7 +1486,8 @@ application depends on.
   发布什么一直是由 **reactor** 决定的，0.1.2 的 `release.yml` 头注已按实况写明。原文保留在上。]**
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.18...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.19...HEAD
+[0.1.19]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.19
 [0.1.18]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.18
 [0.1.3]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.2
