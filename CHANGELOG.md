@@ -14,6 +14,17 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 **English**
 
+### Added
+
+- **A published jar now says which contract it was built against.** Every jar carries
+  `KeelBase-Contract-Version` in `META-INF/MANIFEST.MF`, written at build time by `maven-jar-plugin`
+  from a property the release workflow fills from the contract pin. `keelbase4j-core:0.1.19` on
+  Central did not: a consumer could not tell from the downloaded bytes which contract version the
+  artifact installed, and the only evidence lived in this repository. The pin is not restated in a
+  new place — `scripts/check-pin-lag.sh` gained a print mode that reads it out of
+  `.github/workflows/release.yml`, and both the release job and the release rehearsal pass that value
+  in. A build that does not pass the property writes no entry, rather than an empty claim.
+
 ### Changed
 
 - **The version is `0.1.20-SNAPSHOT`.** All eight poms move from `0.1.19` to `0.1.20-SNAPSHOT`. `v0.1.19`
@@ -23,6 +34,15 @@ Each version is written in two blocks — English first, then Chinese — marked
   change.
 
 **中文**
+
+### 新增
+
+- **已发布的 jar 现在自述它按哪一版契约构建。** 每个 jar 的 `META-INF/MANIFEST.MF` 都带
+  `KeelBase-Contract-Version`，由 `maven-jar-plugin` 在构建期写入，值来自发布工作流按契约 pin 填好的
+  属性。Central 上的 `keelbase4j-core:0.1.19` 并不带它：消费者无法从下载到的字节得知这份产物装的是哪
+  一版契约，唯一的证据只在本仓里。pin 没有在新增的一处地方被重述——`scripts/check-pin-lag.sh` 新增了
+  打印模式，从 `.github/workflows/release.yml` 里读出它，发布 job 与发布彩排都传入这个值。没传该属性的
+  构建不写这一条，而不是留一条空口声称。
 
 ### 变更
 

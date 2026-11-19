@@ -351,8 +351,15 @@ jobs:
       # it found this one, on its first run.
       - name: Install the module the publish set builds against but does not publish
         run: mvn -B -ntp -DskipTests install -pl keelbase4j-runtime -am
+      # The contract version goes in here too, for the same reason the module list does: this job is
+      # the rehearsal, and a rehearsal that skips the build input the release passes is rehearsing a
+      # different build. The value is read from the pin, never restated — the reader is the one the
+      # release job uses.
+      #
+      # 契约版本也在这里传入，理由与模块清单相同：这个 job 是彩排，而漏掉发布所用的构建输入的彩排，
+      # 彩排的是另一次构建。值读自 pin、从不重述——读法与发布 job 用的是同一个。
       - name: Build the publish set, sources and javadoc included
-        run: mvn -B -ntp -Prelease -DskipTests -pl 'keelbase4j-springai,!keelbase4j-runtime' -am package
+        run: mvn -B -ntp -Prelease -DskipTests -pl 'keelbase4j-springai,!keelbase4j-runtime' -am package -Dkeelbase.contract.version="$(bash scripts/check-pin-lag.sh --print-pin)"
       # The same assertion as in conformance, on the same two legs, and here for a second reason: this
       # is the job that answers "would a release build on this JDK", so the build the release would
       # actually run on is worth naming. See the conformance job for why the check reads the build
