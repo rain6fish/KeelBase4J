@@ -8,6 +8,7 @@ import cn.com.keelbase.runtime.authz.RuleDeniedException;
 import cn.com.keelbase.runtime.effect.ResultIds;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectService;
+import cn.com.keelbase.runtime.effect.WriteClaim;
 import cn.com.keelbase.runtime.effect.WriteClaimService;
 import cn.com.keelbase.runtime.governance.ConfirmationMode;
 import cn.com.keelbase.runtime.governance.ConfirmationRequest;
@@ -633,7 +634,7 @@ public class GovernedExecutionEngine {
             if (reused != null) {
                 return reused;
             }
-            claimed = claimForExecution(tool, argsJson, principal);
+            claimed = claimForExecution(tool, argsJson, principal, conversationId);
             // The intent row (D36 ②): written before the tool runs, so "who tried" never goes missing
             // even when the tool's own write lands and the bookkeeping after it does not. Same shape
             // as the refusal row in the catch below; its outcome is the line after it.
@@ -762,15 +763,26 @@ public class GovernedExecutionEngine {
      *
      * <p>读不占位：它什么都不写，也就没什么可仲裁；而每次读留一行，等于给「什么都没有」记账。
      */
-    private boolean claimForExecution(AiTool tool, String argsJson, Principal principal) {
+    private boolean claimForExecution(AiTool tool, String argsJson, Principal principal,
+                                      String conversationId) {
         if (tool.resultType() == null) {
             return false;
         }
-        WriteClaimService.Outcome claim = claims.claim(principal, tool.name(), argsJson);
+        WriteClaimService.Outcome claim = claims.claim(principal, tool.name(), argsJson, conversationId);
         if (!claim.won()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "this call is already being executed (claim: " + claim.status() + ")"
-                            + " — the same call is not run twice");
+            // The two refusals mean different things to the caller and to an operator. "In flight" is
+            // a wait; "closed unknown" is a person's decision that the outcome will never be known,
+            // and naming the claim is what lets that person be the one to move it.
+            //
+            // 这两种拒绝对调用方与运维含义不同。「在飞」是等一下；「已按未知关闭」是一个人作出的决定 ——
+            // 那次写的结局永远不会有人知道 —— 而点名那份占位，正是让那个人能推进它的方式。
+            String why = WriteClaim.CLOSED_UNKNOWN.equals(claim.status())
+                    ? "this call's outcome was closed unknown by an operator (write claim "
+                            + claim.claimId() + ") — releasing a hold does not allow a silent retry"
+                    : "this call is already being executed (claim: " + claim.status()
+                            + (claim.claimId() == null ? "" : ", #" + claim.claimId())
+                            + ") — the same call is not run twice";
+            throw new ResponseStatusException(HttpStatus.CONFLICT, why);
         }
         return true;
     }

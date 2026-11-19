@@ -3,12 +3,20 @@ package cn.com.keelbase.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import cn.com.keelbase.runtime.audit.AuditLog;
+import cn.com.keelbase.runtime.audit.AuditLogRepository;
+import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.effect.WriteClaim;
 import cn.com.keelbase.runtime.governance.ExecutionAxis;
 import cn.com.keelbase.runtime.effect.WriteClaimRepository;
@@ -24,6 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -66,6 +75,12 @@ class WriteClaimTest {
 
     @Autowired
     TransactionTemplate transactions;
+
+    @Autowired
+    WriteClaimRepository claimRows;
+
+    @Autowired
+    AuditLogRepository auditRows;
 
     /**
      * Arguments unique to one test, and that is not decoration: these tests share a database, and the
@@ -162,5 +177,90 @@ class WriteClaimTest {
 
         assertFalse(new WriteClaimService(broken).claim(ALICE, TOOL, sameCallEverywhere()).won(),
                 "no evidence that the key is free is not evidence that it is");
+    }
+
+    /**
+     * The lease door leaves one row of the chain, and only one: a hold nobody could conclude changed
+     * hands, which is the act the contract records as {@code claim_release}.
+     *
+     * <p>The row is found by the hold's own id rather than by "all claim_release rows", because these
+     * tests share a database and an assertion over the whole table would depend on which test ran
+     * first — the same trap {@link #sameCallEverywhere} exists to avoid.
+     *
+     * 租约门在链上留下**恰好一行**：一份**没人能下结论**的占位换了主人，而契约把这个动作记成
+     * `claim_release`。
+     *
+     * <p>按占位自己的 id 找这一行、而不是找「全部 claim_release 行」，因为这些测试**共用**一个数据库，
+     * 对整张表的断言会依赖哪个测试先跑 —— 正是 {@link #sameCallEverywhere} 要避开的那种坑。
+     */
+    @Test
+    void aStrandedClaimIsTakenOverAndLeavesExactlyOneRowOnTheChain() {
+        String args = sameCallEverywhere();
+        claims.claim(ALICE, TOOL, args);
+        String key = WriteClaimService.keyFor(ALICE, TOOL, args);
+        Long strandedId = claimRows.findByIdempotencyKey(key)
+                .orElseThrow(() -> new AssertionError("the first call took the claim")).getId();
+
+        ageTheClaim(args, ExecutionAxis.LEASE_MILLIS + 1_000L);
+
+        String conversationId = "conversation-" + java.util.UUID.randomUUID();
+        assertTrue(claims.claim(ALICE, TOOL, args, conversationId).won(),
+                "past the lease the attempt is not coming back, so the key is free again");
+
+        List<AuditLog> rows = auditRows.findAll().stream()
+                .filter(row -> "claim_release".equals(row.getAction()))
+                .filter(row -> row.getDetail() != null
+                        && row.getDetail().contains("#" + strandedId))
+                .toList();
+        assertEquals(1, rows.size(), "the takeover is one row, exactly: " + rows);
+        AuditLog row = rows.get(0);
+        assertNull(row.getOutcome(),
+                "no outcome: this row is not a tool verdict, and the hold's conclusion stays unknown");
+        assertEquals(TOOL, row.getTool(), "the tool is on the row so it can be filtered without detail");
+        assertEquals(conversationId, row.getConversationId(),
+                "the row is filed under the conversation that took the hold over");
+        assertTrue(row.getDetail().contains("held by user " + ALICE.userId()),
+                "the previous owner is named: " + row.getDetail());
+        assertTrue(row.getDetail().contains("take-over by user " + ALICE.userId()),
+                "and so is the new one: " + row.getDetail());
+        assertTrue(row.getDetail().contains("lease expired"),
+                "and why the hold was released: " + row.getDetail());
+    }
+
+    /**
+     * A chain that refuses the row does not undo the takeover: the key has already moved, and making
+     * the audit a precondition would refuse an execution that is entitled to run.
+     *
+     * 链拒绝了那一行，不会撤销这次接管：键已经换了主人，把审计变成前提会拒掉一次**有权运行**的执行。
+     */
+    @Test
+    void aFailedChainWriteDoesNotBlockTheTakeover() {
+        WriteClaimRepository repository = mock(WriteClaimRepository.class);
+        WriteClaim stranded = mock(WriteClaim.class);
+        when(stranded.getStatus()).thenReturn(WriteClaim.CLAIMED);
+        when(stranded.getClaimedAt())
+                .thenReturn(Instant.now().minusMillis(ExecutionAxis.LEASE_MILLIS + 60_000L));
+        when(stranded.getId()).thenReturn(7L);
+        when(stranded.getUserId()).thenReturn(ALICE.userId());
+        when(stranded.getToolName()).thenReturn(TOOL);
+        when(stranded.getEffectId()).thenReturn(null);
+        when(repository.saveAndFlush(any(WriteClaim.class)))
+                .thenThrow(new DataIntegrityViolationException("unique idempotency_key"));
+        when(repository.findByIdempotencyKey(anyString())).thenReturn(Optional.of(stranded));
+        when(repository.reclaim(anyString(), anyString(), anyString(), anyString(),
+                any(Instant.class), any(Instant.class))).thenReturn(1);
+
+        AuditService audit = mock(AuditService.class);
+        when(audit.append(anyString(), anyString(), anyString(), anyBoolean(), any(), anyString(),
+                any())).thenThrow(new IllegalStateException("the chain is down"));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<AuditService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(audit);
+
+        assertTrue(new WriteClaimService(repository, provider).claim(ALICE, TOOL, sameCallEverywhere())
+                        .won(),
+                "the chain is a record of the takeover, never a precondition of it");
+        verify(audit).append(eq("claim_release"), eq(ALICE.userId()), anyString(), eq(false),
+                isNull(), eq(TOOL), any());
     }
 }

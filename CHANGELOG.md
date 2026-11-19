@@ -24,6 +24,14 @@ Each version is written in two blocks — English first, then Chinese — marked
   new place — `scripts/check-pin-lag.sh` gained a print mode that reads it out of
   `.github/workflows/release.yml`, and both the release job and the release rehearsal pass that value
   in. A build that does not pass the property writes no entry, rather than an empty claim.
+- **A stranded write hold can be released, and the act is a row on the chain (AW-16).**
+  `POST /ai/tool-effects/claims/{id}/release` closes a hold that outlived its lease as
+  `closed_unknown` and appends a `claim_release` row carrying the operator's note and evidence
+  reference — the additive `audit-payload` v4 action published by contract `v1.21.0`. The row has no
+  `outcome`: the conclusion stays unknown, and the claim's key stays occupied, so the same call is
+  refused rather than silently retried. A hold still inside its lease, a settled one, and one already
+  closed are each refused with the reason named; only an identity holding `update` on the ledger may
+  release. No schema change — the status is a string column, and the new value rides it.
 
 ### Changed
 
@@ -43,6 +51,12 @@ Each version is written in two blocks — English first, then Chinese — marked
   一版契约，唯一的证据只在本仓里。pin 没有在新增的一处地方被重述——`scripts/check-pin-lag.sh` 新增了
   打印模式，从 `.github/workflows/release.yml` 里读出它，发布 job 与发布彩排都传入这个值。没传该属性的
   构建不写这一条，而不是留一条空口声称。
+- **滞留的写占位可以被释放，而这个动作是链上的一行（AW-16）。** `POST /ai/tool-effects/claims/{id}/release`
+  把一份越过租约的占位关闭为 `closed_unknown`，并追加一行 `claim_release`，带着运维的说明与证据引用 ——
+  即契约 `v1.21.0` 发布的加性 `audit-payload` v4 动作。这一行**没有 `outcome`**：结论仍然未知，且占位的
+  键仍被占住，故同一次调用会被拒绝、而不是被静默重试。仍在租约内、已落定、以及此前已关闭的占位都会被拒，
+  并报出原因；只有在这本账上持有 `update` 的身份可以释放。**无 schema 变更** —— 状态是字符串列，新取值
+  直接通过它承载。
 
 ### 变更
 

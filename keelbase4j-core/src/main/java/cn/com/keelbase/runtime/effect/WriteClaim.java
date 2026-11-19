@@ -31,6 +31,10 @@ import java.time.Instant;
  * {@code WriteClaimService}, where it is spent and where its price is written down. {@code released} means a previous attempt failed in a way that proves
  * nothing landed, so a retry may re-claim (conditionally — still arbitration, not an unconditional
  * overwrite). {@code settled} means the effect it produced is recorded, and {@code effectId} says which.
+ * {@code closed_unknown} is the fourth: an operator released a hold whose outcome stayed unknown past
+ * the lease, and that release is a decision about the <em>handling</em>, not a verdict about the write
+ * — the conclusion remains unknown, the key stays occupied, and the same call is not silently retried
+ * (the contract's {@code claim_release}, AW-16).
  *
  * <p>它在写**发生之前**仲裁，使两次相同调用不可能都执行。
  *
@@ -46,6 +50,8 @@ import java.time.Instant;
  * **靠看是分不开的**，所以**新鲜的**占位谁都不重试；把它们分开的是**租约**，也只有租约——见
  * `WriteClaimService`，租约在那里被花掉、它的代价也写在同一个地方。`released` = 上一次尝试以一种「证明什么都没落地」的方式失败，故重试可以**条件
  * 地**重新占位（仍是仲裁，不是无条件覆盖）。`settled` = 它产出的 effect 已登记，`effectId` 指出是哪一个。
+ * `closed_unknown` = 运维释放了一份越过租约、结局始终未知的占位；这次释放是对**处理方式**的决定，不是对那次写的
+ * 判决 —— 结论仍然未知、键仍被占住，同一次调用不会被静默重试（契约的 `claim_release`，AW-16）。
  */
 @Entity
 @Table(name = "write_claims")
@@ -59,6 +65,16 @@ public class WriteClaim {
 
     /** The attempt failed in a way that proves nothing landed, so a retry may re-claim. */
     public static final String RELEASED = "released";
+
+    /**
+     * An operator released a hold whose outcome stayed unknown past the lease. The conclusion is
+     * still unknown and the key stays occupied, so the same call is not retried — this is not
+     * {@link #RELEASED}, whose freeing of the key means an attempt proved that nothing landed.
+     *
+     * 运维释放了一份越过租约、结局始终未知的占位。结论仍然未知、键仍被占住，故同一次调用不会被重试 ——
+     * 它不是 {@link #RELEASED}：那一种放走键，是因为一次尝试证明了什么都没落地。
+     */
+    public static final String CLOSED_UNKNOWN = "closed_unknown";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

@@ -3,6 +3,7 @@ package cn.com.keelbase.runtime.web;
 
 import cn.com.keelbase.protocol.PermissionCapabilityList;
 import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
+import cn.com.keelbase.runtime.authz.OwnershipGuard;
 import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.domain.FollowUp;
 import cn.com.keelbase.runtime.domain.FollowUpRepository;
@@ -10,6 +11,7 @@ import cn.com.keelbase.runtime.effect.ResultIds;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.effect.SideEffectService;
+import cn.com.keelbase.runtime.effect.WriteClaimReleaseService;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.util.LinkedHashMap;
@@ -22,19 +24,29 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Inspect and revoke AI write side effects (the recovery half of the trust boundary).
  *
- * <p>Both endpoints act as the authenticated caller: the list is narrowed to what that caller may
- * see, and a revoke is checked against them, never against a name the request carries.
+ * <p>The list and the revoke act as the authenticated caller: the list is narrowed to what that caller
+ * may see, and a revoke is checked against them, never against a name the request carries.
  *
  * <p>The list answers the shape the console reads — {@code {total, page, limit, items}} with the
  * caller's {@code page} / {@code limit}, the page size capped as the reference caps it. Serving a
  * bare array meant a runtime-neutral console could read this endpoint on one runtime and not the
  * other, which is the whole thing the unified frontend is supposed to avoid.
+ *
+ * <p><b>The third endpoint is not a caller's act but an operator's.</b> {@code POST
+ * /ai/tool-effects/claims/{id}/release} closes a stranded write hold as unknown and leaves one
+ * {@code claim_release} row on the chain; the caller must hold {@code update} on the ledger, which an
+ * administrator holds through the expanded {@code manage} and an audit reader — {@code read} only —
+ * does not. It is the only write on this surface that is not a revoke, and it writes no effect: the
+ * claim stays occupied, because releasing a hold nobody can account for must not turn into a silent
+ * retry.
  *
  * <p><b>What the items deliberately do not carry.</b> The console's model has fields this runtime has
  * no concept of — before/after snapshots, compensation groups, parent effects, and the change summary
@@ -47,6 +59,11 @@ import org.springframework.web.bind.annotation.RestController;
  * conversation gets an empty answer, never their rows. The field used to be sent as null on the
  * reasoning that this runtime has no conversations — which stopped being true when the runtime grew a
  * conversation store, and the reader that does have one (the trace) has read the column all along.
+ *
+ * <p><b>第三个端点不是调用方的动作，而是运维的。</b>`POST /ai/tool-effects/claims/{id}/release` 把一份滞留
+ * 写占位关闭为未知，并在链上留下一行 `claim_release`；调用方须在这本账上持有 `update` —— 管理员经展开的
+ * `manage` 持有它，而只有 `read` 的审计读者没有。它是这条面上唯一**不是撤销**的写，且不写任何 effect：
+ * 占位仍被占住，因为释放一份没人说得清的占位，不能变成一次静默重试。
  *
  * <p>本列表**刻意不装**的：控制台那个模型有、而本运行时没有概念的字段 —— 前后快照、补偿组、父副作用，以及由那些
  * 快照推出的变更摘要。它们**缺席而不是编出来**，读它们的控制台列在这里是空的：那是诚实的状态，不是一个填进去的猜测。
@@ -70,15 +87,20 @@ public class EffectController {
     private final SideEffectRepository repository;
     private final FollowUpRepository followUps;
     private final PermissionAuthorizer authorizer;
+    private final OwnershipGuard guard;
+    private final WriteClaimReleaseService claimReleases;
 
     public EffectController(CurrentPrincipal principals, SideEffectService sideEffects,
                             SideEffectRepository repository, FollowUpRepository followUps,
-                            PermissionAuthorizer authorizer) {
+                            PermissionAuthorizer authorizer, OwnershipGuard guard,
+                            WriteClaimReleaseService claimReleases) {
         this.principals = principals;
         this.sideEffects = sideEffects;
         this.repository = repository;
         this.followUps = followUps;
         this.authorizer = authorizer;
+        this.guard = guard;
+        this.claimReleases = claimReleases;
     }
 
     @GetMapping("/ai/tool-effects")
@@ -177,6 +199,34 @@ public class EffectController {
                 "revokeClass", effect.getRevokeClass(),
                 "revokeStatus", effect.getRevokeStatus(),
                 "revoked", "revoked".equals(effect.getRevokeStatus()));
+    }
+
+    /**
+     * Release a stranded write hold, with the note that says why, and record the act once.
+     *
+     * <p>The answer is the ledger's, not the tool's: the claim reports {@code closed_unknown} and stays
+     * occupied. A caller repeating the same call afterwards is refused — that refusal is the point of
+     * this endpoint, not a side effect of it.
+     *
+     * 带说明释放一份滞留写占位，并把这次动作记录一次。
+     *
+     * <p>答复是**账本**的，不是工具的：占位报 `closed_unknown` 并仍被占住。此后重复同一次调用的调用方会被
+     * 拒 —— 那个拒绝正是这个端点存在的目的，不是它的副作用。
+     */
+    @PostMapping("/ai/tool-effects/claims/{id}/release")
+    public Map<String, Object> releaseClaim(@PathVariable Long id,
+                                            @RequestBody ReleaseClaimRequest body) {
+        Principal principal = principals.current();
+        guard.requireAction(principal, GovernanceReadSubjects.TOOL_EFFECT, "update");
+        WriteClaimReleaseService.Released released = claimReleases.release(id, principal.userId(),
+                body.note(), body.evidenceRef());
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("claimId", released.claimId());
+        answer.put("toolName", released.toolName());
+        answer.put("status", released.status());
+        answer.put("released", true);
+        answer.put("auditRowId", released.auditRowId());
+        return answer;
     }
 
     /** A {@link LinkedHashMap}, not {@code Map.of}: several of these fields are legitimately null. */
