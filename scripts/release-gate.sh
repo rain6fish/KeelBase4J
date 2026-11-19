@@ -11,8 +11,8 @@
 #      trust loop against it, and the same again for a change and for a migration — and, behind
 #      `PG_ENV=1`, that the same artifact runs on PostgreSQL instead of the file-backed H2 it ships with;
 #   4. every javadoc block reads English and then Chinese;
-#   5. the publish set still builds the way a release builds it — sources and javadoc included — and is
-#      still exactly four modules;
+#   5. the publish set still builds the way a release builds it — sources and javadoc included, and every
+#      jar's manifest names the contract pin the build was given — and is still exactly four modules;
 #   6. the provider-bearing deployment still walks the governance chain with no model key when local
 #      debug is on — and cannot start without the switch (the reverse proof);
 #   7. the release workflow's keyserver step still fails in minutes rather than hanging — its self-test
@@ -53,7 +53,8 @@
 #   3. 生成物是真实、可独立运行的源码：生成 → 构建 → 独立运行 → 对它走信任闭环，变更与迁移各再来一遍 ——
 #      以及（在 `PG_ENV=1` 之后）**同一个产物起在 PostgreSQL** 上，而不是它自带的文件版 H2；
 #   4. 每个 javadoc 块英文在前、中文在后；
-#   5. 发布集合仍按发布的方式构建得出来（含 sources 与 javadoc），且仍恰为四个模块；
+#   5. 发布集合仍按发布的方式构建得出来（含 sources 与 javadoc，且每个 jar 的清单自述传入的契约 pin），
+#      且仍恰为四个模块；
 #   6. 带 provider 的部署在打开本地调试、且**没有模型 key** 时仍走完整条治理链 —— 去掉开关则起不来（反向证明）；
 #   7. 发布工作流上传公钥那一步仍在几分钟内失败、而不是挂死 —— 它的自检驱动一个故意挂起的 gpg，并核对
 #      `release.yml` 仍调用它（那里改回裸 `gpg --send-keys`，自检照样绿，而流水线重新变得无界）。
@@ -203,12 +204,22 @@ if mvn -B -ntp -DskipTests install -pl keelbase4j-runtime -am >/dev/null 2>&1; t
 else
   gate "Release(装 runtime)" fail "mvn install -pl keelbase4j-runtime -am"
 fi
-REL_OUT=$(mvn -B -ntp -Prelease -DskipTests -pl 'keelbase4j-springai,!keelbase4j-runtime' -am package 2>&1) || true
+REL_OUT=$(mvn -B -ntp -Prelease -DskipTests -pl 'keelbase4j-springai,!keelbase4j-runtime' -am package -Dkeelbase.contract.version="$PIN_REL" 2>&1) || true
 if grep -q "BUILD SUCCESS" <<<"$REL_OUT"; then
   gate "Release(publish set 在 release profile 下构建，sources + javadoc)" pass
 else
   gate "Release(publish set 构建)" fail "mvn -Prelease … package"
   echo "── 明细 — 输出尾部 ──"; printf '%s\n' "$REL_OUT" | tail -n 40; echo "── /明细 ──"
+fi
+# The build was given the pin; this reads the jars back and asks them. A build that silently lost the
+# entry (a module overriding maven-jar-plugin, a plugin upgrade) still says BUILD SUCCESS.
+#
+# 构建收到了那条 pin；这里把 jar 读回来问它们。悄悄丢了条目的构建（模块覆盖了插件、插件升级）照样打印
+# BUILD SUCCESS。
+if bash scripts/check-jar-contract-version.sh --expect "$PIN_REL" keelbase4j-protocol keelbase4j-core keelbase4j-springai; then
+  gate "Release(每个 jar 的清单自述契约版本 = $PIN_REL)" pass
+else
+  gate "Release(每个 jar 的清单自述契约版本)" fail "bash scripts/check-jar-contract-version.sh --expect $PIN_REL keelbase4j-protocol keelbase4j-core keelbase4j-springai"
 fi
 # 与 release.yml 断言的同一个数：发布集合恰为四个模块（父 pom · protocol · core · springai）。
 REACTOR=$(mvn -B -ntp -Prelease -DskipTests -pl 'keelbase4j-springai,!keelbase4j-runtime' -am validate 2>/dev/null | grep -cE "^\[INFO\] Building " || true)
