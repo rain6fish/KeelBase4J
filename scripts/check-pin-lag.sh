@@ -20,6 +20,7 @@
 #   bash scripts/check-pin-lag.sh                                   # report only; always exit 0
 #   bash scripts/check-pin-lag.sh --strict                          # exit 1 when the reminder fires
 #   bash scripts/check-pin-lag.sh --pins-only                       # only: the two pins agree, and both are tags
+#   bash scripts/check-pin-lag.sh --print-pin                   # print release.yml's pin (build input)
 #   bash scripts/check-pin-lag.sh --contract ../keelbase-contract   # offline: tags from that clone
 #   bash scripts/check-pin-lag.sh --lag 2                           # tolerate two releases behind
 #   bash scripts/check-pin-lag.sh --repo https://gitee.com/...      # override the remote URL
@@ -57,6 +58,7 @@
 #   bash scripts/check-pin-lag.sh                                   # 只报告；永远退出 0
 #   bash scripts/check-pin-lag.sh --strict                          # 提醒条件成立时退出 1
 #   bash scripts/check-pin-lag.sh --pins-only                       # 只查：两处 pin 一致，且都是发布 tag
+#   bash scripts/check-pin-lag.sh --print-pin                    # 打印 release.yml 的 pin（构建输入）
 #   bash scripts/check-pin-lag.sh --contract ../keelbase-contract   # 离线：从该克隆读 tag
 #   bash scripts/check-pin-lag.sh --lag 2                           # 容忍落后两个发布
 #   bash scripts/check-pin-lag.sh --repo https://gitee.com/...      # 覆盖远端 URL
@@ -90,6 +92,7 @@ usage() {
 
 STRICT=0
 PINS_ONLY=0
+PRINT_PIN=0
 LAG=1
 CONTRACT_DIR=""
 REPO_URL=""
@@ -97,6 +100,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --strict) STRICT=1 ;;
     --pins-only) PINS_ONLY=1 ;;
+    --print-pin) PRINT_PIN=1 ;;
     --lag)
       [ $# -ge 2 ] || { echo "--lag needs a number" >&2; exit 2; }
       LAG="$2"; shift ;;
@@ -125,6 +129,22 @@ PIN_REL=$(pin_of .github/workflows/release.yml)
 if [ -z "$PIN_CI" ] || [ -z "$PIN_REL" ]; then
   echo "cannot read the contract pin from .github/workflows/ci.yml / release.yml" >&2
   exit 2
+fi
+
+# The build asks this script for the pin rather than restating it in a pom or a workflow line, so the
+# artifact's own manifest names the one pin every gate here already answers for. The release pin is
+# the one printed: it is what the release job checks its snapshot against and builds from. Nothing
+# else goes to stdout — the caller consumes it with `$(...)`.
+#
+# 构建向本脚本要 pin，而不是在 pom 或工作流里再写一遍，于是产物自己的清单所说的，正是这里每一道闸
+# 早已背书的那条 pin。打印的是 release.yml 那条：发布 job 就是拿它核对快照、并据以构建的。stdout
+# 上不打印别的东西——调用方用 `$(...)` 取它。
+if [ "$PRINT_PIN" -eq 1 ]; then
+  if [ "$PIN_CI" != "$PIN_REL" ]; then
+    echo "warning: the two workflow pins disagree: ci.yml=$PIN_CI release.yml=$PIN_REL" >&2
+  fi
+  printf '%s\n' "$PIN_REL"
+  exit 0
 fi
 
 FINDINGS=0

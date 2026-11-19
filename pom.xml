@@ -163,6 +163,63 @@
         </plugins>
       </build>
     </profile>
+
+    <!--
+      Contract self-description: a published jar says which contract version it was built against.
+
+      `keelbase4j-core:0.1.19` on Central could not answer that question — its manifest carried the
+      implementation version and nothing about the contract — so the only evidence that a release
+      installed contract v1.22.0 lived in this repository, not in the artifact a consumer downloads.
+      This writes the answer into the manifest at build time.
+
+      Why a profile rather than a plain plugin entry: the value must come from the one place the pin
+      lives (the contract `ref:` in the workflows), and a plain `manifestEntries` would write the
+      literal `${keelbase.contract.version}` into every jar built without the property. Activated by
+      the property, an ordinary `mvn verify` leaves every manifest exactly as it was, and a build
+      that passes the property says what it was built from.
+
+      The value is never typed by hand: `bash scripts/check-pin-lag.sh` in its print-pin mode reads
+      it out of `.github/workflows/release.yml`, and the release workflow hands it to this build. A
+      release built outside that workflow passes it the same way — or its artifact keeps saying
+      nothing, which is the honest answer for a build nobody can place.
+
+      契约自述：已发布的 jar 自己说明它是按哪一版契约构建的。
+
+      Central 上的 `keelbase4j-core:0.1.19` 答不了这个问题——清单里只有实现版本，契约一字未提——
+      于是「这次发布装了契约 v1.22.0」的唯一证据只在本仓里，不在消费者下载的那份产物里。这里把答案
+      在构建期写进清单。
+
+      为什么用 profile 而不是平铺的插件项：值必须来自 pin 唯一的所在（工作流里的契约 `ref:`），而
+      平铺的 `manifestEntries` 会把字面量 `${keelbase.contract.version}` 写进每个没传该属性的 jar。
+      由属性激活之后，普通的 `mvn verify` 让每个清单一字不变，传了属性的构建则如实自述它据以构建的东西。
+
+      这个值从不手写：`bash scripts/check-pin-lag.sh` 的 print-pin 模式从 `.github/workflows/release.yml`
+      里读出它，发布工作流再把它交给这次构建。不在该工作流里构建的发布用同一方式传入——否则它的产物
+      依旧什么都不说，而那正是一份放不进任何上下文的构建该给出的答案。
+    -->
+    <profile>
+      <id>contract-version</id>
+      <activation>
+        <property>
+          <name>keelbase.contract.version</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-jar-plugin</artifactId>
+            <configuration>
+              <archive>
+                <manifestEntries>
+                  <KeelBase-Contract-Version>${keelbase.contract.version}</KeelBase-Contract-Version>
+                </manifestEntries>
+              </archive>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <!--

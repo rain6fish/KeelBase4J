@@ -176,6 +176,17 @@ jobs:
       - name: Vendored snapshot must match its sources
         run: scripts/sync-vectors.sh --check --contract contract-repo --main main-repo
 
+      # What the artifacts will say about themselves. The value is read out of this file's own
+      # contract `ref:` — the pin the drift check above has just verified the snapshot against — so a
+      # manifest cannot claim a contract this release did not build from, and nobody re-types the
+      # version into a second place (`bash scripts/check-pin-lag.sh --print-pin` is the one reader).
+      #
+      # 产物将如何自述。这个值读自本文件自己的契约 `ref:` —— 也就是上面那道漂移检查刚刚据以核对快照的
+      # 那条 pin —— 于是清单不可能声称一个本次发布并未据以构建的契约，也不必有人把版本号再抄到第二处
+      # （`bash scripts/check-pin-lag.sh --print-pin` 就是那个唯一的读法）。
+      - name: The contract version the artifacts will report
+        run: echo "KEELBASE_CONTRACT_VERSION=$(bash scripts/check-pin-lag.sh --print-pin)" >> "$GITHUB_ENV"
+
       # The publish reactor excludes `keelbase4j-runtime`, and the adapter nonetheless has a *test*
       # dependency on it — so a build that compiles tests would look for
       # `cn.com.keelbase:keelbase4j-runtime:jar:<version>` in Maven Central, where it does not exist
@@ -267,4 +278,5 @@ jobs:
         run: |
           mvn -B -Prelease deploy -DskipTests \
             -pl 'keelbase4j-springai,!keelbase4j-runtime' -am \
+            -Dkeelbase.contract.version="$KEELBASE_CONTRACT_VERSION" \
             -Dgpg.keyname="${{ secrets.GPG_KEY_ID }}" -Dgpg.passphrase="$GPG_PASSPHRASE"

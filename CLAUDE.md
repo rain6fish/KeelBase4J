@@ -32,6 +32,8 @@ bash scripts/release-gate.sh        # 一条命令跑全部确定性验证（本
                                     # 覆盖：mvn verify · 快照漂移(按 pin) · 双语注释 · 三个生成物 demo · release 发布集合
                                     # LLM_ENV=1 时再加两个适配器 demo（需模型 key）；PG_ENV=1 时再加 PostgreSQL 那条（需 Docker）
 mvn test                            # 协议一致性 + 生成器 + 运行时 + 适配器
+mvn package -Dkeelbase.contract.version="$(bash scripts/check-pin-lag.sh --print-pin)"
+                                    # 产物自述契约版本：清单写 KeelBase-Contract-Version（见下）
 bash scripts/demo-generated-app.sh  # 生成 → 构建 → 独立运行 → 信任闭环
 bash scripts/demo-generated-app-pg.sh  # 同一个生成物起在 PostgreSQL 上（迁移 · validate · 往返读回；需 Docker）
 bash scripts/demo-changeability.sh  # 变更 → 再生成 → 手改存活 → 新规则生效
@@ -46,6 +48,18 @@ bash scripts/check-bilingual-comments.sh  # 注释的双语形状（默认只报
 # 无 KEELBASE_PG_URL 时该测试自动跳过；CI 侧对第三方言的闸是 MigrationDialectsTest（哪儿都跑）。
 KEELBASE_PG_URL=jdbc:postgresql://localhost:5432/keelbase mvn test -Dtest=PostgresMigrationTest
 ```
+
+**The artifact says which contract it carries.** A build that is given
+`-Dkeelbase.contract.version=<pin>` writes `KeelBase-Contract-Version` into every jar's manifest, so a
+published artifact answers "which contract?" on its own. The pin is read from the workflows by
+`bash scripts/check-pin-lag.sh --print-pin` — never typed into a pom or a second workflow line — and
+that is the value the release job passes. A build without the property writes no entry; it does not
+write an empty claim.
+
+**产物自述它带着哪一版契约。** 给了 `-Dkeelbase.contract.version=<pin>` 的构建会把
+`KeelBase-Contract-Version` 写进每个 jar 的清单，于是已发布的产物自己回答「哪一版契约？」。这个 pin 由
+`bash scripts/check-pin-lag.sh --print-pin` 从工作流里读出——绝不在 pom 或第二行工作流里手打——发布 job
+传的就是这个值。没传该属性的构建不写这一条，而不是留一条空口声称。
 
 CI（`.github/workflows/ci.yml`）的门禁：`conformance`（`mvn verify`，**跑 JDK 17 与 JDK 25 两条腿**
 —— 产物仍按 17 构建，第二条腿只声明「构建与测试在新 JDK 上跑通」，不抬基线；两条腿都断言 JDK 构建号
