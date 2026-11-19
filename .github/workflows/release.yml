@@ -216,6 +216,25 @@ jobs:
             exit 1
           }
 
+      # The deploy below is one `mvn deploy`: it would build a jar without the contract line and
+      # upload it in the same breath. A tag cannot be taken back and Central's bundle is harder to
+      # un-send than to not send, so the same publish set is built here first — same sources, same
+      # `-Dkeelbase.contract.version`, same `-pl`/`-am` — and its manifests are read back. A jar that
+      # does not name the contract stops the job before the signing key is even imported. `package`,
+      # not `verify`: signing is bound to `verify` and the key import is a later step; the deploy
+      # repeats the lifecycle after this check passes.
+      #
+      # 下面那一步 deploy 是一次 `mvn deploy`：它会构建一个没带契约那一行的 jar，并在同一口气里把它传上去。
+      # tag 收不回来，而 Central 的包「不发」比「发了再撤」容易得多，所以先在这里把同一套发布集合构建一遍——
+      # 同样的源码、同样的 `-Dkeelbase.contract.version`、同样的 `-pl`/`-am`——再把它产出的清单读回来。
+      # 答不出契约的 jar 在这里就让 job 停下，连签名钥匙都还没导入。用 `package` 而不是 `verify`：签名绑在
+      # `verify` 上，而导入钥匙是后面一步；这道检查过了之后，deploy 会自己重跑整个生命周期。
+      - name: Build the publish set, the bytes the manifest check reads
+        run: mvn -B -ntp -Prelease -DskipTests -pl 'keelbase4j-springai,!keelbase4j-runtime' -am package -Dkeelbase.contract.version="$KEELBASE_CONTRACT_VERSION"
+
+      - name: Every jar about to be published says which contract it was built from
+        run: bash scripts/check-jar-contract-version.sh --expect "$KEELBASE_CONTRACT_VERSION" keelbase4j-protocol keelbase4j-core keelbase4j-springai
+
       - name: Import the signing key
         run: echo "${{ secrets.GPG_SECRET_KEY }}" | gpg --batch --yes --import
 

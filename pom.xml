@@ -215,6 +215,21 @@
                   <KeelBase-Contract-Version>${keelbase.contract.version}</KeelBase-Contract-Version>
                 </manifestEntries>
               </archive>
+              <!-- maven-jar-plugin 3.x leaves an up-to-date jar alone, and the manifest entries are
+                   not part of its up-to-date check: the release workflow installs the runtime first
+                   (creating protocol and core jars without the property), and the publish build that
+                   follows would then keep those silent jars. With the profile active the property is
+                   present, so the jar is always recreated with it. Measured: without this, a jar
+                   built before the property keeps its old manifest and the manifest check goes red;
+                   that is what the check is for, but the release it stops would have shipped silent
+                   jars.
+
+                   maven-jar-plugin 3.x 会放过「最新」的 jar，而清单条目不在它的「最新」判定里：发布
+                   工作流先 install runtime（不带属性地生成 protocol 与 core 的 jar），随后那次发布构建
+                   就会沿用这些沉默的 jar。profile 激活即意味着属性在场，所以这里让 jar 总是带着它重建。
+                   实测：没有这一项时，先于属性构建的 jar 保留旧清单，下面的检查会变红——这正是它的用途，
+                   但它拦下的那次发布，本来会发出一批沉默的 jar。 -->
+              <forceCreation>true</forceCreation>
             </configuration>
           </plugin>
         </plugins>
