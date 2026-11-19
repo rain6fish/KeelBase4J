@@ -106,13 +106,15 @@ public class EffectController {
         // from the confirmation queue's `arguments`, which that reader still receives in full and
         // which remains undecided.
         //
+        // The grant must cover **all** rows, not merely allow the action: a tier-B rule may declare
+        // `read` with an owner field, and treating that as global would return every caller's rows.
+        //
         // 管理员看整本账；审计读者也看整本账 —— 那个身份的每一条授予都只有 `read`，且在该 subject 上被授予了
         // `read`（JV-63 B5）。**2026-10-20 已裁（候选 ②）：只读读者的每一行去掉 `userId` 与
         // `conversationId`。** 其余一律不收窄 —— 快照是冻结 `traceItem` 的必需字段，动它等于契约升 v6，而本次
         // 裁定没有走那条路。管理员与普通调用方**本人**的视图两项照旧都在。这与确认队列的 `arguments` 是
         // **两件事**：那个面该读者今天仍读到全部实参，而那条**仍未裁**。
-        // The grant must cover **all** rows, not merely allow the action: a tier-B rule may declare
-        // `read` with an owner field, and treating that as global would return every caller's rows.
+        //
         // 授予必须覆盖**全部行**，而不只是允许该动作：档 B 规则可以带 owner 字段声明 `read`，
         // 把它当作全局读就会返回所有人的行。
         PermissionCapabilityList.Resource effectRead =
@@ -192,6 +194,9 @@ public class EffectController {
         // through its own agent session carries *that session's* id. Both are strings; the trace
         // endpoint answers 404 for the second kind, because it has no conversation of that id.
         //
+        // The caller linkage keys are the ones the read-only reader does not receive (JV-63 B5 ②);
+        // the manager and a caller's own list keep both. See the `list()` comment for the decision.
+        //
         // **读真值，不再钉在 null 上。** 冻结对象 `effect` 把这个字段声明为 `string|null`，而本运行时**一直**在存它；
         // 缺的只是一个**读它的人**。`ConversationController` 为它的 trace 步骤读这一列读到现在，故那条列表是**唯一**
         // 声称「本运行时没有会话」的地方。
@@ -199,8 +204,6 @@ public class EffectController {
         // **这一列里住着两套词表**，用它之前值得知道：运行时自己那条 chat 路上的调用带的是**会话 id**，而一个宿主经
         // 自己的 agent 会话发出的调用带的是**那条会话的** id。两者都是字符串；trace 端点对第二种答 404，因为它没有
         // 那个 id 的会话。
-        // The caller linkage keys are the ones the read-only reader does not receive (JV-63 B5 ②);
-        // the manager and a caller's own list keep both. See the `list()` comment for the decision.
         //
         // 调用方关联这两键是只读读者**不收**的（JV-63 B5 ②）；管理员与本人清单两者都在。裁定见 `list()` 的注释。
         if (callerLinkage) {

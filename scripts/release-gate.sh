@@ -169,7 +169,7 @@ else
 fi
 
 # ── Comments：注释的双语形状 ──────────────────────────────────────────────────
-echo "→ [Comments] javadoc 块英文在前、中文在后"
+echo "→ [Comments] 注释块英文在前、中文在后（javadoc / /* */ / //）"
 # 自检先跑：它说的正是「本机的分类对不对」。门禁依赖逐字节比较，解释器行为不同的机器应当**以自身失败**，
 # 而不是报一个干净的零。
 if bash scripts/check-bilingual-comments.sh --self-test >/dev/null 2>&1; then

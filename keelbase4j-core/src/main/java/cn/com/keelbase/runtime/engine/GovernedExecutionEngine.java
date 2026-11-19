@@ -116,13 +116,13 @@ public class GovernedExecutionEngine {
                 // rule the reference uses (`!approved`, `!result.success`). A refusal, a block and a
                 // decline are all "no"; a call merely waiting on a person is not.
                 //
-                // 一行是不是「错误」，看的是这次调用**有没有按调用方所求发生** —— 参照实现用的就是这条规则
-                // （`!approved`、`!result.success`）。拒绝、拦截、否决都是「没有」；而只是在等人的调用不是。
-                //
                 // The cause is read off the checks rather than named "risk policy" by hand: a tool can
                 // now be blocked by the governance policy (disabled, or a role it excludes) as well as by
                 // its risk level, and an audit row that said "risk policy" for a policy block would be
                 // the sort of thing a reader only finds out is wrong later.
+                //
+                // 一行是不是「错误」，看的是这次调用**有没有按调用方所求发生** —— 参照实现用的就是这条规则
+                // （`!approved`、`!result.success`）。拒绝、拦截、否决都是「没有」；而只是在等人的调用不是。
                 //
                 // 成因从检查里读出、而不是手写一句「risk policy」：一个工具现在既可能**按风险级**被拦，也可能被
                 // **治理策略**拦下（被禁用、或角色被排除），而一行把策略拦的写成功「risk policy」的审计，属于
@@ -136,9 +136,6 @@ public class GovernedExecutionEngine {
                 // which is where a reader asks "why was this refused" and could previously only be
                 // answered by a word. Same frozen shape the caller is handed back.
                 //
-                // 成因词进**人读的那句话**；依据进**行上** —— 读者问「凭什么拒它」的地方，而那里此前只有一个词
-                // 可答。用的是**与交回调用方同一份**冻结形状。
-                //
                 // The object the call meant to touch rides in the same sentence. A blocked call writes
                 // no ledger row and raises no confirmation, so without this the row said what was
                 // refused and never what it was about — and no read face could recover that, because
@@ -146,6 +143,9 @@ public class GovernedExecutionEngine {
                 // reasons do: the row is what a reader asks, and a later reader cannot ask the caller.
                 // The suffix is read back mechanically (the console's six-question projection), so its
                 // spelling is part of this line's contract: ` · intended object #<key>`.
+                //
+                // 成因词进**人读的那句话**；依据进**行上** —— 读者问「凭什么拒它」的地方，而那里此前只有一个词
+                // 可答。用的是**与交回调用方同一份**冻结形状。
                 //
                 // 这次调用**本来要动**的那条记录，就写在同一句里。被拦下的调用既不写台账、也不发确认，故没有
                 // 这一段时，那一行只说得出「拒了什么」、说 **不出它是冲着什么去的** —— 而任何读面都补不回来：
@@ -398,12 +398,12 @@ public class GovernedExecutionEngine {
         // The conversation is read off the row, not off this request: a confirmation is answered later
         // than it was raised, and this request has no conversation of its own.
         //
-        // 会话从**行**里读、不从这次请求读：确认被回答的时刻晚于它被签发，而这次请求本身没有会话。
-        //
         // The approval row carries the execution it authorizes, and that is what lets the object read
         // face find it: the execution's effect names the object, the effect names its execution id, and
         // the rows of that execution now include the decision. Without it the row was invisible to
         // `objectType` + `objectId` — the write was found and the person who approved it was not.
+        //
+        // 会话从**行**里读、不从这次请求读：确认被回答的时刻晚于它被签发，而这次请求本身没有会话。
         //
         // 批准行带上**它所授权的那次执行**，对象读面正是凭这一点找到它：执行的 effect 点名对象、
         // effect 带执行 id，而那次执行的行如今包括这次裁决。没有它，这一行对 `objectType` + `objectId`
@@ -638,10 +638,12 @@ public class GovernedExecutionEngine {
             // even when the tool's own write lands and the bookkeeping after it does not. Same shape
             // as the refusal row in the catch below; its outcome is the line after it.
             //
-            // intent 行（D36 ②）：写在工具跑**之前**，好让「谁试过」**永不缺行** —— 即便工具自己那一笔
-            // 落了地、而它后面的记账没有。与下面 catch 里那条拒绝行**同形**；它的结局在**它后面那一行**。
             // Carry the basis on the intent row too: the result row is best-effort, and the intent
             // row exists so that a later append failure cannot erase the attempt's record.
+            //
+            // intent 行（D36 ②）：写在工具跑**之前**，好让「谁试过」**永不缺行** —— 即便工具自己那一笔
+            // 落了地、而它后面的记账没有。与下面 catch 里那条拒绝行**同形**；它的结局在**它后面那一行**。
+            //
             // 授权依据也带上 intent 行：结果行是尽力而为，而 intent 行存在的意义正是让后续写入失败
             // 也擦不掉这次尝试的记录。
             audit.append("tool_call", principal.userId(), tool.name() + " attempted", false, "attempted",

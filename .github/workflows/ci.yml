@@ -8,7 +8,8 @@
 #      contract repository, at the version this repository answers for, plus the main repo's scenario
 #      packs, which are not part of the contract. They must never be hand-edited here; a divergence
 #      means one side moved without the other.
-#   3. bilingual-comments — every javadoc block reads English and then Chinese, each as a block. Not a
+#   3. bilingual-comments — every comment block reads English and then Chinese, each as a block, whether
+#      it is javadoc, an ordinary /* */ block, or a run of // lines. Not a
 #      conformance claim, but the same kind of gate: that rule was enforced by whoever happened to be
 #      reviewing, the interleaved shape went in twice in one session with nobody catching it, and a
 #      rule that depends on who is looking is not enforced.
@@ -45,7 +46,8 @@
 #   1. conformance —— 实现仍能复现随仓携带的向量，在基线 JDK 与它声称要跑的最新 JDK 上都跑；
 #   2. vector-drift —— 随仓携带的向量仍与它们被刷新自的那份副本一致：契约仓，在**本仓所回答的那个版本**
 #      上，加上主仓的场景包（它们不属于契约）。这些文件绝不在这里手改；一旦分叉，说明一边动了另一边没动。
-#   3. bilingual-comments —— 每个 javadoc 块都是先英文后中文、各自成块。这不是一致性声明，而是同类的闸：
+#   3. bilingual-comments —— 每个注释块都是先英文后中文、各自成块，无论是 javadoc、普通 `/* */` 块还是
+#      连续的 `//` 行。这不是一致性声明，而是同类的闸：
 #      那条规则此前靠碰巧在审的人执行，交错写法的注释在一个会话里进了两次而没人发现，而「取决于谁在看」
 #      的规则不算被执行的规则。
 #   4. release-rehearsal —— 发布集合仍能在 release profile 下构建，含 sources 与 javadoc，在基线 JDK 与
@@ -289,7 +291,7 @@ jobs:
       # the bit would fail with "Permission denied" for a reason that has nothing to do with comments.
       - name: The checker agrees with itself here
         run: bash scripts/check-bilingual-comments.sh --self-test
-      - name: Every javadoc block is English and then Chinese
+      - name: Every comment block is English and then Chinese
         run: bash scripts/check-bilingual-comments.sh --strict
       # The same class of gate as the one above, and for the same reason: the "KeelBase family" section
       # at the top of each README is generated, and a generated section that nobody compares against its

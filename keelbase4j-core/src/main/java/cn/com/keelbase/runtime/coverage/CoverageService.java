@@ -91,10 +91,13 @@ public class CoverageService {
         // This runtime records no dispute state on an effect; `packageHasOpenDispute` is therefore
         // always false here, and the corresponding registry condition remains for the runtime that
         // does record it.
-        // 本运行时不记录副作用的争议状态；故 `packageHasOpenDispute` 在这里恒为 false，登记表里那条
-        // 条件留给**确实记录它**的运行时。
+        //
         // A revoke that failed is stalled too: it did not land. `compensating` is an external revoke
         // still in progress; `revoke_failed` is a local one that was attempted and did not complete.
+        //
+        // 本运行时不记录副作用的争议状态；故 `packageHasOpenDispute` 在这里恒为 false，登记表里那条
+        // 条件留给**确实记录它**的运行时。
+        //
         // 撤销失败也算未收口：它没落地。`compensating` 是仍在进行的外部撤销；`revoke_failed` 是试过
         // 但没完成的本地撤销。
         long stalledRevoke = effects.count(effectWhere.and(
