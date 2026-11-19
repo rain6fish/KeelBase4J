@@ -8,6 +8,7 @@ import cn.com.keelbase.runtime.authz.RuleDeniedException;
 import cn.com.keelbase.runtime.effect.ResultIds;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectService;
+import cn.com.keelbase.runtime.effect.WriteClaim;
 import cn.com.keelbase.runtime.effect.WriteClaimService;
 import cn.com.keelbase.runtime.governance.ConfirmationMode;
 import cn.com.keelbase.runtime.governance.ConfirmationRequest;
@@ -768,9 +769,19 @@ public class GovernedExecutionEngine {
         }
         WriteClaimService.Outcome claim = claims.claim(principal, tool.name(), argsJson);
         if (!claim.won()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "this call is already being executed (claim: " + claim.status() + ")"
-                            + " — the same call is not run twice");
+            // The two refusals mean different things to the caller and to an operator. "In flight" is
+            // a wait; "closed unknown" is a person's decision that the outcome will never be known,
+            // and naming the claim is what lets that person be the one to move it.
+            //
+            // 这两种拒绝对调用方与运维含义不同。「在飞」是等一下；「已按未知关闭」是一个人作出的决定 ——
+            // 那次写的结局永远不会有人知道 —— 而点名那份占位，正是让那个人能推进它的方式。
+            String why = WriteClaim.CLOSED_UNKNOWN.equals(claim.status())
+                    ? "this call's outcome was closed unknown by an operator (write claim "
+                            + claim.claimId() + ") — releasing a hold does not allow a silent retry"
+                    : "this call is already being executed (claim: " + claim.status()
+                            + (claim.claimId() == null ? "" : ", #" + claim.claimId())
+                            + ") — the same call is not run twice";
+            throw new ResponseStatusException(HttpStatus.CONFLICT, why);
         }
         return true;
     }

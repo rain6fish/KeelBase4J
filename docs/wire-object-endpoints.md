@@ -209,7 +209,19 @@ A clean deployment carries no `diagnostics` key at all. The delegation block sta
 `inboundFailureVisible: false`, because a refused inbound token cannot reach the report — that refusal
 is diagnosed on the 401 itself.
 
-**本运行时自己的面（不是 wire 对象）。** `GET /api/v1/keelbase/status` **不是**冻结 wire 对象，语料也不断言它。
+`POST /api/v1/ai/tool-effects/claims/{id}/release` is this runtime's own act rather than a wire
+object: it closes a write hold that outlived its lease as `closed_unknown` and appends one
+`claim_release` row — the contract's additive `audit-payload` v4 action — carrying the operator's note
+and evidence reference, with no `outcome`. The conclusion stays unknown and the claim's key stays
+occupied, so the same call is refused rather than silently retried. It is gated by `update` on
+`ToolEffect`.
+
+**本运行时自己的面（不是 wire 对象）。** `POST /api/v1/ai/tool-effects/claims/{id}/release` 也是本运行时
+自己的动作、不是 wire 对象：它把一份越过租约的写占位关闭为 `closed_unknown`，并追加一行 `claim_release`
+—— 契约的加性 `audit-payload` v4 动作 —— 带着运维的说明与证据引用，**没有 `outcome`**。结论仍然未知、
+占位的键仍被占住，故同一次调用会被拒绝、而不是被静默重试。它由 `ToolEffect` 上的 `update` 把关。
+
+`GET /api/v1/keelbase/status` **不是**冻结 wire 对象，语料也不断言它。
 它是本运行时的接入健康度报告：按读/写与风险统计的已注册工具、从引擎自己的 `GovernanceService.decide` 读出的
 生效 R3/R4 门控、审计行条数与时刻加链校验、以及本地委托签发/验签探针。每个维度带自己的状态与状态背后的读数；
 测不到的维度报 `unknown` 或 `not_applicable`，而不是绿色。它已认证，由 `IntegrationStatus` 上的 `read` 把关。

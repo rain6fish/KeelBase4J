@@ -249,7 +249,7 @@ silently carried Spring Security, and a generated app inheriting its auto-config
 every endpoint. An adapter — a model provider, an identity provider — belongs **outside** the
 runtime and depends on it.
 
-The runtime serves fifteen routes, all mounted under the reference's `/api/v1` prefix
+The runtime serves sixteen routes, all mounted under the reference's `/api/v1` prefix
 (`server.servlet.context-path`), so a runtime-neutral frontend keeps one base URL and no
 per-runtime branch:
 
@@ -261,6 +261,7 @@ per-runtime branch:
 | POST | `/ai/confirmations/{token}` | `approve` (executes) or `decline` (writes nothing) |
 | GET | `/ai/tool-effects` | recorded side effects |
 | DELETE | `/ai/tool-effects/{id}` | revoke → local compensation (soft delete) |
+| POST | `/ai/tool-effects/claims/{id}/release` | close a stranded write hold as unknown and put one `claim_release` row on the chain; the key stays occupied — **administrators or anyone with `update` on `ToolEffect`** |
 | GET | `/audit/verify` | recompute and verify the audit hash chain |
 | GET | `/auth/me` | who the caller is, as this deployment knows them |
 | GET | `/auth/me/permissions` | the caller's capability list, in the frozen contract shape |

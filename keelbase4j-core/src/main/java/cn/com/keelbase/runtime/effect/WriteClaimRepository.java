@@ -37,7 +37,13 @@ public interface WriteClaimRepository extends JpaRepository<WriteClaim, Long> {
      * execution claim uses, for the same reason.
      *
      * <p>A {@code settled} row is reachable by neither door: an effect exists and is recorded, and the
-     * ledger probe answers before anyone gets here.
+     * ledger probe answers before anyone gets here. A {@code closed_unknown} row is reachable by
+     * neither either — an operator already decided how to handle it, and taking the key back would
+     * turn that decision into a silent retry of a write whose outcome nobody knows.
+     *
+     * 已落定的行两扇门都进不去：effect 存在且已登记，而账本探测在任何人走到这里之前就作答了。
+     * `closed_unknown` 的行同样两扇门都进不去 —— 运维已经决定过怎么处理它，而把键收回来等于把那个决定
+     * 变成一次对结局无人知晓的写的静默重试。
      */
     @Transactional
     @Modifying(clearAutomatically = true)
@@ -61,4 +67,26 @@ public interface WriteClaimRepository extends JpaRepository<WriteClaim, Long> {
     @Modifying(clearAutomatically = true)
     @Query("update WriteClaim c set c.status = :to where c.idempotencyKey = :key and c.status = :from")
     int release(@Param("key") String key, @Param("from") String from, @Param("to") String to);
+
+    /**
+     * Close a stale hold as "outcome unknown" — an operator's decision about how to handle it, not a
+     * verdict about the write.
+     *
+     * <p>Conditional on the status and on the age, for the same reason {@link #reclaim} is: a caller
+     * may have taken the stale row back a moment earlier, and closing a fresh claim would record a
+     * release of an attempt that may still be running. The key is left exactly where it is — that is
+     * what makes a release stop the retry rather than invite one.
+     *
+     * 把一份滞留占位关闭为「结局未知」—— 运维对**怎么处理**的决定，不是对那次写的判决。
+     *
+     * <p>同时以状态与年龄为条件，理由与 {@link #reclaim} 相同：调用方可能刚刚把这份滞留行收回去，
+     * 而关闭一份**新鲜的**占位，等于为一次可能仍在跑的尝试记录一次释放。键原样留在原处 —— 正是这一点
+     * 让一次释放**止住**重试，而不是邀请它。
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("update WriteClaim c set c.status = :to "
+            + "where c.id = :id and c.status = :from and c.claimedAt < :staleBefore")
+    int closeUnknown(@Param("id") Long id, @Param("from") String from, @Param("to") String to,
+                     @Param("staleBefore") Instant staleBefore);
 }

@@ -44,8 +44,15 @@ import org.springframework.stereotype.Service;
 @Service
 public class WriteClaimService {
 
-    /** @param status what the row read when the claim was refused; {@code null} when it could not be read */
-    public record Outcome(boolean won, String status) {
+    /**
+     * @param status what the row read when the claim was refused; {@code null} when it could not be read
+     * @param claimId the row that refused this call, so an operator can name it to release it; {@code
+     *     null} on a win and when no row could be read
+     *
+     * 被拒时那一行读到的是什么；读不出来时为 {@code null}。`claimId` 是拒掉这次调用的那一行 ——
+     * 运维据此点名释放它；赢了、以及一行都读不出来时为 {@code null}。
+     */
+    public record Outcome(boolean won, String status, Long claimId) {
     }
 
     private final WriteClaimRepository repository;
@@ -75,7 +82,7 @@ public class WriteClaimService {
         String key = keyFor(principal, toolName, argsJson);
         try {
             repository.saveAndFlush(new WriteClaim(key, principal.userId(), toolName));
-            return new Outcome(true, WriteClaim.CLAIMED);
+            return new Outcome(true, WriteClaim.CLAIMED, null);
         } catch (DataIntegrityViolationException taken) {
             return reclaimOrLose(key);
         }
@@ -101,25 +108,37 @@ public class WriteClaimService {
      *
      * <p><b>Fail closed.</b> A row that cannot be read is not evidence that the key is free, so the
      * answer is "do not execute" — never "I could not check, so go ahead".
+     *
+     * <p><b>A row an operator closed is free by neither door.</b> {@code closed_unknown} says a person
+     * decided that nobody knows what became of the write; the conclusion did not become "it did not
+     * land", so the lease must not silently turn that decision into a retry.
+     *
+     * <p>**读不出来就按关闭处理。** 一行读不出来不是「键空闲」的证据，故答案是「不要执行」——
+     * 从不是「我查不了，那就上」。
+     *
+     * <p>**运维关掉的行，两扇门都进不去。** `closed_unknown` 说的是「有人决定了没人知道那次写怎么了」；
+     * 结论并没有变成「它没落地」，故租约不得把那个决定悄悄变回一次重试。
      */
     private Outcome reclaimOrLose(String key) {
         WriteClaim existing = repository.findByIdempotencyKey(key).orElse(null);
         if (existing == null) {
-            return new Outcome(false, null);
+            return new Outcome(false, null, null);
         }
         Instant now = Instant.now();
         boolean released = WriteClaim.RELEASED.equals(existing.getStatus());
         boolean stranded = WriteClaim.CLAIMED.equals(existing.getStatus()) && isStale(existing, now);
         if (!released && !stranded) {
-            return new Outcome(false, existing.getStatus());
+            return new Outcome(false, existing.getStatus(), existing.getId());
         }
         int reclaimed = repository.reclaim(key, WriteClaim.RELEASED, WriteClaim.CLAIMED,
                 WriteClaim.CLAIMED, now, now.minusMillis(ExecutionAxis.LEASE_MILLIS));
         if (reclaimed == 1) {
-            return new Outcome(true, WriteClaim.CLAIMED);
+            return new Outcome(true, WriteClaim.CLAIMED, null);
         }
-        return new Outcome(false, repository.findByIdempotencyKey(key)
-                .map(WriteClaim::getStatus).orElse(null));
+        WriteClaim after = repository.findByIdempotencyKey(key).orElse(null);
+        return after == null
+                ? new Outcome(false, null, null)
+                : new Outcome(false, after.getStatus(), after.getId());
     }
 
     /**
