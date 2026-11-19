@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.effect;
 
+import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.governance.ExecutionAxis;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +32,13 @@ import org.springframework.stereotype.Service;
  * system) must leave the row {@code claimed}: releasing it is not tidying up, it is inviting the write
  * to happen twice.
  *
+ * <p><b>A stranded hold is taken over, and the takeover is a row of the chain.</b> The lease door above
+ * is the one place this runtime releases a hold whose conclusion stays unknown, and the contract makes
+ * that act — not the hold — the record: {@code claim_release} on the same audit chain, with no
+ * {@code outcome}, because no verdict was reached. The takeover never waits on the chain: the key has
+ * already moved, so the row is written best-effort and a failed append is logged rather than turning a
+ * successful takeover into a refused execution.
+ *
  * <p>领取、落定与释放**执行前**的那条占位——正是它让两次相同调用不会都写。
  *
  * <p>为什么仲裁必须在这里、而不是在 effect 行上，见 {@link WriteClaim}。本类加的是**做决定**的那部分：
@@ -40,6 +52,11 @@ import org.springframework.stereotype.Service;
  * <p>**不靠猜就释放任何东西。** `release` 是为「以一种**证明**什么都没落地的方式失败」的尝试准备的——在本
  * 运行时的工具里，是行范围在任何写之前抛出的拒绝。做不出这个断言的调用方（请求可能已经到达远端系统）必须把行
  * 留在 `claimed`：释放它不是收拾，是**邀请这次写发生两次**。
+ *
+ * <p><b>一次滞留的占位被接管，而这次接管本身就是链上的一行。</b>上面的租约门是本运行时**唯一**释放「结论
+ * 始终未知」的占位的地方，而契约要记的是**这个动作**、不是那份占位：同一条审计链上的 `claim_release`，
+ * **不写** `outcome`，因为没有任何裁决发生。接管**从不**等这条链：键已经换了主人，故这一行是尽力而为写下的，
+ * 一次失败的追加只会被记进日志，而不会把一次成功的接管变成一次被拒的执行。
  */
 @Service
 public class WriteClaimService {
@@ -55,10 +72,33 @@ public class WriteClaimService {
     public record Outcome(boolean won, String status, Long claimId) {
     }
 
+    private static final Logger LOG = LoggerFactory.getLogger(WriteClaimService.class);
+
     private final WriteClaimRepository repository;
 
-    public WriteClaimService(WriteClaimRepository repository) {
+    /**
+     * Asked for, not required. The audit bean is resolved lazily so that this service still works —
+     * and still arbitrates — in a context that has no chain configured: the audit row is a record of
+     * the takeover, never a precondition of it.
+     *
+     * 问一声、但不强求。审计 bean 惰性取用，好让本服务在没有配链的上下文里**照样能用、照样仲裁**：那一行
+     * 是接管的**记录**，从来不是接管的**前提**。
+     */
+    private final ObjectProvider<AuditService> auditService;
+
+    @Autowired
+    public WriteClaimService(WriteClaimRepository repository, ObjectProvider<AuditService> auditService) {
         this.repository = repository;
+        this.auditService = auditService;
+    }
+
+    /**
+     * For a caller that constructs this service by hand — tests, mostly. No chain, so no row.
+     *
+     * 留给**手工**构造本服务的调用方 —— 主要是测试。没有链，就没有那一行。
+     */
+    public WriteClaimService(WriteClaimRepository repository) {
+        this(repository, null);
     }
 
     /**
@@ -71,20 +111,43 @@ public class WriteClaimService {
     }
 
     /**
+     * Claim this call for execution, outside any conversation — see
+     * {@link #claim(Principal, String, String, String)}.
+     *
+     * 领取这次调用的执行权，不属于任何会话 —— 见 {@link #claim(Principal, String, String, String)}。
+     */
+    public Outcome claim(Principal principal, String toolName, String argsJson) {
+        return claim(principal, toolName, argsJson, null);
+    }
+
+    /**
      * Claim this call for execution.
      *
      * <p>Deliberately not {@code @Transactional}, for the reason {@link SideEffectService#record} is not:
      * the insert has to be able to fail on the unique key and roll back <em>on its own</em>, so the
-     * re-read below sees a fresh persistence context. Inside one transaction the constraint violation
-     * poisons the context and the read-back is what breaks.
+     * re-read that follows sees a fresh persistence context. Inside one transaction the constraint
+     * violation poisons the context and the read-back is what breaks.
+     *
+     * <p>The conversation is carried only so a takeover has somewhere to file its {@code claim_release}
+     * row; a call that belongs to none passes {@code null}, and the row then carries none — the same
+     * honest answer the chain gives for every other row written outside a conversation.
+     *
+     * 领取这次调用的执行权。
+     *
+     * <p>**刻意不加** `@Transactional`，理由与 {@link SideEffectService#record} 相同：插入必须能在唯一键上
+     * 失败并**自行**回滚，这样随后的重读才读到一个干净的持久化上下文。放进一个事务里，约束违例会把上下文毒掉，
+     * 坏掉的恰恰是那次重读。
+     *
+     * <p>会话只是捎带，好让接管有地方挂它那一行 `claim_release`；不属于任何会话的调用传 `null`，那一行便不挂
+     * 会话 —— 与链对其它「会话之外写下的行」给出的诚实的答案相同。
      */
-    public Outcome claim(Principal principal, String toolName, String argsJson) {
+    public Outcome claim(Principal principal, String toolName, String argsJson, String conversationId) {
         String key = keyFor(principal, toolName, argsJson);
         try {
             repository.saveAndFlush(new WriteClaim(key, principal.userId(), toolName));
             return new Outcome(true, WriteClaim.CLAIMED, null);
         } catch (DataIntegrityViolationException taken) {
-            return reclaimOrLose(key);
+            return reclaimOrLose(key, principal, conversationId);
         }
     }
 
@@ -119,7 +182,7 @@ public class WriteClaimService {
      * <p>**运维关掉的行，两扇门都进不去。** `closed_unknown` 说的是「有人决定了没人知道那次写怎么了」；
      * 结论并没有变成「它没落地」，故租约不得把那个决定悄悄变回一次重试。
      */
-    private Outcome reclaimOrLose(String key) {
+    private Outcome reclaimOrLose(String key, Principal taker, String conversationId) {
         WriteClaim existing = repository.findByIdempotencyKey(key).orElse(null);
         if (existing == null) {
             return new Outcome(false, null, null);
@@ -133,12 +196,66 @@ public class WriteClaimService {
         int reclaimed = repository.reclaim(key, WriteClaim.RELEASED, WriteClaim.CLAIMED,
                 WriteClaim.CLAIMED, now, now.minusMillis(ExecutionAxis.LEASE_MILLIS));
         if (reclaimed == 1) {
+            if (stranded) {
+                // Only the lease door leaves a row: the released door is an attempt that said nothing
+                // landed, so its conclusion is known and there is no unknown to release. This branch is
+                // the one the contract calls `claim_release` — a hold whose fate nobody knows changed
+                // hands, and the act of taking it is the record.
+                //
+                // 只有租约门留行：释放门是一次「说了什么都没落地」的尝试，其结论是已知的，没有未知可释放。
+                // 这一支才是契约说的 `claim_release` —— 一份**没人知道结局**的占位换了主人，而**接管这个动作**
+                // 本身就是记录。
+                recordRelease(existing, taker, conversationId);
+            }
             return new Outcome(true, WriteClaim.CLAIMED, null);
         }
         WriteClaim after = repository.findByIdempotencyKey(key).orElse(null);
         return after == null
                 ? new Outcome(false, null, null)
                 : new Outcome(false, after.getStatus(), after.getId());
+    }
+
+    /**
+     * Leaves the takeover as one row of the chain: {@code claim_release}, no {@code outcome}, and a
+     * detail that names the hold, both owners and the reason.
+     *
+     * <p><b>Best-effort, and loudly so.</b> The key has already moved by the time this runs — turning a
+     * lost append into a refused execution would refuse an execution that is entitled to run and would
+     * not give the hold back. What a failed append must not do is pass silently, so it is logged with
+     * both owners and the claim id.
+     *
+     * 把这次接管留成链上**一行**：`claim_release`、**不写** `outcome`，`detail` 点名那份占位、两任主人与原因。
+     *
+     * <p>**尽力而为，且失败必须出声。** 走到这里时键已经换了主人 —— 把一次失败的追加变成一次被拒的执行，
+     * 既拒掉了一次**有权运行**的执行，也**换不回**那份占位。失败的追加唯一不许做的事是悄无声息，故它连同
+     * 两任主人和占位 id 一起记进日志。
+     */
+    private void recordRelease(WriteClaim prior, Principal taker, String conversationId) {
+        AuditService audit = auditService == null ? null : auditService.getIfAvailable();
+        if (audit == null) {
+            return;
+        }
+        String detail = "released stranded write claim #" + prior.getId()
+                + " (" + prior.getToolName() + ", held by user " + prior.getUserId() + ")"
+                + " → take-over by user " + taker.userId()
+                + "; reason: the lease expired, so the previous attempt is not coming back"
+                + (prior.getEffectId() == null ? "" : "; effect: " + prior.getEffectId());
+        try {
+            // No outcome: this row is not a tool verdict, and the hold's conclusion deliberately
+            // stays unknown. The tool is passed so the row can be filtered by tool without parsing
+            // `detail` — the same shape the reference implementation writes.
+            //
+            // 不写 outcome：这一行不是工具结局，占位的结论**有意**保持未知。工具名单独传入，好让这一行
+            // 不必解析 `detail` 就能按工具筛选 —— 与参照实现写下的形状相同。
+            audit.append("claim_release", taker.userId(), detail, false, null, prior.getToolName(),
+                    conversationId);
+        } catch (RuntimeException failed) {
+            LOG.error("write claim #{} ({}) was taken over from user {} by user {}, but its "
+                            + "claim_release row was not written — the chain does not say the hold "
+                            + "changed hands: {}",
+                    prior.getId(), prior.getToolName(), prior.getUserId(), taker.userId(),
+                    failed.toString(), failed);
+        }
     }
 
     /**

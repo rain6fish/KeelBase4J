@@ -241,19 +241,40 @@ public class ConversationController {
     }
 
     /**
-     * One audit row as a step: a {@code tool_call} for a call, a {@code confirmation} for a decision.
+     * The step a {@code claim_release} row becomes. It is a {@code notice} — the frozen step vocabulary
+     * has no verdict for it, and it is not a tool call: no tool ran here, a hold that nobody could
+     * conclude was released. The specifics (which hold, both owners, the reason) travel in
+     * {@code detail}; this is the one line a reader sees first.
      *
-     * <p>A row that is neither — none exists today, but the vocabulary is the store's to widen — is
-     * left out rather than shown as a step type it is not. The call's outcome is carried as
-     * {@code success} (false is a refusal, a block, a failed execution or a pending one, matching the
-     * row's own {@code isError}), and a decision carries the frozen {@code outcome} the row's action
-     * maps to.
+     * {@code claim_release} 行变成的那一步。它是 `notice` —— 冻结的步词表里没有属于它的裁决，而它也**不是**
+     * 一次工具调用：这里没有工具跑过，只是释放了一份**没人能下结论**的占位。具体的（哪份占位、两任主人、原因）
+     * 走 `detail`；这一行是读者先看到的那一句。
+     */
+    private static final String CLAIM_RELEASE_NOTICE =
+            "A stranded write hold was released; its conclusion stays unknown.\n"
+                    + "滞留的写占位已释放；它的结论保持未知。";
+
+    /**
+     * One audit row as a step: a {@code tool_call} for a call, a {@code confirmation} for a decision,
+     * a {@code notice} for a released write hold.
      *
-     * 一行审计作为一步：一次调用是 `tool_call`，一次裁决是 `confirmation`。
+     * <p>A row that is none of those — the vocabulary is the store's to widen — is left out rather
+     * than shown as a step type it is not. The call's outcome is carried as {@code success} (false is
+     * a refusal, a block, a failed execution or a pending one, matching the row's own
+     * {@code isError}), and a decision carries the frozen {@code outcome} the row's action maps to.
      *
-     * <p>两者都不是的行 —— 今天不存在，但词表归存储去放宽 —— **略过**，而不是显示成它并非的那个步类型。调用那一行
-     * 的结局以 {@code success} 承载（false 即拒绝、拦截、执行失败或尚在待决，与那一行自己的 `isError` 一致），
-     * 裁决则承载它那一行映射到的冻结 {@code outcome}。
+     * <p>The released-hold row is not folded into {@code tool_call}: it has no {@code success}, because
+     * nothing was attempted and nothing was concluded — the hold's fate stays unknown, which is the
+     * whole reason the act is recorded separately.
+     *
+     * 一行审计作为一步：一次调用是 `tool_call`，一次裁决是 `confirmation`，一次释放写占位是 `notice`。
+     *
+     * <p>三者都不是的行 —— 词表归存储去放宽 —— **略过**，而不是显示成它并非的那个步类型。调用那一行的结局以
+     * {@code success} 承载（false 即拒绝、拦截、执行失败或尚在待决，与那一行自己的 `isError` 一致），裁决则
+     * 承载它那一行映射到的冻结 {@code outcome}。
+     *
+     * <p>释放占位那一行**不**折进 `tool_call`：它没有 `success`，因为既没尝试什么、也没得出什么结论 —— 占位的
+     * 结局**保持未知**，而那正是这个动作要单独记一行的原因。
      */
     private static Map<String, Object> auditStep(AuditLog row) {
         String type;
@@ -261,6 +282,8 @@ public class ConversationController {
             type = "tool_call";
         } else if ("tool_confirmation".equals(row.getAction())) {
             type = "confirmation";
+        } else if ("claim_release".equals(row.getAction())) {
+            type = "notice";
         } else {
             return null;
         }
@@ -274,11 +297,13 @@ public class ConversationController {
         step.put("detail", row.getDetail());
         if ("tool_call".equals(type)) {
             step.put("success", !row.isError());
-        } else {
+        } else if ("confirmation".equals(type)) {
             String outcome = confirmationOutcome(row.getOutcome());
             if (outcome != null) {
                 step.put("outcome", outcome);
             }
+        } else {
+            step.put("content", CLAIM_RELEASE_NOTICE);
         }
         return step;
     }
