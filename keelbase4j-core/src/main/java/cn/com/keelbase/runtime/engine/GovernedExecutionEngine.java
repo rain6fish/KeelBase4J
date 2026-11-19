@@ -633,7 +633,7 @@ public class GovernedExecutionEngine {
             if (reused != null) {
                 return reused;
             }
-            claimed = claimForExecution(tool, argsJson, principal);
+            claimed = claimForExecution(tool, argsJson, principal, conversationId);
             // The intent row (D36 ②): written before the tool runs, so "who tried" never goes missing
             // even when the tool's own write lands and the bookkeeping after it does not. Same shape
             // as the refusal row in the catch below; its outcome is the line after it.
@@ -762,11 +762,12 @@ public class GovernedExecutionEngine {
      *
      * <p>读不占位：它什么都不写，也就没什么可仲裁；而每次读留一行，等于给「什么都没有」记账。
      */
-    private boolean claimForExecution(AiTool tool, String argsJson, Principal principal) {
+    private boolean claimForExecution(AiTool tool, String argsJson, Principal principal,
+                                      String conversationId) {
         if (tool.resultType() == null) {
             return false;
         }
-        WriteClaimService.Outcome claim = claims.claim(principal, tool.name(), argsJson);
+        WriteClaimService.Outcome claim = claims.claim(principal, tool.name(), argsJson, conversationId);
         if (!claim.won()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "this call is already being executed (claim: " + claim.status() + ")"
