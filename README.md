@@ -333,6 +333,36 @@ language and still be the *same* protocol, rather than a similar-looking one:
 
 ---
 
+## Contract coverage
+
+The snapshot under `conformance/vectors/` corresponds to contract **v1.22.0**. One member of that
+version is **not implemented** here: `audit-chain-anchor`, the daily chain anchor. This runtime
+produces no anchor and verifies none — there is no producer, no verifier, and no route (the contract
+defines the record and its semantics, not an endpoint).
+
+Two facts decide the shape of that gap. First, the operation audit log in this repository is **not a
+hash chain**: `operation_audit_logs` carries no `hash`/`prevHash` columns and rows are written
+directly, so an anchor over that chain has nothing to anchor; only the AI audit chain is a real hash
+chain. Second, SM2/SM3 are **not available in the JDK** — on Temurin 17 and 25 every `SM3`/`SM2`
+algorithm lookup fails with `NoSuchAlgorithmException` — so any SM2 signing or verification has to use
+an external tool or BouncyCastle, and the specification requires the private key to stay outside the
+container that serves requests. Until a producer and a verifier exist, this runtime is a consumer of
+the protocol, not an implementation of the anchor member.
+
+## 契约覆盖
+
+`conformance/vectors/` 下的快照对应契约 **v1.22.0**。该版本有一个成员在这里**尚未实现**：
+`audit-chain-anchor`，即每日链锚。本运行时既不产出锚、也不校验锚 —— 没有产出方、没有校验方，也没有
+路由（契约定义的是记录与语义，不是端点）。
+
+这个缺口由两个事实决定其形状。其一，本仓的操作审计日志**不是哈希链**：`operation_audit_logs` 没有
+`hash`/`prevHash` 列，行是直接写入的，故对那条链做锚没有可锚之物；只有 AI 审计链是真哈希链。其二，
+JDK 内**没有 SM2/SM3** —— Temurin 17 与 25 上所有 `SM3`/`SM2` 算法查找都抛
+`NoSuchAlgorithmException` —— 任何 SM2 签名或验签都必须借助外部工具或 BouncyCastle，而规格要求
+私钥不得进入处理请求的容器。在产出方与校验方出现之前，本运行时是该协议的消费方，而不是锚成员的实现方。
+
+---
+
 ## Protocol sources
 
 The authoritative protocol lives in its own repository —

@@ -41,6 +41,14 @@ Each version is written in two blocks — English first, then Chinese — marked
   so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
   change.
 
+### Known limitations
+
+- **`audit-chain-anchor` (contract v1.22.0) is not implemented.** This runtime neither produces nor
+  verifies a daily chain anchor: there is no producer, no verifier, and no route. The operation audit
+  log is not a hash chain (no `hash`/`prevHash` columns), and SM2/SM3 are unavailable in JDK 17/25, so
+  SM2 signing or verification needs an external tool or BouncyCastle. See the README's
+  "Contract coverage" section.
+
 **中文**
 
 ### 新增
@@ -63,6 +71,12 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **版本为 `0.1.20-SNAPSHOT`。** 八个 pom 由 `0.1.19` 抬到 `0.1.20-SNAPSHOT`。`v0.1.19` 已发布（tag 对象
   `c161a0fd` 指向提交 `9b49c1a`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
   拒绝的；在干净 runner 上不存在 `0.1.20` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
+
+### 已知限制
+
+- **`audit-chain-anchor`（契约 v1.22.0）未实现。** 本运行时既不产出也不校验每日链锚：没有产出方、
+  没有校验方，也没有路由。操作审计日志不是哈希链（无 `hash`/`prevHash` 列），且 JDK 17/25 内没有
+  SM2/SM3，故 SM2 签名或验签需要外部工具或 BouncyCastle。见 README 的「契约覆盖」一节。
 
 ## [0.1.19] - 2026-11-15
 
