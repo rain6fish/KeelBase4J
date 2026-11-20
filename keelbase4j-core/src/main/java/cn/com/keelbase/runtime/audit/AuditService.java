@@ -423,13 +423,44 @@ public class AuditService {
      * therefore not here; the answer is "the rows of the writes that landed", not every mention of the
      * object. A deployment with no effect ledger answers "no rows", not "no filter".
      *
+     * <p><b>The ledger is the first road, not the only one.</b> When it selects nothing, the rows
+     * whose own sentence ends with a typed key (` · object MCP connection #12`) are the answer — a
+     * connect test, a probe, any action that is not a tool call and therefore writes no ledger row.
+     * The key's word is compared with {@code resultType} literally, so a request for another kind
+     * matches nothing; and the fallback only runs when the ledger answered nothing, so a write that
+     * landed still wins over any mention. The period, when the caller gave one, bounds the scan.
+     *
      * 碰过同一条业务对象的链上那些行：带该 `(resultType, resultId)` 的副作用给出它们的执行 id，取回**恰好**
      * 那些执行的行 —— 这次尝试的 intent 行与结果行，**以及授权它的那条批准行**（它带同一个 id）。拦截、待决
      * 与否决没有执行，故不在这里；答案是「**已落地的那些写**的行」，不是对这条对象的每一次提及。没有台账的
      * 部署答「没有行」、不是「没有过滤」。
+     *
+     * <p>**台账是第一条路，不是唯一一条。** 它一条都没选出来时，答案换成那些**自己句末带类型键**的行
+     * （` · object MCP connection #12`）—— 一次连通测试、一次探测，任何**不是工具调用**、因而**不写台账行**
+     * 的动作。键上的词与 `resultType` **逐字**比较，故查另一种对象时什么都不命中；回落只在台账什么都没答时
+     * 才跑，故**已落地的写**仍然压过任何提及。调用方给了区间时，扫描被限在那个区间里。
      */
     @Transactional(readOnly = true)
     public List<Long> objectRowIds(String resultType, String resultId) {
+        return objectRowIds(resultType, resultId, null, null);
+    }
+
+    /** The same, with the period the caller asked about bounding the sentence scan. / 同上，句末键的扫描以调用方所问的区间为界。 */
+    @Transactional(readOnly = true)
+    public List<Long> objectRowIds(String resultType, String resultId, Instant since, Instant until) {
+        List<Long> viaLedger = objectRowIdsFromLedger(resultType, resultId);
+        if (!viaLedger.isEmpty()) {
+            return viaLedger;
+        }
+        return objectRowIdsFromSentence(resultType, resultId, since, until);
+    }
+
+    /**
+     * The write that landed: the ledger row's execution ids lead to exactly those executions' rows.
+     *
+     * 已落地的那次写：台账行的执行 id 指向**恰好**那些执行的行。
+     */
+    private List<Long> objectRowIdsFromLedger(String resultType, String resultId) {
         if (sideEffects == null) {
             return List.of();
         }
@@ -443,6 +474,72 @@ public class AuditService {
             return List.of();
         }
         return repository.findByExecutionIdIn(executions).stream().map(AuditLog::getId).toList();
+    }
+
+    /**
+     * The mention a row wrote about itself: the typed key at the end of its own sentence. The like is a
+     * literal suffix scan — `!` is the escape, so a `%` or `_` in the word is a character and never a
+     * wildcard — and `detail` has no index, so it is a scan of the chain. The deciding comparison is
+     * `endsWith` in Java, which keeps the match exact on a case-insensitive collation too. That is the
+     * price of answering a question the ledger cannot: the period, when given, is the bound, and the
+     * caller may narrow by caller and outcome in the same request.
+     *
+     * 一行**关于自己**写下的提及：它句末那个带类型的键。like 是字面后缀扫描 —— `!` 是转义符，故词里的
+     * `%` 或 `_` 是字符、绝不是通配符 —— 而 `detail` 没有索引，故它扫的是整条链。**决定**的那次比较是 Java
+     * 里的 `endsWith`，它在大小写不敏感的排序规则下也让匹配保持精确。这就是回答一个台账答不了的问题所要付的
+     * 代价：给了区间就以区间为界，调用方还可以在同一次请求里按调用者与结果再收窄。
+     */
+    private List<Long> objectRowIdsFromSentence(String resultType, String resultId, Instant since,
+                                                Instant until) {
+        String suffix = typedObjectKeySuffix(resultType, resultId);
+        if (suffix == null) {
+            return List.of();
+        }
+        String pattern = "%" + suffix.replace("!", "!!").replace("%", "!%").replace("_", "!_");
+        Specification<AuditLog> filter = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.like(root.get("detail"), pattern, '!'));
+            if (since != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), since));
+            }
+            if (until != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), until));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        // The LIKE narrows; the comparison that decides is `endsWith` in Java, so a case-insensitive
+        // collation cannot make one kind answer for another.
+        // LIKE 只是收窄；**决定**的是 Java 里的 `endsWith`，故大小写不敏感的排序规则无法让一种对象替另一种作答。
+        return repository.findAll(filter).stream()
+                .filter(row -> row.getDetail() != null && row.getDetail().endsWith(suffix))
+                .map(AuditLog::getId)
+                .toList();
+    }
+
+    /**
+     * The typed key a row would carry for this pair — ` · object MCP connection #12` — or null when
+     * the pair cannot be one. The key's word is a **readable kind word**, never a table name; the key
+     * is end-anchored, and its business key is numeric, so a pair that could not have been written
+     * this way is not scanned for. A word is capped at 120 characters and may not contain a line
+     * break: both would be a request to search for something this deployment never writes.
+     *
+     * 这一对会写的带类型键 —— ` · object MCP connection #12` —— 或者当这一对**不可能是**这种键时的 null。
+     * 键上的词是**可读的种类词**、绝不是表名；键锚在句末，业务主键是数字，故一对不可能这样写下的输入不会
+     * 被拿去扫。词限 120 字符、且不许含换行：两者都等于要求搜一个本部署**从不写**的东西。
+     */
+    static String typedObjectKeySuffix(String kind, String key) {
+        if (kind == null || key == null) {
+            return null;
+        }
+        String word = kind.trim();
+        if (word.isEmpty() || word.length() > 120
+                || word.indexOf('\n') >= 0 || word.indexOf('\r') >= 0) {
+            return null;
+        }
+        if (!key.matches("[0-9]{1,18}")) {
+            return null;
+        }
+        return " · object " + word + " #" + key;
     }
 
     /**
