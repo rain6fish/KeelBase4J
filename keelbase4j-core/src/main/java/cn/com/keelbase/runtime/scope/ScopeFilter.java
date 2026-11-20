@@ -41,11 +41,21 @@ public class ScopeFilter {
     /**
      * The entities that can be row-filtered and where their scope facts live. An entity absent from
      * this registry is not scope-filterable at all — see {@link #restrict}.
+     *
+     * <p>{@code ToolEffect} (a write claim) is here with an owner and no organization or department:
+     * the row belongs to the user the hold was taken for and carries no other scope fact, so a range
+     * can only judge it by ownership. {@code null} columns are what makes that explicit — see the
+     * tightening in {@link #restrict}.
+     *
+     * <p>`ToolEffect`（一份写占位）在这里，只有主人、没有组织或部门：这一行属于**为谁而取**的那个人，
+     * 不携带别的范围事实，故范围只能按归属来判定它。`null` 列把这一点写明 —— 见 {@link #restrict}
+     * 里的收紧。
      */
     private static final Map<String, ScopeColumns> SCOPE_COLUMNS = Map.of(
             "Customer", new ScopeColumns("ownerUserId", "orgId", "deptId"),
             "PmProject", new ScopeColumns("ownerUserId", "orgId", "deptId"),
-            "PmTask", new ScopeColumns("ownerUserId", "orgId", "deptId"));
+            "PmTask", new ScopeColumns("ownerUserId", "orgId", "deptId"),
+            "ToolEffect", new ScopeColumns("userId", null, null));
 
     private final DataScopeRules levels;
     private final Departments departments;
@@ -79,10 +89,20 @@ public class ScopeFilter {
             return Optional.empty();
         }
         Facts caller = Facts.of(principal);
-        ScopeLevel level = effective(scope, caller);
-        if (level == ScopeLevel.ALL) {
+        ScopeLevel applied = effective(scope, caller);
+        if (columns.org() == null && applied != ScopeLevel.ALL && applied != ScopeLevel.OWN) {
+            // The entity carries no organization fact, so a level that names one cannot be built over
+            // it. Tighten to the only fact the row has instead of building a predicate over a column
+            // that does not exist — the same direction as "missing facts tighten, never widen".
+            //
+            // 该实体不携带组织事实，故点名组织的档位在它上面无从构建。收紧到这一行唯一有的事实，而不是
+            // 在一个并不存在的列上构建谓词 —— 与「缺事实就收紧、绝不放宽」同向。
+            applied = ScopeLevel.OWN;
+        }
+        if (applied == ScopeLevel.ALL) {
             return Optional.empty();
         }
+        ScopeLevel level = applied;
         Set<Long> deptIds = deptIdsFor(level, scope, caller);
         return Optional.of((root, query, cb) -> {
             Predicate owns = cb.equal(root.get(columns.owner()), caller.userId());

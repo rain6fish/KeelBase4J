@@ -5,7 +5,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import cn.com.keelbase.protocol.CanonicalJson;
 import cn.com.keelbase.protocol.Json;
@@ -13,6 +25,8 @@ import cn.com.keelbase.protocol.Vectors;
 import cn.com.keelbase.protocol.WireSchemas;
 import cn.com.keelbase.runtime.audit.AuditLog;
 import cn.com.keelbase.runtime.audit.AuditLogRepository;
+import cn.com.keelbase.runtime.audit.AuditService;
+import cn.com.keelbase.runtime.authz.OwnershipGuard;
 import cn.com.keelbase.runtime.effect.WriteClaim;
 import cn.com.keelbase.runtime.effect.WriteClaimReleaseService;
 import cn.com.keelbase.runtime.effect.WriteClaimRepository;
@@ -24,6 +38,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +52,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -74,7 +90,12 @@ class ClaimReleaseTest {
     /** The test fixture's administrator — the identity that holds {@code manage} on the ledger. */
     private static final String ADMIN = "carol";
 
+    private static final Principal CAROL = new Principal(ADMIN, Principal.ROLE_ADMIN);
+
     private static final String TOOL = "create_followup";
+
+    @MockitoSpyBean
+    AuditService audit;
 
     @Autowired
     WriteClaimService claims;
@@ -220,6 +241,84 @@ class ClaimReleaseTest {
         assertEquals(404, missing.getStatusCode().value(), missing.toString());
     }
 
+    /**
+     * A chain that refuses the row must refuse the release too: the status change rolls back with it,
+     * so "the hold is closed but the chain does not say so" cannot be left behind — and the retry,
+     * which is the only repair the API offers, still works.
+     *
+     * <p>This is the failure the release path used to have: it committed the close first and appended
+     * in a second transaction, so a failed append left the ledger closed and the chain empty, and a
+     * retry answered {@code already_closed}.
+     *
+     * 链拒绝那一行时，释放也必须被拒：状态改动随它一起回滚，故「占位已关而链上没说」留不下来 ——
+     * 而重试（API 唯一提供的补救）仍然能用。
+     *
+     * <p>这正是释放路径此前的失败：它先提交关闭、再以另一个事务追加，于是失败的追加留下「账本已关、
+     * 链上为空」，重试答 `already_closed`。
+     */
+    @Test
+    void aFailedChainWriteRollsTheCloseBackAndTheRetryIsTheRepair() {
+        String args = aCall();
+        String marker = "note-" + UUID.randomUUID();
+        WriteClaim hold = strandedHold(args);
+
+        doThrow(new IllegalStateException("the audit chain head row is missing"))
+                .when(audit).append(anyString(), anyString(), anyString(), anyBoolean(), isNull(),
+                        anyString());
+
+        assertThrows(IllegalStateException.class,
+                () -> releases.release(hold.getId(), CAROL, marker, null),
+                "an append that fails must fail the release, not leave it half-recorded");
+
+        assertEquals(WriteClaim.CLAIMED,
+                claimRows.findById(hold.getId()).orElseThrow().getStatus(),
+                "the status change rolled back with the row it could not be recorded with");
+        assertEquals(0, rowsMentioning(marker), "no half-written line reached the chain");
+
+        reset(audit);
+        WriteClaimReleaseService.Released retried = releases.release(hold.getId(), CAROL, marker, null);
+        assertEquals(WriteClaim.CLOSED_UNKNOWN, retried.status(), "the retry is the repair");
+        assertNotNull(retried.auditRowId(), "and it leaves the row the first attempt could not");
+        assertEquals(1, rowsMentioning(marker));
+    }
+
+    /**
+     * The boundary answer names what actually happened. When the conditional update matches nothing
+     * but the row still reads {@code claimed}, the age condition is what refused the release — the
+     * row is at the lease edge, or was reclaimed and is fresh again — so the kind is {@code
+     * not_stale}. It used to answer {@code not_claimable}, which named a state that never changed.
+     *
+     * 边界处的答案点名真正发生的事。条件更新一行没匹配上、而行仍读作 `claimed` 时，拒绝这次释放的是
+     * **年龄条件** —— 这一行卡在租约边缘，或已被收回、又变新鲜 —— 故种类是 `not_stale`。它此前答的是
+     * `not_claimable`，点名了一个从未改变的状态。
+     */
+    @Test
+    void aRefusalFromTheAgeConditionSaysNotStale() {
+        WriteClaim staleRow = mock(WriteClaim.class);
+        when(staleRow.getId()).thenReturn(9L);
+        when(staleRow.getStatus()).thenReturn(WriteClaim.CLAIMED);
+        when(staleRow.getClaimedAt())
+                .thenReturn(Instant.now().minusMillis(ExecutionAxis.LEASE_MILLIS + 1_000L));
+        when(staleRow.getUserId()).thenReturn(ALICE.userId());
+        when(staleRow.getToolName()).thenReturn(TOOL);
+
+        WriteClaimRepository rows = mock(WriteClaimRepository.class);
+        when(rows.findById(9L)).thenReturn(Optional.of(staleRow));
+        when(rows.closeUnknown(eq(9L), anyString(), anyString(), any(Instant.class))).thenReturn(0);
+
+        AuditService chain = mock(AuditService.class);
+        WriteClaimReleaseService service =
+                new WriteClaimReleaseService(rows, chain, mock(OwnershipGuard.class));
+
+        ResponseStatusException refused = assertThrows(ResponseStatusException.class,
+                () -> service.release(9L, CAROL, "a long enough note", null));
+
+        assertEquals(409, refused.getStatusCode().value(), refused.toString());
+        assertTrue(refused.getReason().startsWith("not_stale"), refused.getReason());
+        verify(chain, never()).append(anyString(), anyString(), anyString(), anyBoolean(), isNull(),
+                anyString());
+    }
+
     private WriteClaim hold(String args) {
         assertTrue(claims.claim(ALICE, TOOL, args).won());
         return claimRows.findByIdempotencyKey(WriteClaimService.keyFor(ALICE, TOOL, args))
@@ -238,7 +337,7 @@ class ClaimReleaseTest {
 
     private ResponseStatusException expectRefusal(Long claimId, String marker) {
         try {
-            releases.release(claimId, ADMIN, marker, null);
+            releases.release(claimId, CAROL, marker, null);
         } catch (ResponseStatusException refused) {
             return refused;
         }

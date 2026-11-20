@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.effect;
 
+import cn.com.keelbase.runtime.scope.ScopedRow;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -55,7 +56,16 @@ import java.time.Instant;
  */
 @Entity
 @Table(name = "write_claims")
-public class WriteClaim {
+public class WriteClaim implements ScopedRow {
+
+    // A hold belongs to the user it was taken for, and to nobody else: the row has an owner but no
+    // organization or department, so a row range can only ever judge it by ownership. That is what
+    // keeps a tier-B non-administrator from releasing somebody else's hold — see
+    // WriteClaimReleaseService, the one place a hold is closed.
+    //
+    // 一份占位属于**为谁而取**的那个人，不属于别人：这一行有主人、但没有组织或部门，故行范围只能按
+    // 归属来判定它。这正是档 B 下非管理员放不掉别人的占位的原因 —— 见 WriteClaimReleaseService，
+    // 那是关闭占位的唯一一处。
 
     /** An execution is in flight, or died without releasing — indistinguishable, so never re-run. */
     public static final String CLAIMED = "claimed";
@@ -141,5 +151,20 @@ public class WriteClaim {
 
     public Instant getSettledAt() {
         return settledAt;
+    }
+
+    @Override
+    public String ownerUserId() {
+        return userId;
+    }
+
+    @Override
+    public Long orgId() {
+        return null;
+    }
+
+    @Override
+    public Long deptId() {
+        return null;
     }
 }
