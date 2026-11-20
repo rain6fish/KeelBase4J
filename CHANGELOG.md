@@ -50,6 +50,20 @@ Each version is written in two blocks — English first, then Chinese — marked
   so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
   change.
 
+### Fixed
+
+- **Releasing a stranded write hold is one transaction with its row, and reaches only the caller's own
+  holds.** `POST /ai/tool-effects/claims/{id}/release` used to close the hold and then append
+  `claim_release` in a second transaction: a failed append answered 500 with the hold already
+  `closed_unknown`, no row on the chain, and every retry `already_closed` — the act was unrecorded and
+  impossible to record afterwards. The close and the append now commit together, so a failed append
+  rolls the close back, the hold stays `claimed`, and the retry is the repair. The release also judges
+  the row rather than only the action: a tier-B `ToolEffect:update` grant scoped to its owner closes
+  only that owner's holds (a hold carries no organization or department, so a range naming one tightens
+  to ownership), while an administrator still closes any. At the lease boundary the refusal is now
+  `not_stale`, the condition that actually refused it, instead of `not_claimable`; both staleness
+  checks ask "strictly past the lease", the same boundary the conditional updates ask in SQL.
+
 ### Known limitations
 
 - **`audit-chain-anchor` (contract v1.22.0) is not signed or verified here.** This runtime reads the
@@ -87,6 +101,17 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **版本为 `0.1.20-SNAPSHOT`。** 八个 pom 由 `0.1.19` 抬到 `0.1.20-SNAPSHOT`。`v0.1.19` 已发布（tag 对象
   `c161a0fd` 指向提交 `9b49c1a`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
   拒绝的；在干净 runner 上不存在 `0.1.20` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
+
+### 修复
+
+- **释放滞留的写占位现在与它那一行同处一个事务，且只够得到调用方行范围内的占位。**
+  `POST /ai/tool-effects/claims/{id}/release` 此前先关闭占位、再在另一个事务里追加 `claim_release`：
+  追加失败时答复 500，而占位已是 `closed_unknown`、链上没有任何行，之后每次重试都是 `already_closed`
+  —— 这个动作既没有留痕、也无法事后补记。现在关闭与追加一起提交，故追加失败会把关闭一并回滚、占位仍是
+  `claimed`，重试即修复。释放也不再只看动作、而要看行：档 B 中按主人收窄的 `ToolEffect:update` 授予
+  只关得了本人的占位（占位不携带组织或部门事实，故点名组织的档位收紧到归属判定），而管理员仍能关闭任意
+  一份。租约边界处的拒绝改为 `not_stale` —— 那才是真正拒绝它的条件 —— 而不是 `not_claimable`；两处
+  陈旧性判断都改为「严格越过租约」，与条件更新在 SQL 里问的边界一致。
 
 ### 已知限制
 

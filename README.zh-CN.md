@@ -190,7 +190,7 @@ bash scripts/demo-springai-task.sh    # 真模型驱动框架自己的多步循�
 
 `keelbase4j-protocol` 正是**生成物所依赖**的那个 artifact，所以它保持零第三方依赖：当它与运行时共用一份 jar 时，那个库悄悄带上了 Spring Security，而继承了其自动配置的生成应用把所有端点都锁死了。适配器——模型 provider、身份 provider——属于运行时**之外**，依赖它，而不是反过来。
 
-运行时服务十五条路由，全部挂在参照实现的 `/api/v1` 前缀下（`server.servlet.context-path`），这样一套 runtime-neutral 前端只保留一个 base URL，不需要按 runtime 分支：
+运行时服务十六条路由，全部挂在参照实现的 `/api/v1` 前缀下（`server.servlet.context-path`），这样一套 runtime-neutral 前端只保留一个 base URL，不需要按 runtime 分支：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -200,6 +200,7 @@ bash scripts/demo-springai-task.sh    # 真模型驱动框架自己的多步循�
 | POST | `/ai/confirmations/{token}` | `approve`（执行）或 `decline`（什么都不写） |
 | GET | `/ai/tool-effects` | 已记录的副作用 |
 | DELETE | `/ai/tool-effects/{id}` | 撤销 → 本地补偿（软删除） |
+| POST | `/ai/tool-effects/claims/{id}/release` | 把滞留的写占位关闭为未知，并在链上留下一行 `claim_release`；键仍被占住 —— **管理员或任何在 `ToolEffect` 上持有 `update` 者**，且只限其行范围内的占位 |
 | GET | `/audit/verify` | 重算并校验审计哈希链 |
 | GET | `/auth/me` | 调用方是谁——按本部署所知道的 |
 | GET | `/auth/me/permissions` | 调用方的能力清单，按冻结契约形状返回 |
