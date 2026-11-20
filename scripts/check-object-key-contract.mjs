@@ -28,6 +28,7 @@
  *
  *   node scripts/check-object-key-contract.mjs                     # report; exit 0 when clean
  *   node scripts/check-object-key-contract.mjs --strict            # exit 1 on any divergence
+ *   node scripts/check-object-key-contract.mjs --definition-only   # skip the host comparison
  *   node scripts/check-object-key-contract.mjs --host ../KeelBase-Vue-Pro
  *   KEELBASE_HOST_REPO=/path/to/KeelBase-Vue-Pro node scripts/check-object-key-contract.mjs
  *   node scripts/check-object-key-contract.mjs --self-test         # positive and negative controls
@@ -57,6 +58,7 @@
  *
  *   node scripts/check-object-key-contract.mjs                     # 只报告；干净时退出 0
  *   node scripts/check-object-key-contract.mjs --strict            # 有任何分叉即退出 1
+ *   node scripts/check-object-key-contract.mjs --definition-only   # 不比对宿主
  *   node scripts/check-object-key-contract.mjs --host ../KeelBase-Vue-Pro
  *   KEELBASE_HOST_REPO=/path/to/KeelBase-Vue-Pro node scripts/check-object-key-contract.mjs
  *   node scripts/check-object-key-contract.mjs --self-test         # 正向与负向对照
@@ -81,6 +83,7 @@ const arg = (name, dflt) => {
 }
 const STRICT = argv.includes('--strict')
 const SELF_TEST = argv.includes('--self-test')
+const DEFINITION_ONLY = argv.includes('--definition-only')
 const HOST = resolve(ROOT, arg('--host', process.env.KEELBASE_HOST_REPO ?? '../KeelBase-Vue-Pro'))
 
 const die = (message) => {
@@ -227,9 +230,11 @@ if (SELF_TEST) {
   process.exit(0)
 }
 
-if (!existsSync(join(HOST, CONSOLE))) {
-  console.log(`· 没有宿主检出（${HOST}）；只核对定义本身：${definition.kinds.length} 个种类、`
-    + `${definition.pairs.length} 对拼写、${definition.rows.length} 行读回样例`)
+if (DEFINITION_ONLY || !existsSync(join(HOST, CONSOLE))) {
+  const why = DEFINITION_ONLY ? '按 --definition-only，不比对宿主' : `没有宿主检出（${HOST}）`
+  console.log(`· ${why}；只查定义的顶层形状（配对与读回样例由 core 的 TypedObjectKeyTest 校验）：`
+    + `${definition.kinds.length} 个种类、${definition.pairs.length} 对拼写、`
+    + `${definition.rows.length} 行读回样例`)
   process.exit(0)
 }
 

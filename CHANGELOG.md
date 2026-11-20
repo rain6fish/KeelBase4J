@@ -24,7 +24,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   and `scripts/check-object-key-contract.mjs` compares the host writer's kind constant and the host
   console's reader against it — the two parties that live in another repository and could drift
   silently. The check is report-only by default and takes `--host` / `KEELBASE_HOST_REPO` (it skips,
-  saying so, when there is no sibling checkout); `--strict` turns a divergence into an exit 1.
+  saying so, when there is no sibling checkout); `--strict` turns a divergence into an exit 1, and
+  `--definition-only` checks the file without a host. `release-gate.sh` runs the definition check by
+  default and the host comparison plus its self-test behind `HOST_ENV=1`; CI runs the definition-only
+  check.
 
 ### Fixed
 
@@ -54,7 +57,9 @@ Each version is written in two blocks — English first, then Chinese — marked
   有意义），以及运行时要作答的那些配对与行样例。core 的单元测试拿这个文件里的值断言匹配器，而不是在测试
   里再写一遍；`scripts/check-object-key-contract.mjs` 拿宿主写入方的种类常量与宿主控制台的读取器与它比对
   —— 那两方住在另一个仓，本来可以**静默**漂开。该检查默认只报告，用 `--host` / `KEELBASE_HOST_REPO`
-  指定宿主检出（没有兄弟仓检出的环境会**跳过并说明**）；`--strict` 才让分叉变成退出码 1。
+  指定宿主检出（没有兄弟仓检出的环境会**跳过并说明**）；`--strict` 才让分叉变成退出码 1，
+  `--definition-only` 让检查不依赖宿主。`release-gate.sh` 默认跑定义检查，`HOST_ENV=1` 时再跑宿主比对
+  与自检；CI 跑只查定义的检查。
 
 ### 修复
 
