@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.audit;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import cn.com.keelbase.protocol.Json;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 /**
  * The command's refusals — the cases where it must say "this is not something I can answer" rather
@@ -79,6 +85,73 @@ class ChainAnchorCommandTest {
 
         assertNull(tails.aiAudit());
         assertNull(tails.operationAudit());
+    }
+
+    /**
+     * A tail that could not have been written is refused, not compared: {@code rows} below 1 or a
+     * fraction, {@code lastId} 0, a hash that is not 64 lowercase hex. Comparing a damaged record
+     * could answer {@code grew} or {@code ok} about a tail that never existed.
+     *
+     * 一条**不可能被写下**的链尾会被拒绝、而不是被拿去对照：`rows` 小于 1 或是小数、`lastId` 为 0、
+     * hash 不是 64 位小写十六进制。拿一条损坏的记录去对照，可能对一条从未存在过的链尾答出 `grew` 或 `ok`。
+     */
+    @Test
+    void aTailThatCouldNotHaveBeenWrittenIsRefused() {
+        String hash = "\"" + "a".repeat(64) + "\"";
+        for (String tail : List.of(
+                "{\"rows\":0,\"lastId\":1,\"lastHash\":" + hash + "}",
+                "{\"rows\":-1,\"lastId\":1,\"lastHash\":" + hash + "}",
+                "{\"rows\":1.5,\"lastId\":1,\"lastHash\":" + hash + "}",
+                "{\"rows\":1,\"lastId\":0,\"lastHash\":" + hash + "}",
+                "{\"rows\":1,\"lastId\":1.5,\"lastHash\":" + hash + "}",
+                "{\"rows\":1,\"lastId\":1,\"lastHash\":\"abc\"}",
+                "{\"rows\":1,\"lastId\":1,\"lastHash\":\"" + "A".repeat(64) + "\"}",
+                "{\"rows\":\"1\",\"lastId\":1,\"lastHash\":" + hash + "}")) {
+            IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
+                    () -> ChainAnchorCommand.tailsOf(Json.parse(
+                            "{\"chains\":{\"aiAudit\":" + tail + ",\"operationAudit\":null}}")),
+                    "a damaged tail must be refused: " + tail);
+            assertFalse(refused.getMessage().isBlank(), "the refusal must say what is wrong: " + tail);
+        }
+    }
+
+    /**
+     * A well-shaped tail still passes, so the shape check refuses only what could not have been
+     * written.
+     *
+     * 形状完好的链尾仍然通过，故形状校验只拒绝那一类**不可能被写下**的记录。
+     */
+    @Test
+    void aWellShapedTailIsAccepted() {
+        ChainAnchorService.Tails tails = ChainAnchorCommand.tailsOf(Json.parse(
+                "{\"chains\":{\"aiAudit\":{\"rows\":3,\"lastId\":7,\"lastHash\":\""
+                        + "a".repeat(64) + "\"},\"operationAudit\":null}}"));
+
+        assertEquals(3, tails.aiAudit().rows());
+        assertEquals(7, tails.aiAudit().lastId());
+        assertEquals("a".repeat(64), tails.aiAudit().lastHash());
+        assertNull(tails.operationAudit());
+    }
+
+    /**
+     * A database that cannot be read is an environment error, not a reason to take the application
+     * down: {@code execute} answers 2 and {@code run} lets the application keep going when
+     * {@code exit=false}.
+     *
+     * 读不了库是环境错误，不是把应用打下去的理由：`execute` 答 2，而 {@code exit=false} 时 `run` 让应用
+     * 继续运行。
+     */
+    @Test
+    void aDatabaseThatCannotBeReadIsAnEnvironmentError() {
+        AuditLogRepository failing = mock(AuditLogRepository.class);
+        when(failing.countByHashIsNotNull())
+                .thenThrow(new DataAccessResourceFailureException("the database is down"));
+        ChainAnchorCommand command = new ChainAnchorCommand(new ChainAnchorService(failing),
+                "tail", "", "", false);
+
+        assertEquals(2, command.execute(), "an unreadable database is the CLI's environment code");
+        assertDoesNotThrow(() -> command.run(null),
+                "a reading must not take a serving application down when exit=false");
     }
 
     private static Map<String, Object> tail() {

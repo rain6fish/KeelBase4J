@@ -68,8 +68,14 @@ hash-chained in this runtime, so the record's `operationAudit` half could only e
 neither JDK this line builds on carries SM2/SM3. Since 2026-11-20 the runtime supplies the read-only
 halves — `ChainAnchorService` reads the chained tail and compares it against a tail read elsewhere
 (`ok` / `grew` / `tail-missing` / `last-row-changed` / `tail-replaced`), and
-`-Dkeelbase.anchor.command=payload` prints the record **without** `sm2` — so a producer of your own
-is only needed for the signature itself. The other two commands are `tail` (print the current tails)
+`-Dkeelbase.anchor.command=payload` prints the **signable subset** of the record — five keys
+(`period`, `date`, `observedAt`, `chains`, `rootDigest`) — so a producer of your own is only needed
+for the signature itself and for publication. Signing is not the only step the schema still asks of
+you: an `audit-chain-anchor` also **requires `publishedAt`**, the moment you published it, which sits
+outside the signature, and `sm2`; both are added when you publish, per the vendored schema. The
+payload carries no field that could hold this warning (the schema forbids extra keys), so the warning
+travels out of band — on stderr and in this document — and a consumer that reads only stdout does not
+receive it. The other two commands are `tail` (print the current tails)
 and `compare` with `-Dkeelbase.anchor.known=<a previously produced payload or signed anchor>` (say
 whether that tail is still present); `-Dkeelbase.anchor.exit=true` turns the answer into a process
 exit code (0 clean, 1 a negative comparison, 2 usage). Signing, publishing and key custody remain the
@@ -164,7 +170,11 @@ coverage is not a completed delivery.
 验签：本运行时只有 AI 审计链是一条哈希链，故该记录的 `operationAudit` 一半只能永远是 `null`；而本线构建所用的
 两个 JDK 都不带 SM2/SM3。自 2026-11-20 起，运行时提供只读的那两半 —— `ChainAnchorService` 读已入链的链尾、
 并把它与一份从别处读来的链尾对照（`ok` / `grew` / `tail-missing` / `last-row-changed` / `tail-replaced`），
-`-Dkeelbase.anchor.command=payload` 打印**不带 `sm2`** 的记录 —— 故自备产出方只剩签名那一步。另两条命令是
+`-Dkeelbase.anchor.command=payload` 打印记录的**可签名子集** —— 五个键（`period`、`date`、
+`observedAt`、`chains`、`rootDigest`）—— 故自备产出方只剩签名与发布。要签名**不是** schema 对你要求的
+全部：一条 `audit-chain-anchor` 还**要求 `publishedAt`**（你发布它的时刻，位于签名之外）与 `sm2`，两者都在
+发布时按 vendor 的 schema 补上。载荷里没有任何字段能放这句告诫（schema 不许多余键），故告诫**带外**传递 ——
+在 stderr 与本文件里 —— 只读 stdout 的消费方收不到它。另两条命令是
 `tail`（打印当前链尾）与 `compare` 配 `-Dkeelbase.anchor.known=<此前产出的载荷或已签名锚>`（说那组链尾还在不在）；
 `-Dkeelbase.anchor.exit=true` 把答案变成进程退出码（0 干净、1 对照否定、2 用法）。签名、发布与密钥托管仍是部署方的
 义务 —— 留在它所描述的那台主机上的锚，什么也证明不了。

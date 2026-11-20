@@ -10,6 +10,77 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [Unreleased]
+
+**English**
+
+### Added
+
+- **The typed object key's spelling now has one definition and a cross-repository check.**
+  `conformance/typed-object-key.json` states the exact spelling the fallback object filter matches
+  (` · object <kind> #<id>` — end-anchored, kind trimmed and compared literally, business key 1–18
+  ASCII digits with leading zeros significant) together with the pairs and row samples the runtime
+  answers to. A core unit test asserts the matcher against that file instead of restating the values,
+  and `scripts/check-object-key-contract.mjs` compares the host writer's kind constant and the host
+  console's reader against it — the two parties that live in another repository and could drift
+  silently. The check is report-only by default and takes `--host` / `KEELBASE_HOST_REPO` (it skips,
+  saying so, when there is no sibling checkout); `--strict` turns a divergence into an exit 1.
+
+### Fixed
+
+- **A database failure during an anchor reading is reported, not fatal.** `ChainAnchorCommand` caught
+  only usage and file errors, so a `DataAccessException` escaped `run()` and the application failed to
+  start even with `exit=false` — the opposite of what the class promises. It now reports the failure
+  and answers the CLI's environment code (2), and the application keeps running.
+- **A known anchor record is checked for the shape the contract fixes before it is compared.**
+  `rows` and `lastId` must be whole numbers with `rows >= 1` and `lastId >= 1`, and `lastHash` must be
+  64 lowercase hex characters; a damaged or hand-edited record is now refused with exit 2 instead of
+  being compared and possibly answered `grew` or `ok`. Shape only — whether the record was signed is
+  not a question this command answers.
+- **The anchor payload is described as what it is: the signable subset, not "the record without
+  `sm2`".** An `audit-chain-anchor` also requires `publishedAt`, which the payload does not carry and
+  which is added at publication beside `sm2`. `docs/wire-object-endpoints.md`,
+  `docs/deployment-first-token.md`, the READMEs and the CLI's own note now say so, and state that the
+  unsigned-payload warning travels out of band (stderr and docs) because the schema forbids extra
+  keys in the payload.
+- **The runtime is the stated authority for the typed key's grammar, and the console's divergence from
+  it is now measured.** The host console used to accept a key followed by trailing whitespace, read
+  `#007` as `#7`, and drop a 17–18 digit key (`Number.isSafeInteger`). Those cases are now row samples
+  in `conformance/typed-object-key.json` and are reported, case by case, by the cross-repo check; the
+  console-side fix (end-anchored, digits kept as written past `Number`'s safe range) belongs to the
+  host repository and is not part of this change. `docs/wire-object-endpoints.md` now states the
+  grammar and names this runtime as its authority, beside the two roads of the object filter.
+
+**中文**
+
+### 新增
+
+- **带类型对象键的拼写现在只有一份定义，并有一道跨仓检查。**
+  `conformance/typed-object-key.json` 写明回落对象过滤所匹配的**精确**拼写
+  （` · object <kind> #<id>` —— 锚在句末、种类词 trim 后逐字比较、业务主键 1–18 位 ASCII 数字且前导零
+  有意义），以及运行时要作答的那些配对与行样例。core 的单元测试拿这个文件里的值断言匹配器，而不是在测试
+  里再写一遍；`scripts/check-object-key-contract.mjs` 拿宿主写入方的种类常量与宿主控制台的读取器与它比对
+  —— 那两方住在另一个仓，本来可以**静默**漂开。该检查默认只报告，用 `--host` / `KEELBASE_HOST_REPO`
+  指定宿主检出（没有兄弟仓检出的环境会**跳过并说明**）；`--strict` 才让分叉变成退出码 1。
+
+### 修复
+
+- **读锚时读不了库，会被如实报出，而不是把应用打下去。** `ChainAnchorCommand` 过去只捕用法错误与文件
+  错误，于是 `DataAccessException` 会从 `run()` 逃出、即使 `exit=false` 应用也会启动失败 —— 与类注释的
+  承诺相反。现在它会报出这次失败并答 CLI 的环境退出码（2），应用照常运行。
+- **已知锚记录在参与对照之前，先按契约固定的形状校验。** `rows` 与 `lastId` 必须是整数且 `rows >= 1`、
+  `lastId >= 1`，`lastHash` 必须是 64 位小写十六进制；被损坏或手改过的记录现在以退出码 2 拒绝，而不是被拿去
+  对照、甚至答出 `grew` 或 `ok`。这里只查形状 —— 记录有没有被签名，不是本命令回答的问题。
+- **锚载荷按它实际是什么来写：可签名子集，而不是「不带 `sm2` 的记录」。** 一条 `audit-chain-anchor` 还要求
+  `publishedAt`，载荷里没有它，它和 `sm2` 一样在发布时补上。`docs/wire-object-endpoints.md`、
+  `docs/deployment-first-token.md`、两份 README 与 CLI 自己的提示都改成了这个说法，并写明「未签名载荷」的
+  告诫**带外**传递（stderr 与文档），因为 schema 不许多余键进载荷。
+- **运行时被写明为带类型键文法的权威，而控制台与它的分叉现在可被量出来。** 宿主控制台过去容忍键后的尾随
+  空白、把 `#007` 读成 `#7`、并且丢掉 17–18 位主键（`Number.isSafeInteger`）。这三种情形现在都是
+  `conformance/typed-object-key.json` 里的行样例，并由跨仓检查**逐条**报出；控制台一侧的修法
+  （句末严格收尾、超出 `Number` 安全范围的主键按写下的字符串保留）属于宿主仓，不在本次改动内。
+  `docs/wire-object-endpoints.md` 现在写明这套文法、点名本运行时是它的权威，并与对象过滤的两条路写在一起。
+
 ## [0.1.20] - 2026-11-20
 
 **English**

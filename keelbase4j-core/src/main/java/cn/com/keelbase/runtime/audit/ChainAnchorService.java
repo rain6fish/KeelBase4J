@@ -23,9 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>This runtime neither signs nor verifies an anchor — the private key never enters a container
  * that serves requests, and no SM2/SM3 implementation is on its classpath — so what lives here is the
  * two halves that need neither: a read of the chained tail, and the answer to "does the chain still
- * contain the tail someone signed elsewhere". {@link #payload} emits the record <b>without</b> its
- * {@code sm2} segment; it is a payload to be signed and published by the deployer, and it is not an
- * anchor until someone does that.
+ * contain the tail someone signed elsewhere". {@link #payload} emits the record's <b>signable
+ * subset</b> — five keys, without {@code sm2} and without {@code publishedAt}; those two are added at
+ * publication, as the schema requires, and the payload is not an anchor until a deployer does that.
  *
  * <p><b>Only the AI chain is hash-chained here.</b> The operation audit is a table, deliberately not
  * a second chain ({@code OperationAuditLog} records why), so its half of the record is always
@@ -39,7 +39,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>本运行时**不签名、也不验签** —— 私钥不进处理请求的容器，classpath 上也没有 SM2/SM3 实现 —— 所以
  * 这里只放两件不需要它们的事：读一次已入链的链尾，以及回答「链是否仍包含别人在域外签过的那组链尾」。
- * {@link #payload} 产出**不带 `sm2` 段**的记录：那是交给部署方签名与发布的载荷，在有人签名之前**它不是锚**。
+ * {@link #payload} 产出记录的**可签名子集** —— 五个键，不带 `sm2`、也不带 `publishedAt`；两者按 schema 在
+ * 发布时补上，而在部署方完成之前**它不是锚**。
  *
  * <p>**这里只有 AI 链是哈希链。** 操作审计是一张表，有意不做第二条链（理由记在 {@code OperationAuditLog}），
  * 故记录的它那一半永远是 `null` —— schema 把 `null` 定义为「该时刻该链没有已入链的行」，绝不是「未知」。
@@ -110,12 +111,14 @@ public class ChainAnchorService {
     }
 
     /**
-     * The record over the current tail, <b>without</b> {@code sm2}: the deployer signs it outside this
-     * runtime and publishes it. Naming it an anchor before that would be the lie the reference refuses
-     * to tell.
+     * The record over the current tail, as its <b>signable subset</b>: five keys, without {@code sm2}
+     * and without {@code publishedAt}. The deployer signs it outside this runtime and publishes it —
+     * publication is where those two keys are added, as the schema requires. Naming it an anchor
+     * before that would be the lie the reference refuses to tell.
      *
-     * 以当前链尾为内容的记录，**不带 `sm2`**：部署方在本运行时之外签名并发布。在那之前把它叫成锚，
-     * 就是参照实现拒绝说的那句谎。
+     * 以当前链尾为内容的记录，作为它的**可签名子集**：五个键，不带 `sm2`、也不带 `publishedAt`。部署方在本
+     * 运行时之外签名并发布 —— 那两个键按 schema 在**发布**时补上。在那之前把它叫成锚，就是参照实现拒绝说的
+     * 那句谎。
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Map<String, Object> payload(Instant observedAt) {

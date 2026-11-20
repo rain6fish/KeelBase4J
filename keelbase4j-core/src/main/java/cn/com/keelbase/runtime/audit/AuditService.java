@@ -523,9 +523,21 @@ public class AuditService {
      * this way is not scanned for. A word is capped at 120 characters and may not contain a line
      * break: both would be a request to search for something this deployment never writes.
      *
+     * <p>This grammar has a single written definition — `conformance/typed-object-key.json` — because
+     * the row is written in another repository and read back by a console in a third place. The same
+     * file says what the sentence must end with: **no** trailing whitespace, **no** trailing
+     * punctuation, and a business key of 1–18 ASCII digits with leading zeros significant. This
+     * runtime is the authority for that grammar; `scripts/check-object-key-contract.mjs` compares the
+     * host's writer and console reader against it.
+     *
      * 这一对会写的带类型键 —— ` · object MCP connection #12` —— 或者当这一对**不可能是**这种键时的 null。
      * 键上的词是**可读的种类词**、绝不是表名；键锚在句末，业务主键是数字，故一对不可能这样写下的输入不会
      * 被拿去扫。词限 120 字符、且不许含换行：两者都等于要求搜一个本部署**从不写**的东西。
+     *
+     * <p>这套文法有一份**写下来**的定义 —— `conformance/typed-object-key.json` —— 因为这一行在另一个仓
+     * 写下、又在第三处的控制台被读回。同一个文件也写明句子必须以什么收尾：**不**容忍尾随空白、**不**容忍
+     * 尾随标点，业务主键为 1–18 位 ASCII 数字且**前导零有意义**。本运行时是这套文法的**权威**；
+     * `scripts/check-object-key-contract.mjs` 拿宿主的写入方与控制台读取器与它比对。
      */
     static String typedObjectKeySuffix(String kind, String key) {
         if (kind == null || key == null) {

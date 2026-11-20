@@ -149,6 +149,20 @@
           <include>coverage-gaps.json</include>
         </includes>
       </resource>
+      <resource>
+        <!--
+          The typed object key's spelling, copied from the same place for the same reason: the test
+          asserts the matcher against the definition's own values, so a second hand-written copy in
+          the test would be the drift this file exists to stop.
+
+          —— 带类型对象键的拼写，同样从同一处铺到 classpath、同样为了同一个理由：测试拿定义文件里的值
+          断言匹配器，故在测试里再手写一份副本，恰恰就是这份文件要拦的那种漂移。
+        -->
+        <directory>${project.basedir}/../conformance</directory>
+        <includes>
+          <include>typed-object-key.json</include>
+        </includes>
+      </resource>
     </resources>
   </build>
 </project>
