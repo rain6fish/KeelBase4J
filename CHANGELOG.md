@@ -53,18 +53,6 @@ Each version is written in two blocks — English first, then Chinese — marked
   the contract's own sample. No route and no new dependency: signing and verification stay outside by
   decision, and `packageHasExternalAnchor` stays `false`.
 
-### Fixed
-
-- **The operator release commits with its chain row, obeys the row range, and names the lease-boundary
-  refusal.** `WriteClaimReleaseService.release` now runs in one transaction: the conditional close and
-  the `claim_release` append commit together, so a failed append rolls the close back, the hold stays
-  `claimed`, and the retry is the repair — before, the hold was left closed with no row and the retry
-  was refused as `already_closed`. The release also passes the claim's row range (`WriteClaim` is a
-  `ScopedRow` and `ToolEffect` is registered with `ScopeFilter`), so an owner-scoped grant closes only
-  its own user's holds. When the conditional update matches nothing while the row still reads
-  `claimed`, the refusal kind is `not_stale` rather than `not_claimable`; both `isStale` helpers now
-  ask "strictly past the lease", the same comparison as the SQL.
-
 ### Changed
 
 - **The bilingual-comments gate now reads line and block comments, not only javadoc.** A Chinese `//`
@@ -78,6 +66,29 @@ Each version is written in two blocks — English first, then Chinese — marked
   refuses a tree that keeps building under a released number; on a clean runner no `0.1.20` tag exists,
   so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
   change.
+- **The object filter has a second road: the typed key at the end of a row's own sentence.** A connect
+  test, a probe, any action that is not a tool call writes no ledger row, so the ledger answers "no
+  match" for the object it dialled — and until now `GET /audit/logs?objectType=…&objectId=…` could not
+  find that row at all. When the ledger selects nothing, the read face now matches the pair against a
+  suffix of `detail` (` · object MCP connection #12`), word for word, with the period the caller gave
+  as the bound. The ledger still decides whenever it answers, the word is compared literally so another
+  kind matches nothing, and the suffix scan is a literal `LIKE` (`!` escapes `%` and `_`). The word in
+  that key is a readable kind word, never a table name — this text reaches a console's export, where an
+  internal name refuses the whole file.
+
+### Fixed
+
+- **Releasing a stranded write hold is one transaction with its row, and reaches only the caller's own
+  holds.** `POST /ai/tool-effects/claims/{id}/release` used to close the hold and then append
+  `claim_release` in a second transaction: a failed append answered 500 with the hold already
+  `closed_unknown`, no row on the chain, and every retry `already_closed` — the act was unrecorded and
+  impossible to record afterwards. The close and the append now commit together, so a failed append
+  rolls the close back, the hold stays `claimed`, and the retry is the repair. The release also judges
+  the row rather than only the action: a tier-B `ToolEffect:update` grant scoped to its owner closes
+  only that owner's holds (a hold carries no organization or department, so a range naming one tightens
+  to ownership), while an administrator still closes any. At the lease boundary the refusal is now
+  `not_stale`, the condition that actually refused it, instead of `not_claimable`; both staleness
+  checks ask "strictly past the lease", the same boundary the conditional updates ask in SQL.
 
 ### Known limitations
 
@@ -117,16 +128,6 @@ Each version is written in two blocks — English first, then Chinese — marked
   之外签名并发布；摘要取的是与契约样例相同的字节。无路由、无新依赖：按裁定签名与验签都留在本运行时之外，
   `packageHasExternalAnchor` 保持 `false`。
 
-### 修复
-
-- **运维释放与它的链行同事务提交、按行范围收口，并在租约边界报对拒绝种类。**
-  `WriteClaimReleaseService.release` 现在在一个事务里运行：条件关闭与 `claim_release` 追加一起提交，故追加
-  失败会把关闭一并回滚、占位仍是 `claimed`、重试即修复 —— 此前占位会被关掉却没有链行，重试还会被拒成
-  `already_closed`。释放同时通过占位的**行范围**（`WriteClaim` 实现 `ScopedRow`，`ToolEffect` 登记进
-  `ScopeFilter`），故按主人收窄的授予只关得了本人名下的占位。条件更新匹配 0 行而占位仍读作 `claimed` 时，
-  拒绝种类是 `not_stale` 而不是 `not_claimable`；两处 `isStale` 现在问的是「严格越过租约」，与 SQL 条件
-  同一个比较。
-
 ### 变更
 
 - **双语注释门禁现在也读行注释与块注释，不再只读 javadoc。** 中文 `//` 行后面跟英文行此前可以留在树里而
@@ -136,6 +137,23 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **版本为 `0.1.20-SNAPSHOT`。** 八个 pom 由 `0.1.19` 抬到 `0.1.20-SNAPSHOT`。`v0.1.19` 已发布（tag 对象
   `c161a0fd` 指向提交 `9b49c1a`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
   拒绝的；在干净 runner 上不存在 `0.1.20` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
+- **对象筛选多了第二条路：行末那句自带里那个带类型的键。** 一次连通测试、一次探测、任何**不是工具调用**的动作
+  都不写台账行，故台账对它拨的那条对象只答「无匹配」—— 在此之前，`GET /audit/logs?objectType=…&objectId=…`
+  **根本找不到**这一行。台账一条都没选出来时，读面改为把这一对与 `detail` 的后缀
+  （` · object MCP connection #12`）**逐字**对上，并以调用方给的区间为界。台账答得出来时仍由台账决定；词逐字
+  比较，故另一种对象什么都不命中；后缀扫描是**字面** `LIKE`（`!` 转义 `%` 与 `_`）。键上的词是**可读的种类
+  词**、绝不是表名 —— 这段文字会进控制台的导出，那里出现内部名会让整份文件被拒。
+
+### 修复
+
+- **释放滞留的写占位现在与它那一行同处一个事务，且只够得到调用方行范围内的占位。**
+  `POST /ai/tool-effects/claims/{id}/release` 此前先关闭占位、再在另一个事务里追加 `claim_release`：
+  追加失败时答复 500，而占位已是 `closed_unknown`、链上没有任何行，之后每次重试都是 `already_closed`
+  —— 这个动作既没有留痕、也无法事后补记。现在关闭与追加一起提交，故追加失败会把关闭一并回滚、占位仍是
+  `claimed`，重试即修复。释放也不再只看动作、而要看行：档 B 中按主人收窄的 `ToolEffect:update` 授予
+  只关得了本人的占位（占位不携带组织或部门事实，故点名组织的档位收紧到归属判定），而管理员仍能关闭任意
+  一份。租约边界处的拒绝改为 `not_stale` —— 那才是真正拒绝它的条件 —— 而不是 `not_claimable`；两处
+  陈旧性判断都改为「严格越过租约」，与条件更新在 SQL 里问的边界一致。
 
 ### 已知限制
 
