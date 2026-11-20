@@ -36,6 +36,11 @@
 #      security input (CVE-2026-91403 / CVE-2026-114820, fixed at a build number the version string
 #      cannot distinguish), and the same question had never been asked of anything else on the
 #      classpath.
+#   8. host-object-key — the typed object key the runtime reads is spelled the same by the host writer
+#      and the console. The key lives in free-text `detail`, so nothing in the type system ties the
+#      three copies together; CI runs the checker's self-test (five drifts must all be caught). The
+#      cross-repository comparison needs the host checkout and therefore sits behind `HOST_ENV=1` in
+#      `scripts/release-gate.sh`, not in CI.
 #
 # ── 中文 ──
 #
@@ -66,6 +71,9 @@
 #   7. dependency-scan —— 本仓声明的依赖里，没有任何一个是已知的脆弱版本。这也算不上一致性声明。它之所以
 #      被加进来，是因为运行时脚下的那个 JDK 被证明是一项安全输入（CVE-2026-91403 / CVE-2026-114820，
 #      修复线落在一个版本串分辨不出的构建号上），而同一个问题此前从未被问过 classpath 上的其它任何东西。
+#   8. host-object-key —— 运行时读的那个带类型对象键，在宿主写入方与控制台里拼写一致。键在自由文本
+#      `detail` 里，类型系统串不起三份副本；CI 跑检查器的自检（五种漂移都必须被抓住）。真正跨仓比对需要
+#      宿主检出，故放在 `scripts/release-gate.sh` 的 `HOST_ENV=1` 之后，不在 CI 里。
 name: CI
 
 on:
@@ -303,6 +311,20 @@ jobs:
       # 这也正是它能待在这里的原因。
       - name: The generated family section still matches its stamp
         run: node scripts/check-family-block.mjs
+
+  host-object-key:
+    name: The typed object key's cross-repository gate agrees with itself
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      # The cross-repository comparison needs the host checkout, which CI does not have. What CI can
+      # prove is that the gate itself still catches a drift: five fixtures, five mutations.
+      # 跨仓比对需要宿主检出，而 CI 没有。CI 能证明的是闸本身仍抓得住漂移：五个夹具、五次改动。
+      - name: Every claimed drift is caught
+        run: node scripts/check-host-object-key.mjs --self-test
 
   release-rehearsal:
     name: The publish set builds the way a release would build it (JDK ${{ matrix.java }})

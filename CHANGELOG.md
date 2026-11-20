@@ -25,6 +25,12 @@ Each version is written in two blocks — English first, then Chinese — marked
   console's reader against it — the two parties that live in another repository and could drift
   silently. The check is report-only by default and takes `--host` / `KEELBASE_HOST_REPO` (it skips,
   saying so, when there is no sibling checkout); `--strict` turns a divergence into an exit 1.
+- **A second, source-reading gate runs in CI and in the release gate.** `scripts/check-host-object-key.mjs`
+  reads the runtime's suffix construction, the host writer's `AUDIT_OBJECT_KIND` append and the
+  console's `OBJECT_KEY_KINDS` and regex, and fails when the prefix, the suffix or the kind word
+  disagrees. Its self-test mutates each of five literals and requires every mutation to be caught; CI
+  runs that self-test, and `release-gate.sh` runs the real cross-repository comparison behind
+  `HOST_ENV=1`, answering `SKIP` when the host checkout is absent.
 
 ### Fixed
 
@@ -69,6 +75,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   里再写一遍；`scripts/check-object-key-contract.mjs` 拿宿主写入方的种类常量与宿主控制台的读取器与它比对
   —— 那两方住在另一个仓，本来可以**静默**漂开。该检查默认只报告，用 `--host` / `KEELBASE_HOST_REPO`
   指定宿主检出（没有兄弟仓检出的环境会**跳过并说明**）；`--strict` 才让分叉变成退出码 1。
+- **另一道读源码的闸，跑在 CI 与发布门禁里。** `scripts/check-host-object-key.mjs` 读运行时的后缀构造、
+  宿主写入方的 `AUDIT_OBJECT_KIND` 追加、控制台的 `OBJECT_KEY_KINDS` 与正则，前缀、后缀或种类词任一不一致
+  即失败。它的自检逐个改动五个字面量、要求每一次都被抓住；CI 跑这个自检，`release-gate.sh` 把真实跨仓比对
+  放在 `HOST_ENV=1` 之后，宿主检出缺席时答 `SKIP`。
 
 ### 修复
 
@@ -91,7 +101,6 @@ Each version is written in two blocks — English first, then Chinese — marked
   落在所问的调用方、区间或结果之外。于是别的调用方名下的写、`until` 之后的写、或另一个 `isError` 取值的
   写，会挡住本次请求范围内点名对象的那一行。台账现在按与答案相同的调用方、区间和结果先作答；只有它在这个
   范围内什么都没答时，句末路才跑。台账只要在该范围内答得出来，仍由它决定。
-
 
 ## [0.1.20] - 2026-11-20
 
