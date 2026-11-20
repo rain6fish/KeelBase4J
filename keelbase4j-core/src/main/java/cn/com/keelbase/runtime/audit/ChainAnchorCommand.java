@@ -29,7 +29,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>The exit codes are the reference CLI's: {@code 0} clean, {@code 1} a negative comparison,
  * {@code 2} usage or environment. They only become process exit codes when {@code exit=true}; a
- * server must not die because someone asked for a reading.
+ * server must not die because someone asked for a reading — including when the database itself
+ * cannot be read, which is reported as the environment problem it is.
  *
  * <p>{@link ChainAnchorService} 的命令行入口 —— 由属性激活，**从不**经路由。
  *
@@ -38,7 +39,8 @@ import org.springframework.stereotype.Component;
  * `keelbase.anchor.command` 的宿主在启动时跑一次；除非设了 `keelbase.anchor.exit`，应用照常继续运行。
  *
  * <p>退出码沿用参照 CLI：`0` 干净、`1` 对照给出否定结论、`2` 用法或环境问题。只有 `exit=true` 时它们才
- * 变成进程退出码 —— 服务器不该因为有人要一次读数而死掉。
+ * 变成进程退出码 —— 服务器不该因为有人要一次读数而死掉，**库读不出来**时也一样（那时报的就是它所是的
+ * 环境问题）。
  */
 @Component
 @ConditionalOnProperty(prefix = "keelbase.anchor", name = "command")
@@ -89,6 +91,16 @@ public class ChainAnchorCommand implements ApplicationRunner {
         } catch (IOException unreadable) {
             System.err.println("cannot read `" + known + "`: " + unreadable);
             return 2;
+        } catch (RuntimeException failure) {
+            // A database that cannot be read is an environment problem, not a reason to kill a serving
+            // application. The code says so (2, the environment code) and `run` does not rethrow it,
+            // so the application keeps running unless `exit=true` was asked for — which is what this
+            // class's javadoc promises.
+            // 读不了库是环境问题，不是杀死一个在服务的应用的理由。退出码如实说（2 = 环境问题），且 `run`
+            // 不再把它抛出去，故除非明确设了 `exit=true`，应用照常运行 —— 这正是本类 javadoc 承诺的。
+            note("the chain could not be read: " + failure);
+            note("链读不出来：" + failure);
+            return 2;
         }
     }
 
@@ -103,9 +115,11 @@ public class ChainAnchorCommand implements ApplicationRunner {
     }
 
     private int payload() {
-        note("NOTE: this is an unsigned payload, not an anchor. Sign it outside this runtime and publish"
-                + " it; an unsigned anchor is not evidence.");
-        note("注意：这是未签名载荷，不是锚。请在本运行时之外签名并发布；未签名的锚不构成证据。");
+        note("NOTE: this is the record's signable subset — five keys, not an anchor. Sign it outside"
+                + " this runtime and publish it; publishing also adds `publishedAt` and `sm2`, as the"
+                + " schema requires. An unsigned payload is not evidence.");
+        note("注意：这是记录的可签名「子集」—— 五个键，不是锚。请在本运行时之外签名并发布；发布时还要按"
+                + " schema 补上 `publishedAt` 与 `sm2`。未签名的载荷不构成证据。");
         System.out.println(CanonicalJson.json(anchors.payload(observedAt())));
         note("operationAudit is null because this runtime's operation audit is not hash-chained.");
         note("operationAudit 为 null，因为本运行时的操作审计不是哈希链。");
@@ -143,9 +157,18 @@ public class ChainAnchorCommand implements ApplicationRunner {
      * {@code null} ("no chained row at that moment"). Reading absence as {@code null} would let a
      * truncated or unrelated record compare clean, so it is refused instead.
      *
+     * <p>Each tail is also checked against the shape the contract fixes — whole-number {@code rows}
+     * and {@code lastId} with {@code rows >= 1} and {@code lastId >= 1}, and a {@code lastHash} of 64
+     * lowercase hex characters — before it is compared. This is <b>shape only</b>: whether the record
+     * was signed is not a question this command can answer.
+     *
      * 载荷或已签名锚里的链尾。两者都带 `chains`，且**两个键都在**：schema 要求如此，而「键缺席」与显式
      * `null`（「该时刻该链没有已入链的行」）不是同一个事实。把缺席当成 `null`，会让被截断或不相干的记录
      * 对照出「干净」；故这里拒绝。
+     *
+     * <p>每条链尾在参与对照之前还按契约固定的**形状**校验 —— `rows` 与 `lastId` 是整数且 `rows >= 1`、
+     * `lastId >= 1`，`lastHash` 是 64 位小写十六进制。这里**只查形状**：记录有没有被签名，不是本命令能回答
+     * 的问题。
      */
     public static ChainAnchorService.Tails tailsOf(Object document) {
         if (!(document instanceof Map<?, ?> root) || !(root.get("chains") instanceof Map<?, ?> chains)) {
@@ -173,7 +196,44 @@ public class ChainAnchorCommand implements ApplicationRunner {
         if (!(rows instanceof Number r) || !(lastId instanceof Number id) || !(lastHash instanceof String hash)) {
             throw new IllegalArgumentException("a chain tail needs numeric `rows` and `lastId`, and a `lastHash`");
         }
-        return new ChainAnchorService.Tail(r.longValue(), id.longValue(), hash);
+        // The shape the contract fixes, checked before the tail is compared: a tail that could not
+        // have been produced (rows below 1, a fraction, id 0, a hash that is not 64 lowercase hex) is
+        // a damaged record, and comparing it could answer "grew" or "ok" about something that never
+        // existed. This is shape only — whether the record was signed is not asked here.
+        // 契约固定的形状，在对照之前先查：一条**不可能被产出**的链尾（rows 小于 1、小数、id 为 0、
+        // 不是 64 位小写十六进制的 hash）是被损坏的记录，拿它去对照可能对一件从未存在过的事答出「grew」
+        // 或「ok」。这里只查形状 —— 记录有没有被签名，不在这里问。
+        long rowCount = wholeNumber(r, "rows");
+        long lastRowId = wholeNumber(id, "lastId");
+        if (rowCount < 1) {
+            throw new IllegalArgumentException(
+                    "a chain tail's `rows` must be at least 1; an empty chain is `null`, not 0 rows");
+        }
+        if (lastRowId < 1) {
+            throw new IllegalArgumentException("a chain tail's `lastId` must be at least 1");
+        }
+        if (!hash.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException(
+                    "a chain tail's `lastHash` must be 64 lowercase hexadecimal characters");
+        }
+        return new ChainAnchorService.Tail(rowCount, lastRowId, hash);
+    }
+
+    /**
+     * A JSON number that is a whole number and fits in a {@code long}. {@code Json} parses every
+     * number as a {@code Double}, so {@code 1.5} and a value past the long range are both refused
+     * rather than silently truncated to the nearest integer.
+     *
+     * 一个**整数**且落在 {@code long} 范围内的 JSON 数字。`Json` 把每个数字都解析成 {@code Double}，故
+     * `1.5` 与超出 long 范围的值都被拒绝，而不是悄悄截断成最近的整数。
+     */
+    private static long wholeNumber(Number value, String field) {
+        double asDouble = value.doubleValue();
+        if (!Double.isFinite(asDouble) || asDouble != Math.rint(asDouble)
+                || asDouble < Long.MIN_VALUE || asDouble > Long.MAX_VALUE) {
+            throw new IllegalArgumentException("a chain tail's `" + field + "` must be a whole number");
+        }
+        return value.longValue();
     }
 
     private static Map<String, Object> tailsJson(ChainAnchorService.Tails tails) {
