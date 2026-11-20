@@ -1,0 +1,178 @@
+{
+  "note": "The typed object key a row may carry at the end of its own sentence. This file is the single definition of its spelling; the runtime's matcher and the host console's reader both answer to it (scripts/check-object-key-contract.mjs compares them).",
+  "noteZh": "审计行可能在**自己句末**携带的带类型对象键。本文件是这条拼写的**单一**定义；运行时的匹配器与控制台的读取器都以它为准（`scripts/check-object-key-contract.mjs` 比对两边）。",
+  "authority": "KeelBase4J",
+  "shape": " · object <kind> #<id>",
+  "endAnchored": true,
+  "kind": {
+    "trim": true,
+    "maxLength": 120,
+    "forbidLineBreaks": true,
+    "caseSensitive": true,
+    "unrecognisedOnConsole": "the console can only name a type it has in `kinds`; the runtime matches any such word literally"
+  },
+  "id": {
+    "pattern": "^[0-9]{1,18}$",
+    "leadingZeros": "significant"
+  },
+  "tolerance": {
+    "trailingWhitespace": false,
+    "trailingPunctuation": false
+  },
+  "kinds": [
+    {
+      "resultType": "ai1_mcp",
+      "word": "MCP connection",
+      "writer": "KeelBase-Vue-Pro:yudao-module-ai1-springai/src/main/java/cn/iocoder/yudao/module/ai1/service/mcp/Ai1McpServiceImpl.java",
+      "console": "KeelBase-Vue-Pro:keelbase-ui/host-overlay/src/keelbase/sixQuestions.mjs"
+    }
+  ],
+  "pairs": [
+    {
+      "name": "the written spelling",
+      "kind": "MCP connection",
+      "id": "12",
+      "suffix": " · object MCP connection #12"
+    },
+    {
+      "name": "the kind is trimmed before it is spelled",
+      "kind": "  MCP connection  ",
+      "id": "12",
+      "suffix": " · object MCP connection #12"
+    },
+    {
+      "name": "leading zeros are significant",
+      "kind": "MCP connection",
+      "id": "007",
+      "suffix": " · object MCP connection #007"
+    },
+    {
+      "name": "an eighteen-digit key is a key",
+      "kind": "MCP connection",
+      "id": "123456789012345678",
+      "suffix": " · object MCP connection #123456789012345678"
+    },
+    {
+      "name": "a nineteen-digit key is not a key",
+      "kind": "MCP connection",
+      "id": "1234567890123456789",
+      "suffix": null
+    },
+    {
+      "name": "a non-numeric key is not a key",
+      "kind": "MCP connection",
+      "id": "SO-123",
+      "suffix": null
+    },
+    {
+      "name": "an empty key is not a key",
+      "kind": "MCP connection",
+      "id": "",
+      "suffix": null
+    },
+    {
+      "name": "full-width digits are not digits",
+      "kind": "MCP connection",
+      "id": "１２",
+      "suffix": null
+    },
+    {
+      "name": "an empty kind is not a kind",
+      "kind": "",
+      "id": "12",
+      "suffix": null
+    },
+    {
+      "name": "a whitespace-only kind is not a kind",
+      "kind": "   ",
+      "id": "12",
+      "suffix": null
+    },
+    {
+      "name": "a kind is capped at 120 characters",
+      "kind": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+      "id": "12",
+      "suffix": " · object kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk #12"
+    },
+    {
+      "name": "a kind longer than 120 characters is not a kind",
+      "kind": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+      "id": "12",
+      "suffix": null
+    },
+    {
+      "name": "a kind with a line break is not a kind",
+      "kind": "MCP\nconnection",
+      "id": "12",
+      "suffix": null
+    },
+    {
+      "name": "a null kind is not a kind",
+      "kind": null,
+      "id": "12",
+      "suffix": null
+    },
+    {
+      "name": "a null key is not a key",
+      "kind": "MCP connection",
+      "id": null,
+      "suffix": null
+    }
+  ],
+  "rows": [
+    {
+      "name": "the key ends the sentence",
+      "detail": "mcp test id=12 result=ok · object MCP connection #12",
+      "resultType": "ai1_mcp",
+      "resultId": "12"
+    },
+    {
+      "name": "another row that only mentions the key is still read the same way",
+      "detail": "note: probe · object MCP connection #12",
+      "resultType": "ai1_mcp",
+      "resultId": "12"
+    },
+    {
+      "name": "a trailing space is not the end of the key",
+      "detail": "mcp test id=12 result=ok · object MCP connection #12 ",
+      "resultType": null,
+      "resultId": null
+    },
+    {
+      "name": "a trailing line break is not the end of the key",
+      "detail": "mcp test id=12 result=ok · object MCP connection #12\n",
+      "resultType": null,
+      "resultId": null
+    },
+    {
+      "name": "a trailing period is not the end of the key",
+      "detail": "mcp test id=12 result=ok · object MCP connection #12.",
+      "resultType": null,
+      "resultId": null
+    },
+    {
+      "name": "text after the key is not the end of the key",
+      "detail": "mcp test id=12 result=ok · object MCP connection #12 and then more text",
+      "resultType": null,
+      "resultId": null
+    },
+    {
+      "name": "the table name is not a kind word",
+      "detail": "mcp test id=12 result=ok · object ai1_mcp #12",
+      "resultType": null,
+      "resultId": null
+    },
+    {
+      "name": "leading zeros are a different key",
+      "detail": "mcp test id=7 result=ok · object MCP connection #007",
+      "resultType": "ai1_mcp",
+      "resultId": "007"
+    },
+    {
+      "name": "an eighteen-digit key keeps every digit",
+      "detail": "mcp test id=1 result=ok · object MCP connection #123456789012345678",
+      "resultType": "ai1_mcp",
+      "resultId": "123456789012345678"
+    }
+  ]
+}

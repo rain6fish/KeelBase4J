@@ -2,6 +2,7 @@
 package cn.com.keelbase.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -101,6 +102,39 @@ class AuditLogReadTest {
 
     @Value("${keelbase.delegation.secret}")
     String delegationSecret;
+
+    /**
+     * The kind word the definition registers for {@code ai1_mcp}, read from that definition rather
+     * than restated here: the same spelling is written by the host and read back by its console, so a
+     * second hand-written copy in this test would be the drift the definition exists to stop.
+     *
+     * 定义里为 {@code ai1_mcp} 登记的种类词，**从定义里读**而不是在这里重写：同一个拼写由宿主写入、
+     * 又被它的控制台读回，故在本测试里再手写一份，恰恰就是定义要拦的那种漂移。
+     */
+    private static final String MCP_KIND = kindWordOf("ai1_mcp");
+
+    private static String kindWordOf(String resultType) {
+        try (java.io.InputStream in =
+                     AuditLogReadTest.class.getResourceAsStream("/typed-object-key.json")) {
+            assertNotNull(in, "the classpath must carry conformance/typed-object-key.json "
+                    + "(keelbase4j-core's build copies it)");
+            Map<String, Object> definition = Vectors.map(Json.parse(
+                    new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)));
+            for (Object raw : (List<?>) definition.get("kinds")) {
+                Map<String, Object> kind = Vectors.map(raw);
+                if (resultType.equals(kind.get("resultType"))) {
+                    return (String) kind.get("word");
+                }
+            }
+            throw new IllegalStateException("typed-object-key.json has no " + resultType);
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    private static String queryWord(String word) {
+        return java.net.URLEncoder.encode(word, java.nio.charset.StandardCharsets.UTF_8);
+    }
 
     private ResponseEntity<String> get(String path, String user) {
         HttpHeaders headers = new HttpHeaders();
@@ -329,11 +363,13 @@ class AuditLogReadTest {
     @Test
     void aRowThatNamesItsObjectInItsOwnSentenceIsFoundByThatObject() {
         String key = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
-        String word = "MCP connection";
+        // The word comes from the definition, not from here — see MCP_KIND.
+        // 这个词来自定义、不是写在这里 —— 见 MCP_KIND。
+        String word = MCP_KIND;
         AuditLog row = audit.append("mcp_connect_test", "1",
                 "mcp test id=" + key + " result=ok · object " + word + " #" + key);
 
-        List<?> found = rows("?objectType=MCP+connection&objectId=" + key, ADMIN);
+        List<?> found = rows("?objectType=" + queryWord(word) + "&objectId=" + key, ADMIN);
         assertEquals(1, found.size(),
                 "the sentence's typed key is the second road of the object filter");
         assertEquals(row.getId(), ((Number) ((Map<?, ?>) found.get(0)).get("id")).longValue(),
@@ -341,9 +377,10 @@ class AuditLogReadTest {
 
         assertTrue(rows("?objectType=Another+kind&objectId=" + key, ADMIN).isEmpty(),
                 "a key about one kind must not answer a search for another");
-        assertTrue(rows("?objectType=MCP+connection&objectId=not-a-key", ADMIN).isEmpty(),
+        assertTrue(rows("?objectType=" + queryWord(word) + "&objectId=not-a-key", ADMIN).isEmpty(),
                 "a business key that could not have been written this way is not scanned for");
-        assertTrue(rows("?objectType=MCP+connection&objectId=" + key + "&until=2000-01-01", ADMIN)
+        assertTrue(rows("?objectType=" + queryWord(word) + "&objectId=" + key
+                        + "&until=2000-01-01", ADMIN)
                         .isEmpty(),
                 "the period the caller gave bounds the sentence scan too");
     }
