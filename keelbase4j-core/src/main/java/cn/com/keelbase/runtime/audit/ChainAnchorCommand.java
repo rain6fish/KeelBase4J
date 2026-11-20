@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -137,14 +138,24 @@ public class ChainAnchorCommand implements ApplicationRunner {
     }
 
     /**
-     * The tails in a payload or a signed anchor. Both carry {@code chains}; the rest of the document
-     * is ignored here, because this comparison only reads what the anchor promised.
+     * The tails in a payload or a signed anchor. Both carry {@code chains} with <b>both</b> chain
+     * keys: the schema requires them, and an absent key is not the same fact as an explicit
+     * {@code null} ("no chained row at that moment"). Reading absence as {@code null} would let a
+     * truncated or unrelated record compare clean, so it is refused instead.
      *
-     * 载荷或已签名锚里的链尾。两者都带 `chains`；文档其余部分在这里不看，因为对照只读锚承诺过的东西。
+     * 载荷或已签名锚里的链尾。两者都带 `chains`，且**两个键都在**：schema 要求如此，而「键缺席」与显式
+     * `null`（「该时刻该链没有已入链的行」）不是同一个事实。把缺席当成 `null`，会让被截断或不相干的记录
+     * 对照出「干净」；故这里拒绝。
      */
     public static ChainAnchorService.Tails tailsOf(Object document) {
         if (!(document instanceof Map<?, ?> root) || !(root.get("chains") instanceof Map<?, ?> chains)) {
             throw new IllegalArgumentException("the known record has no `chains` object");
+        }
+        for (String chain : List.of("aiAudit", "operationAudit")) {
+            if (!chains.containsKey(chain)) {
+                throw new IllegalArgumentException(
+                        "the known record's `chains` has no `" + chain + "` key — absent is not null");
+            }
         }
         return new ChainAnchorService.Tails(tailOf(chains.get("aiAudit")), tailOf(chains.get("operationAudit")));
     }

@@ -2,9 +2,11 @@
 package cn.com.keelbase.runtime.audit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cn.com.keelbase.protocol.Json;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -39,6 +41,48 @@ class ChainAnchorCommandTest {
                 () -> ChainAnchorCommand.tailsOf(Map.of("period", "daily")));
 
         assertTrue(refused.getMessage().contains("chains"), refused.getMessage());
+    }
+
+    /**
+     * Both chain keys are required. Absence and an explicit {@code null} are different facts: only
+     * the latter says "no chained row at that moment". A truncated record must not read as empty.
+     *
+     * 两个链键都必需。缺席与显式 `null` 是两个不同的事实：只有后者表示「该时刻该链没有已入链的行」。被
+     * 截断的记录不能被读成「空链」。
+     */
+    @Test
+    void aChainsObjectWithoutBothKeysIsRefused() {
+        IllegalArgumentException noKeys = assertThrows(IllegalArgumentException.class,
+                () -> ChainAnchorCommand.tailsOf(Map.of("chains", Map.of())));
+        assertTrue(noKeys.getMessage().contains("aiAudit"), noKeys.getMessage());
+
+        IllegalArgumentException noAi = assertThrows(IllegalArgumentException.class,
+                () -> ChainAnchorCommand.tailsOf(Map.of("chains", Map.of("operationAudit", tail()))));
+        assertTrue(noAi.getMessage().contains("aiAudit"), noAi.getMessage());
+
+        IllegalArgumentException noOperation = assertThrows(IllegalArgumentException.class,
+                () -> ChainAnchorCommand.tailsOf(Map.of("chains", Map.of("aiAudit", tail()))));
+        assertTrue(noOperation.getMessage().contains("operationAudit"), noOperation.getMessage());
+    }
+
+    /**
+     * The same document with both keys present and {@code null} is accepted: that is the schema's way
+     * of saying the chain had no chained row, so refusing it would reject a legitimate payload.
+     *
+     * 同样的文档、两键都在且为 `null`，是接受的：那正是 schema 表达「该链没有已入链行」的方式，拒绝它
+     * 会误伤合法载荷。
+     */
+    @Test
+    void bothKeysPresentAsNullAreAccepted() {
+        ChainAnchorService.Tails tails = ChainAnchorCommand.tailsOf(
+                Json.parse("{\"chains\":{\"aiAudit\":null,\"operationAudit\":null}}"));
+
+        assertNull(tails.aiAudit());
+        assertNull(tails.operationAudit());
+    }
+
+    private static Map<String, Object> tail() {
+        return Map.of("rows", 1, "lastId", 1, "lastHash", "a".repeat(64));
     }
 
     /**
