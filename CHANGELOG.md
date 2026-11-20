@@ -10,6 +10,29 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [Unreleased]
+
+**English**
+
+### Fixed
+
+- **The object filter's second road is scoped like the answer.** When the ledger answered for the
+  pair, the read face never considered the sentence road — even when the ledger's rows were outside
+  the caller, period or outcome the request named. A write under another caller, after `until`, or
+  with the other `isError` value therefore hid a row that named the object inside the request's own
+  scope. The ledger is now asked with the same caller, period and outcome the answer is scoped to;
+  only when it answers nothing there does the sentence road run. The ledger still wins whenever it
+  answers inside that scope.
+
+**中文**
+
+### 修复
+
+- **对象筛选的第二条路与答案同范围。** 台账对这一对答得出东西时，读面从不再看句末路 —— 哪怕台账那些行
+  落在所问的调用方、区间或结果之外。于是别的调用方名下的写、`until` 之后的写、或另一个 `isError` 取值的
+  写，会挡住本次请求范围内点名对象的那一行。台账现在按与答案相同的调用方、区间和结果先作答；只有它在这个
+  范围内什么都没答时，句末路才跑。台账只要在该范围内答得出来，仍由它决定。
+
 ## [0.1.20] - 2026-11-20
 
 **English**

@@ -20,6 +20,7 @@ import cn.com.keelbase.runtime.engine.ExecutionOutcome;
 import cn.com.keelbase.runtime.engine.GovernedExecutionEngine;
 import cn.com.keelbase.runtime.identity.Principal;
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -374,6 +375,106 @@ class AuditLogReadTest {
 
         assertEquals(1, found.size(), "the ledger road decides; the mention is not added to it");
         assertEquals("touched the customer", ((Map<?, ?>) found.get(0)).get("detail"));
+    }
+
+    /**
+     * A ledger hit under another caller does not hide this caller's row that names the object.
+     *
+     * <p>"The ledger selects nothing" has to mean nothing **inside the request's own scope**. Asked
+     * unscoped, any write ever made to the object would suppress the sentence road for every caller
+     * — and the caller who ran the probe would be told "no rows" about their own row.
+     *
+     * 别的调用方名下的台账命中，不得挡住本人点名对象的那一行。
+     *
+     * <p>「台账什么都没选出来」必须是**在本次请求自己的范围内**什么都没选出来。若不问范围，这条对象
+     * 曾经有过任何一笔写，都会对所有调用方关掉句末路 —— 跑了探测的那个调用方会得到「没有行」。
+     */
+    @Test
+    void aSentenceRowIsStillFoundWhenTheLedgerHitIsUnderAnotherCaller() {
+        String other = "scope-other-" + UUID.randomUUID();
+        String me = "scope-me-" + UUID.randomUUID();
+        String kind = "scope-kind-" + UUID.randomUUID();
+        String key = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
+        String execution = "exec-" + UUID.randomUUID();
+        audit.append("tool_call", other, "touched it", false, "executed", "create_followup",
+                null, null, execution);
+        sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), other, "create_followup", kind,
+                key, "local_compensate", "hash", null, null, null, execution));
+        AuditLog mine = audit.append("mcp_connect_test", me, "probe · object " + kind + " #" + key);
+
+        List<?> found = rows("?objectType=" + kind + "&objectId=" + key + "&userId=" + me, ADMIN);
+
+        assertEquals(1, found.size(),
+                "a write under another caller is outside this request's scope, so the sentence road runs");
+        assertEquals(mine.getId(), ((Number) ((Map<?, ?>) found.get(0)).get("id")).longValue());
+    }
+
+    /**
+     * A ledger hit outside the requested outcome does not hide an error row that names the object.
+     *
+     * <p>The outcome is part of the scope: a successful write answers "the ledger has it" for
+     * `isError=false`, not for `isError=true`. Evaluating the ledger first without the outcome made
+     * the error probe unfindable.
+     *
+     * 结果不匹配的台账命中，不得挡住点名这条对象的错误行。
+     *
+     * <p>结果是范围的一部分：一笔成功的写对 `isError=false` 答「台账有它」，对 `isError=true` 不答。
+     * 不问结果就先判台账，会让那条错误探测行查不到。
+     */
+    @Test
+    void aSentenceRowIsStillFoundWhenTheLedgerHitIsOutsideTheRequestedOutcome() {
+        String who = "scope-outcome-" + UUID.randomUUID();
+        String kind = "outcome-kind-" + UUID.randomUUID();
+        String key = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
+        String execution = "exec-" + UUID.randomUUID();
+        audit.append("tool_call", who, "it worked", false, "executed", "create_followup",
+                null, null, execution);
+        sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup", kind,
+                key, "local_compensate", "hash", null, null, null, execution));
+        AuditLog probe = audit.append("mcp_connect_test", who, "probe · object " + kind + " #" + key,
+                true);
+
+        List<?> found = rows("?objectType=" + kind + "&objectId=" + key + "&isError=true", ADMIN);
+
+        assertEquals(1, found.size(),
+                "the successful write is outside isError=true, so the error row must answer");
+        assertEquals(probe.getId(), ((Number) ((Map<?, ?>) found.get(0)).get("id")).longValue());
+    }
+
+    /**
+     * A ledger hit outside the requested period does not hide a row inside it.
+     *
+     * <p>The period the caller gave bounds the sentence scan, so it must bound the ledger's answer
+     * too. Otherwise a write made after the period's end would answer "the ledger has it" and the
+     * probe written inside the period would be lost.
+     *
+     * 区间之外的台账命中，不得挡住区间内的行。
+     *
+     * <p>调用方给的区间限定了句末扫描，也就必须限定台账的答案。否则一笔写在区间终点之后，也会答成
+     * 「台账有它」，而区间内写下的探测行会丢。
+     */
+    @Test
+    void aSentenceRowIsStillFoundWhenTheLedgerHitIsOutsideTheRequestedPeriod()
+            throws InterruptedException {
+        String who = "scope-period-" + UUID.randomUUID();
+        String kind = "period-kind-" + UUID.randomUUID();
+        String key = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
+        AuditLog probe = audit.append("mcp_connect_test", who, "probe · object " + kind + " #" + key);
+        Instant cut = Instant.now();
+        // The write lands after the period's end; the probe is inside it.
+        // 这笔写在区间终点之后落地；探测行在区间之内。
+        Thread.sleep(5);
+        String execution = "exec-" + UUID.randomUUID();
+        audit.append("tool_call", who, "touched it", false, "executed", "create_followup",
+                null, null, execution);
+        sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup", kind,
+                key, "local_compensate", "hash", null, null, null, execution));
+
+        List<?> found = rows("?objectType=" + kind + "&objectId=" + key + "&until=" + cut, ADMIN);
+
+        assertEquals(1, found.size(),
+                "the write after until is outside the period, so the probe inside it must answer");
+        assertEquals(probe.getId(), ((Number) ((Map<?, ?>) found.get(0)).get("id")).longValue());
     }
 
     /**

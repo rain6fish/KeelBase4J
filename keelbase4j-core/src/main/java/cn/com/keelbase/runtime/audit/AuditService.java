@@ -427,8 +427,10 @@ public class AuditService {
      * whose own sentence ends with a typed key (` · object MCP connection #12`) are the answer — a
      * connect test, a probe, any action that is not a tool call and therefore writes no ledger row.
      * The key's word is compared with {@code resultType} literally, so a request for another kind
-     * matches nothing; and the fallback only runs when the ledger answered nothing, so a write that
-     * landed still wins over any mention. The period, when the caller gave one, bounds the scan.
+     * matches nothing; and the fallback only runs when the ledger answered nothing **inside the same
+     * scope as the answer** — caller, period and outcome — so a write that landed outside it no longer
+     * hides the row that names the object inside it. The period, when the caller gave one, bounds the
+     * scan.
      *
      * 碰过同一条业务对象的链上那些行：带该 `(resultType, resultId)` 的副作用给出它们的执行 id，取回**恰好**
      * 那些执行的行 —— 这次尝试的 intent 行与结果行，**以及授权它的那条批准行**（它带同一个 id）。拦截、待决
@@ -438,7 +440,8 @@ public class AuditService {
      * <p>**台账是第一条路，不是唯一一条。** 它一条都没选出来时，答案换成那些**自己句末带类型键**的行
      * （` · object MCP connection #12`）—— 一次连通测试、一次探测，任何**不是工具调用**、因而**不写台账行**
      * 的动作。键上的词与 `resultType` **逐字**比较，故查另一种对象时什么都不命中；回落只在台账什么都没答时
-     * 才跑，故**已落地的写**仍然压过任何提及。调用方给了区间时，扫描被限在那个区间里。
+     * 才跑——而且台账是在**与答案相同的范围**（调用方、区间、结果）内先作答的，故落在范围之外的写不会再挡住
+     * 范围内点名对象的那一行。调用方给了区间时，扫描被限在那个区间里。
      */
     @Transactional(readOnly = true)
     public List<Long> objectRowIds(String resultType, String resultId) {
@@ -448,7 +451,22 @@ public class AuditService {
     /** The same, with the period the caller asked about bounding the sentence scan. / 同上，句末键的扫描以调用方所问的区间为界。 */
     @Transactional(readOnly = true)
     public List<Long> objectRowIds(String resultType, String resultId, Instant since, Instant until) {
-        List<Long> viaLedger = objectRowIdsFromLedger(resultType, resultId);
+        return objectRowIds(resultType, resultId, since, until, null, null);
+    }
+
+    /**
+     * The same, with the caller and outcome the answer is scoped to. The ledger is asked **inside that
+     * scope** before the sentence road is considered, so a write that landed outside the requested
+     * caller, period or outcome does not hide a row that names the object inside it.
+     *
+     * 同上，另加答案所限的调用方与结果。**先在这个范围内**问台账，再考虑句末路，故落在所问调用方、区间
+     * 或结果之外的写，不会挡住范围内点名对象的那一行。
+     */
+    @Transactional(readOnly = true)
+    public List<Long> objectRowIds(String resultType, String resultId, Instant since, Instant until,
+                                   String userId, Boolean isError) {
+        List<Long> viaLedger = objectRowIdsFromLedger(resultType, resultId, since, until, userId,
+                isError);
         if (!viaLedger.isEmpty()) {
             return viaLedger;
         }
@@ -460,7 +478,8 @@ public class AuditService {
      *
      * 已落地的那次写：台账行的执行 id 指向**恰好**那些执行的行。
      */
-    private List<Long> objectRowIdsFromLedger(String resultType, String resultId) {
+    private List<Long> objectRowIdsFromLedger(String resultType, String resultId, Instant since,
+                                              Instant until, String userId, Boolean isError) {
         if (sideEffects == null) {
             return List.of();
         }
@@ -473,7 +492,18 @@ public class AuditService {
         if (executions.isEmpty()) {
             return List.of();
         }
-        return repository.findByExecutionIdIn(executions).stream().map(AuditLog::getId).toList();
+        // The same scope `rows` will apply to the answer. Asking the ledger unscoped would let a write
+        // that landed elsewhere answer "the ledger has this object" and suppress the sentence road
+        // for a caller/period/outcome the write is not part of.
+        // 与 `rows` 施加在答案上的范围相同。不问范围地问台账，会让一笔落在别处的写答成「台账有这条对象」，
+        // 从而把与那笔写无关的调用方/区间/结果的句末路压掉。
+        return repository.findByExecutionIdIn(executions).stream()
+                .filter(row -> userId == null || userId.equals(row.getUserId()))
+                .filter(row -> since == null || !row.getCreatedAt().isBefore(since))
+                .filter(row -> until == null || !row.getCreatedAt().isAfter(until))
+                .filter(row -> isError == null || row.isError() == isError)
+                .map(AuditLog::getId)
+                .toList();
     }
 
     /**
