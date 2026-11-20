@@ -63,11 +63,16 @@ the runtime is embedded in a host that owns the business write, that write and i
 written in one transaction, so a crash between them leaves an executed write unaudited.
 
 **Chain-tail anchors are in the same position, for a different reason.** Contract `v1.22.0`'s
-`audit-chain-anchor` is vendored here and neither produced nor verified: only the AI audit chain is
+`audit-chain-anchor` is vendored here and neither signed nor verified: only the AI audit chain is
 hash-chained in this runtime, so the record's `operationAudit` half could only ever be `null`, and
-neither JDK this line builds on carries SM2/SM3. A deployment that needs one must run a producer
-against the database that holds the chain; the TypeScript producer does not work against these tables
-today, because `operation_audit_logs` has no `hash` column. Publishing and key custody remain the
+neither JDK this line builds on carries SM2/SM3. Since 2026-11-20 the runtime supplies the read-only
+halves — `ChainAnchorService` reads the chained tail and compares it against a tail read elsewhere
+(`ok` / `grew` / `tail-missing` / `last-row-changed` / `tail-replaced`), and
+`-Dkeelbase.anchor.command=payload` prints the record **without** `sm2` — so a producer of your own
+is only needed for the signature itself. The other two commands are `tail` (print the current tails)
+and `compare` with `-Dkeelbase.anchor.known=<a previously produced payload or signed anchor>` (say
+whether that tail is still present); `-Dkeelbase.anchor.exit=true` turns the answer into a process
+exit code (0 clean, 1 a negative comparison, 2 usage). Signing, publishing and key custody remain the
 deployer's obligation — an anchor kept on the host it describes proves nothing.
 
 ## 8. The coverage statement this deployment can answer
@@ -155,11 +160,14 @@ coverage is not a completed delivery.
 随这类证据包给出的覆盖声明还必须带上另一件事（`D28 ④`）：当运行时被嵌入一个**自己持有业务写**的宿主时，
 那次写与它的审计行**不在同一个事务里**写，两者之间崩溃会留下一条**已执行、未审计**的写。
 
-**链尾锚处在同一位置，理由不同。** 契约 `v1.22.0` 的 `audit-chain-anchor` 随仓 vendor，这里既不产出也不
-校验：本运行时只有 AI 审计链是一条哈希链，故该记录的 `operationAudit` 一半只能永远是 `null`；而本线构建所用的
-两个 JDK 都不带 SM2/SM3。需要这类锚的部署，得让一个产出方去读**持有这条链的那个库**；TypeScript 的产出脚本
-对着这些表今天跑不通，因为 `operation_audit_logs` 没有 `hash` 列。发布与密钥托管仍是部署方的义务 —— 留在它所
-描述的那台主机上的锚，什么也证明不了。
+**链尾锚处在同一位置，理由不同。** 契约 `v1.22.0` 的 `audit-chain-anchor` 随仓 vendor，这里既不签名也不
+验签：本运行时只有 AI 审计链是一条哈希链，故该记录的 `operationAudit` 一半只能永远是 `null`；而本线构建所用的
+两个 JDK 都不带 SM2/SM3。自 2026-11-20 起，运行时提供只读的那两半 —— `ChainAnchorService` 读已入链的链尾、
+并把它与一份从别处读来的链尾对照（`ok` / `grew` / `tail-missing` / `last-row-changed` / `tail-replaced`），
+`-Dkeelbase.anchor.command=payload` 打印**不带 `sm2`** 的记录 —— 故自备产出方只剩签名那一步。另两条命令是
+`tail`（打印当前链尾）与 `compare` 配 `-Dkeelbase.anchor.known=<此前产出的载荷或已签名锚>`（说那组链尾还在不在）；
+`-Dkeelbase.anchor.exit=true` 把答案变成进程退出码（0 干净、1 对照否定、2 用法）。签名、发布与密钥托管仍是部署方的
+义务 —— 留在它所描述的那台主机上的锚，什么也证明不了。
 
 ## 8. 本部署能答出的覆盖声明
 
