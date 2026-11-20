@@ -497,15 +497,21 @@ class AuditLogReadTest {
         String kind = "period-kind-" + UUID.randomUUID();
         String key = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
         AuditLog probe = audit.append("mcp_connect_test", who, "probe · object " + kind + " #" + key);
-        Instant cut = Instant.now();
-        // The write lands after the period's end; the probe is inside it.
-        // 这笔写在区间终点之后落地；探测行在区间之内。
-        Thread.sleep(5);
+        // The write lands after the period's end; the probe is inside it. The boundary is taken from
+        // the rows' own times, with a margin wider than the column's microsecond precision, and a
+        // guard below says the two really straddle it — otherwise this test could go red or green on
+        // clock rounding rather than on the filter.
+        // 这笔写在区间终点之后落地；探测行在区间之内。边界取自行自己的时间，余量宽于列的微秒精度，
+        // 下面还有一条前置守卫确认两行确实跨在边界两侧 —— 否则这条测试会因为时钟舍入而不是因为筛选而红或绿。
+        Thread.sleep(50);
         String execution = "exec-" + UUID.randomUUID();
-        audit.append("tool_call", who, "touched it", false, "executed", "create_followup",
-                null, null, execution);
+        AuditLog write = audit.append("tool_call", who, "touched it", false, "executed",
+                "create_followup", null, null, execution);
         sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup", kind,
                 key, "local_compensate", "hash", null, null, null, execution));
+        Instant cut = probe.getCreatedAt().plusMillis(25);
+        assertTrue(write.getCreatedAt().isAfter(cut),
+                "guard: the write must land after the period's end for this test to mean anything");
 
         List<?> found = rows("?objectType=" + kind + "&objectId=" + key + "&until=" + cut, ADMIN);
 
