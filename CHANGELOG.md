@@ -24,6 +24,17 @@ Each version is written in two blocks — English first, then Chinese — marked
   only when it answers nothing there does the sentence road run. The ledger still wins whenever it
   answers inside that scope.
 
+### Added
+
+- **A cross-repository gate pins the typed object key's spelling.** The runtime's sentence matcher,
+  the host writer's `AUDIT_OBJECT_KIND` append and the console's `OBJECT_KEY_KINDS` reader are three
+  copies of one spelling held in free-text `detail`, so a rename on either side leaves every test
+  green while the read face answers "no match". `scripts/check-host-object-key.mjs` reads all three
+  and fails when the prefix, the suffix or the kind word disagrees. Its self-test mutates each of
+  five literals and requires every mutation to be caught; CI runs that self-test. The comparison
+  itself needs the host checkout, so `release-gate.sh` runs it behind `HOST_ENV=1` and says `SKIP`
+  when the checkout is absent.
+
 **中文**
 
 ### 修复
@@ -32,6 +43,14 @@ Each version is written in two blocks — English first, then Chinese — marked
   落在所问的调用方、区间或结果之外。于是别的调用方名下的写、`until` 之后的写、或另一个 `isError` 取值的
   写，会挡住本次请求范围内点名对象的那一行。台账现在按与答案相同的调用方、区间和结果先作答；只有它在这个
   范围内什么都没答时，句末路才跑。台账只要在该范围内答得出来，仍由它决定。
+
+### 新增
+
+- **一道跨仓闸钉住带类型对象键的拼写。** 运行时的句末匹配器、宿主写入方的 `AUDIT_OBJECT_KIND` 追加、
+  控制台的 `OBJECT_KEY_KINDS` 读回，是同一个拼写的三份副本，而它住在自由文本 `detail` 里 —— 任一侧改名，
+  测试会全绿而读面答「无匹配」。`scripts/check-host-object-key.mjs` 读这三处，前缀、后缀或种类词任一
+  不一致即失败。它的自检逐个改动五个字面量，要求每一次都被抓住；CI 跑这个自检。比对本身需要宿主检出，
+  故 `release-gate.sh` 把它放在 `HOST_ENV=1` 之后，检出缺席时答 `SKIP`。
 
 ## [0.1.20] - 2026-11-20
 

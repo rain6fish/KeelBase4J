@@ -18,8 +18,11 @@
 #   7. the release workflow's keyserver step still fails in minutes rather than hanging — its self-test
 #      drives a deliberately hanging gpg, and `release.yml` is checked to still call it (a raw
 #      `gpg --send-keys` there would pass the self-test while the pipeline went back to being unbounded).
+#   8. the typed object key the runtime reads is spelled the same by the host writer and the console —
+#      its self-test runs by default; the cross-repository comparison sits behind `HOST_ENV=1` because
+#      it needs the host checkout.
 #
-# Four things are deliberately out of the default run, each for a reason rather than for time:
+# Five things are deliberately out of the default run, each for a reason rather than for time:
 #   * `demo-golden-path.sh` needs the main repository's Web-Admin-Vue checkout. A gate that depends on a
 #     neighbouring repository's working tree would fail on a machine that legitimately does not have one,
 #     and a gate that fails for a reason unrelated to this repository is a gate people learn to ignore.
@@ -30,6 +33,9 @@
 #     `LLM_ENV`: a gate that fails because a machine has no Docker is a gate people learn to ignore.
 #   * `demo-pm-reference.sh` is a reference-project demonstration, not a capability assertion; it stays
 #     manual by decision, so the gate does not grow a dimension that only re-shows a sample app.
+#   * the cross-repository object-key check (`check-host-object-key.mjs`) needs the KeelBase-Vue-Pro
+#     checkout. Its self-test stays in the default run; the comparison sits behind `HOST_ENV=1` for the
+#     same reason as the Web-Admin-Vue demo above.
 #
 # The contract pin is *read* from `.github/workflows/ci.yml` rather than written here a third time: a
 # hand-copied version rots the moment the workflows move, and this repository has already paid for that
@@ -37,6 +43,8 @@
 #
 #   bash scripts/release-gate.sh            # deterministic gate (CI-able)
 #   LLM_ENV=1 bash scripts/release-gate.sh  # + the adapter demos (needs a model key)
+#   HOST_ENV=1 bash scripts/release-gate.sh # + the cross-repository object-key check (needs the host checkout)
+#   HOST_ENV=1 bash scripts/release-gate.sh # + the cross-repository object-key check (needs the host checkout)
 #
 # Invoked through `bash` for the reason the demo scripts are: the executable bit cannot be committed
 # from this repository's development platform, so the index carries mode 100644.
@@ -58,8 +66,10 @@
 #   6. 带 provider 的部署在打开本地调试、且**没有模型 key** 时仍走完整条治理链 —— 去掉开关则起不来（反向证明）；
 #   7. 发布工作流上传公钥那一步仍在几分钟内失败、而不是挂死 —— 它的自检驱动一个故意挂起的 gpg，并核对
 #      `release.yml` 仍调用它（那里改回裸 `gpg --send-keys`，自检照样绿，而流水线重新变得无界）。
+#   8. 运行时读的那个带类型对象键，在宿主写入方与控制台里拼写一致 —— 自检默认跑；跨仓比对放在
+#      `HOST_ENV=1` 之后，因为它需要宿主检出。
 #
-# 有四件事**有意**不在默认跑，理由各有其理、不是省时间：
+# 有五件事**有意**不在默认跑，理由各有其理、不是省时间：
 #   * `demo-golden-path.sh` 需要主仓的 Web-Admin-Vue 检出。门禁若依赖相邻仓库的工作树，就会在本就没有它
 #     的机器上失败 —— 而一个因与本仓无关的原因变红的门禁，是会被人们学会忽略的那种门禁。
 #   * 适配器 demo（`demo-springai*.sh`）需要模型 key。它们放在 `LLM_ENV=1` 之后，与主仓门禁对待自己那条
@@ -68,6 +78,8 @@
 #     `PG_ENV=1` 之后，理由与适配器 demo 放在 `LLM_ENV` 之后相同：一个因为机器上没有 Docker 就变红的门禁，
 #     是会被人们学会忽略的那种门禁。
 #   * `demo-pm-reference.sh` 是参考项目演示，不是能力断言；按决定保持手动，门禁不再长出一条只重复展示样例应用的维度。
+#   * 跨仓对象键检查（`check-host-object-key.mjs`）需要 KeelBase-Vue-Pro 检出。它的自检留在默认跑里；比对
+#     放在 `HOST_ENV=1` 之后，理由与上面那条 Web-Admin-Vue demo 相同。
 #
 # 契约的 pin 是**读**自 `.github/workflows/ci.yml`，不在这里写第三份：手抄的版本会在工作流变动的那一刻烂掉，
 # 而本仓已经为这条教训付过一次账。`release.yml` 也读，两者不一致即判失败。
@@ -139,8 +151,19 @@ fi
 echo "→ [Drift] vendored 快照 == 契约@pin + 主仓场景包"
 PIN_CI=$(pin_of .github/workflows/ci.yml)
 PIN_REL=$(pin_of .github/workflows/release.yml)
-CONTRACT_DIR="${CONTRACT_DIR:-$ROOT/../keelbase-contract}"
-MAIN_REPO_DIR="${MAIN_REPO_DIR:-$ROOT/../KeelBase}"
+# Resolve the siblings from the main checkout, not from the worktree: a worktree lives under
+# `<main>/.claude/worktrees/<name>`, so `$ROOT/..` is not the family root there and the drift gate
+# fails on a path that has nothing to do with the snapshot.
+# 从主检出、而不是工作树解析兄弟目录：工作树在 `<main>/.claude/worktrees/<name>` 下，`$ROOT/..` 不是
+# 家族根，漂移门禁会因一个与快照无关的路径变红。
+GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+if [ -n "$GIT_COMMON" ]; then
+  FAMILY_ROOT=$(dirname "$(dirname "$GIT_COMMON")")
+else
+  FAMILY_ROOT=$(dirname "$ROOT")
+fi
+CONTRACT_DIR="${CONTRACT_DIR:-$FAMILY_ROOT/keelbase-contract}"
+MAIN_REPO_DIR="${MAIN_REPO_DIR:-$FAMILY_ROOT/KeelBase}"
 if [ -z "$PIN_CI" ]; then
   gate "Drift(快照与来源一致)" fail "读不出 ci.yml 里的契约 pin"
 elif [ "$PIN_CI" != "$PIN_REL" ]; then
@@ -270,6 +293,27 @@ if [ "${PG_ENV:-}" = "1" ]; then
   run_demo "Generated(生成物真跑 PostgreSQL：迁移 + validate + 往返读回)" ./scripts/demo-generated-app-pg.sh
 else
   echo "→ [Generated] PostgreSQL 部分标注（PG_ENV=1 时跑 demo-generated-app-pg.sh —— 需 Docker 起一个 postgres:17）"
+fi
+
+# ── Host：跨仓对象键拼写（自检常跑；实跑需 HOST_ENV=1 + 宿主检出）──────────────
+echo "→ [Host] 行末带类型键的拼写：运行时 ↔ 宿主写入方 ↔ 控制台"
+HOST_SELF=$(node scripts/check-host-object-key.mjs --self-test 2>&1) || true
+if grep -q '^SELF-TEST PASS' <<<"$HOST_SELF"; then
+  gate "Host(跨仓闸自检：五种漂移都抓住)" pass
+else
+  gate "Host(跨仓闸自检)" fail "check-host-object-key.mjs --self-test"
+  echo "── 明细 — 自检输出尾部 ──"; printf '%s\n' "$HOST_SELF" | tail -n 40; echo "── /明细 ──"
+fi
+if [ "${HOST_ENV:-}" = "1" ]; then
+  HOST_OUT=$(node scripts/check-host-object-key.mjs --require 2>&1) || true
+  if grep -qE '^PASS' <<<"$HOST_OUT"; then
+    gate "Host(对象键拼写跨仓一致)" pass
+  else
+    gate "Host(对象键拼写跨仓一致)" fail "check-host-object-key.mjs --require"
+    echo "── 明细 — 输出尾部 ──"; printf '%s\n' "$HOST_OUT" | tail -n 40; echo "── /明细 ──"
+  fi
+else
+  echo "  ↷ 跨仓实跑标注（HOST_ENV=1 时跑 check-host-object-key.mjs --require —— 需 KeelBase-Vue-Pro 检出）"
 fi
 
 echo ""
