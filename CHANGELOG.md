@@ -31,7 +31,18 @@ Each version is written in two blocks — English first, then Chinese — marked
   `outcome`: the conclusion stays unknown, and the claim's key stays occupied, so the same call is
   refused rather than silently retried. A hold still inside its lease, a settled one, and one already
   closed are each refused with the reason named; only an identity holding `update` on the ledger may
-  release. No schema change — the status is a string column, and the new value rides it.
+  release, and only for holds inside its row range — an owner-scoped grant cannot close another
+  user's hold. An operator release has no conversation, so it is read in `/audit/logs` rather than in
+  a conversation's timeline; the takeover below has one and appears in both. No schema change — the
+  status is a string column, and the new value rides it.
+- **The automatic takeover of a stranded hold leaves one `claim_release` row, and the timeline shows
+  it.** When `WriteClaimService`'s lease door takes over a hold whose outcome nobody knows, it now
+  appends exactly one row — action `claim_release`, no `outcome`, with the hold id, its tool, both
+  owners and the reason in `detail`. The append is best effort: the audit service is resolved lazily,
+  and a failed append is logged without blocking the takeover, because the key has already moved.
+  The conversation timeline maps the row to the frozen `notice` step — one English line and one
+  Chinese line in `content`, the specifics in `detail` — and both `/trace` and `/audit/logs` return
+  it.
 - **The chain tail is readable, comparable, and printable as an unsigned anchor payload.**
   `ChainAnchorService` reads the AI chain's chained tail (`rows` / `lastId` / `lastHash`;
   `operationAudit` is `null`, because that table is not a chain) and answers whether a tail read
@@ -42,8 +53,26 @@ Each version is written in two blocks — English first, then Chinese — marked
   the contract's own sample. No route and no new dependency: signing and verification stay outside by
   decision, and `packageHasExternalAnchor` stays `false`.
 
+### Fixed
+
+- **The operator release commits with its chain row, obeys the row range, and names the lease-boundary
+  refusal.** `WriteClaimReleaseService.release` now runs in one transaction: the conditional close and
+  the `claim_release` append commit together, so a failed append rolls the close back, the hold stays
+  `claimed`, and the retry is the repair — before, the hold was left closed with no row and the retry
+  was refused as `already_closed`. The release also passes the claim's row range (`WriteClaim` is a
+  `ScopedRow` and `ToolEffect` is registered with `ScopeFilter`), so an owner-scoped grant closes only
+  its own user's holds. When the conditional update matches nothing while the row still reads
+  `claimed`, the refusal kind is `not_stale` rather than `not_claimable`; both `isStale` helpers now
+  ask "strictly past the lease", the same comparison as the SQL.
+
 ### Changed
 
+- **The bilingual-comments gate now reads line and block comments, not only javadoc.** A Chinese `//`
+  line followed by an English one could sit in the tree while the gate stayed silent. The check now
+  classifies each line rather than a paragraph, excludes indented code samples, tables, block tags,
+  inline code and quoted material from both sides, and its self-test covers the two known misreadings.
+  The wider scan found eight blocks with English after Chinese; all eight were reordered with comment
+  lines only. `--strict` was already wired into CI and `release-gate.sh`.
 - **The version is `0.1.20-SNAPSHOT`.** All eight poms move from `0.1.19` to `0.1.20-SNAPSHOT`. `v0.1.19`
   is published (tag object `c161a0fd` points at commit `9b49c1a`), and CI's `version-coordinate` job
   refuses a tree that keeps building under a released number; on a clean runner no `0.1.20` tag exists,
@@ -73,8 +102,14 @@ Each version is written in two blocks — English first, then Chinese — marked
   把一份越过租约的占位关闭为 `closed_unknown`，并追加一行 `claim_release`，带着运维的说明与证据引用 ——
   即契约 `v1.21.0` 发布的加性 `audit-payload` v4 动作。这一行**没有 `outcome`**：结论仍然未知，且占位的
   键仍被占住，故同一次调用会被拒绝、而不是被静默重试。仍在租约内、已落定、以及此前已关闭的占位都会被拒，
-  并报出原因；只有在这本账上持有 `update` 的身份可以释放。**无 schema 变更** —— 状态是字符串列，新取值
-  直接通过它承载。
+  并报出原因；只有在这本账上持有 `update` 的身份可以释放，且只关得了落在其**行范围**内的占位 —— 按主人
+  收窄的授予关不掉别人的占位。运维释放没有会话，故它只在 `/audit/logs` 里读到，不进某段对话的时间线；
+  下面那条接管有会话，两个面都看得到。**无 schema 变更** —— 状态是字符串列，新取值直接通过它承载。
+- **滞留占位的自动接管恰留一行 `claim_release`，会话时间线也看得到。** `WriteClaimService` 的租约门
+  接管一份没人知道结论的占位时，现在恰好追加一行 —— action 为 `claim_release`、不写 `outcome`，
+  `detail` 带着占位 id、所属工具、两任主人与原因。追加是尽力而为：审计经惰性取用，写失败只记日志、
+  不阻断接管，因为键已经换了主人。会话时间线把这一行映成冻结的 `notice` 步 —— `content` 一句英文、
+  一句中文，具体信息仍在 `detail` —— `/trace` 与 `/audit/logs` 两个读面都读得到。
 - **链尾可读、可对照，并可打印成未签名的锚载荷。** `ChainAnchorService` 读 AI 链的已入链链尾（`rows` /
   `lastId` / `lastHash`；`operationAudit` 为 `null`，因为那张表不是链），并回答一份从别处读来的链尾是否还在
   —— `ok`、`grew`、`tail-missing`、`last-row-changed`、`tail-replaced` —— 不碰链的内部连续性，那仍然归
@@ -82,8 +117,22 @@ Each version is written in two blocks — English first, then Chinese — marked
   之外签名并发布；摘要取的是与契约样例相同的字节。无路由、无新依赖：按裁定签名与验签都留在本运行时之外，
   `packageHasExternalAnchor` 保持 `false`。
 
+### 修复
+
+- **运维释放与它的链行同事务提交、按行范围收口，并在租约边界报对拒绝种类。**
+  `WriteClaimReleaseService.release` 现在在一个事务里运行：条件关闭与 `claim_release` 追加一起提交，故追加
+  失败会把关闭一并回滚、占位仍是 `claimed`、重试即修复 —— 此前占位会被关掉却没有链行，重试还会被拒成
+  `already_closed`。释放同时通过占位的**行范围**（`WriteClaim` 实现 `ScopedRow`，`ToolEffect` 登记进
+  `ScopeFilter`），故按主人收窄的授予只关得了本人名下的占位。条件更新匹配 0 行而占位仍读作 `claimed` 时，
+  拒绝种类是 `not_stale` 而不是 `not_claimable`；两处 `isStale` 现在问的是「严格越过租约」，与 SQL 条件
+  同一个比较。
+
 ### 变更
 
+- **双语注释门禁现在也读行注释与块注释，不再只读 javadoc。** 中文 `//` 行后面跟英文行此前可以留在树里而
+  门禁一言不发。检查现在按**行**判类（不是按段落），并把缩进的代码样例、表格、块标签、内联代码与引文两边
+  都不算；自检覆盖了两种已知误判。更宽的扫描查出八处「中文在前、英文在后」，八处都只调了注释行序 ——
+  `--strict` 本已接在 CI 与 `release-gate.sh` 上。
 - **版本为 `0.1.20-SNAPSHOT`。** 八个 pom 由 `0.1.19` 抬到 `0.1.20-SNAPSHOT`。`v0.1.19` 已发布（tag 对象
   `c161a0fd` 指向提交 `9b49c1a`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
   拒绝的；在干净 runner 上不存在 `0.1.20` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
