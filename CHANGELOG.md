@@ -32,6 +32,15 @@ Each version is written in two blocks — English first, then Chinese — marked
   refused rather than silently retried. A hold still inside its lease, a settled one, and one already
   closed are each refused with the reason named; only an identity holding `update` on the ledger may
   release. No schema change — the status is a string column, and the new value rides it.
+- **The chain tail is readable, comparable, and printable as an unsigned anchor payload.**
+  `ChainAnchorService` reads the AI chain's chained tail (`rows` / `lastId` / `lastHash`;
+  `operationAudit` is `null`, because that table is not a chain) and answers whether a tail read
+  elsewhere is still present — `ok`, `grew`, `tail-missing`, `last-row-changed`, `tail-replaced` —
+  without touching the chain's internal integrity, which stays `/audit/verify`'s job.
+  `-Dkeelbase.anchor.command=payload` prints the contract's record **without** its `sm2` segment, for
+  a deployer to sign and publish outside this runtime, and the digest is taken over the same bytes as
+  the contract's own sample. No route and no new dependency: signing and verification stay outside by
+  decision, and `packageHasExternalAnchor` stays `false`.
 
 ### Changed
 
@@ -43,11 +52,12 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### Known limitations
 
-- **`audit-chain-anchor` (contract v1.22.0) is not implemented.** This runtime neither produces nor
-  verifies a daily chain anchor: there is no producer, no verifier, and no route. The operation audit
-  log is not a hash chain (no `hash`/`prevHash` columns), and SM2/SM3 are unavailable in JDK 17/25, so
-  SM2 signing or verification needs an external tool or BouncyCastle. See the README's
-  "Contract coverage" section.
+- **`audit-chain-anchor` (contract v1.22.0) is not signed or verified here.** This runtime reads the
+  chain tail, compares it against a tail read elsewhere, and can print the record without its `sm2`
+  segment — but nothing here signs, verifies or publishes an anchor: no route, no signing key, and no
+  SM2/SM3 on JDK 17 or 25. The operation audit log is not a hash chain (no `hash`/`prevHash`
+  columns), so the record's `operationAudit` half is always `null`. Signing, publishing and key
+  custody are the deployer's. See the README's "Contract coverage" section.
 
 **中文**
 
@@ -65,6 +75,12 @@ Each version is written in two blocks — English first, then Chinese — marked
   键仍被占住，故同一次调用会被拒绝、而不是被静默重试。仍在租约内、已落定、以及此前已关闭的占位都会被拒，
   并报出原因；只有在这本账上持有 `update` 的身份可以释放。**无 schema 变更** —— 状态是字符串列，新取值
   直接通过它承载。
+- **链尾可读、可对照，并可打印成未签名的锚载荷。** `ChainAnchorService` 读 AI 链的已入链链尾（`rows` /
+  `lastId` / `lastHash`；`operationAudit` 为 `null`，因为那张表不是链），并回答一份从别处读来的链尾是否还在
+  —— `ok`、`grew`、`tail-missing`、`last-row-changed`、`tail-replaced` —— 不碰链的内部连续性，那仍然归
+  `/audit/verify`。`-Dkeelbase.anchor.command=payload` 打印契约记录、但**不带 `sm2` 段**，供部署方在本运行时
+  之外签名并发布；摘要取的是与契约样例相同的字节。无路由、无新依赖：按裁定签名与验签都留在本运行时之外，
+  `packageHasExternalAnchor` 保持 `false`。
 
 ### 变更
 
@@ -74,9 +90,10 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### 已知限制
 
-- **`audit-chain-anchor`（契约 v1.22.0）未实现。** 本运行时既不产出也不校验每日链锚：没有产出方、
-  没有校验方，也没有路由。操作审计日志不是哈希链（无 `hash`/`prevHash` 列），且 JDK 17/25 内没有
-  SM2/SM3，故 SM2 签名或验签需要外部工具或 BouncyCastle。见 README 的「契约覆盖」一节。
+- **`audit-chain-anchor`（契约 v1.22.0）在这里既不签名也不验签。** 本运行时读链尾、把它与一份从别处读来的
+  链尾对照，并能打印不带 `sm2` 段的记录 —— 但这里**不签名、不验签、也不发布**锚：没有路由、没有签名密钥，
+  JDK 17 与 25 上也都没有 SM2/SM3。操作审计日志不是哈希链（无 `hash`/`prevHash` 列），故记录的
+  `operationAudit` 一半永远是 `null`。签名、发布与密钥托管都是部署方的事。见 README 的「契约覆盖」一节。
 
 ## [0.1.19] - 2026-11-15
 

@@ -20,6 +20,25 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long>,
 
     Optional<AuditLog> findTopByOrderByIdDesc();
 
+    /**
+     * How many rows are chained — the denominator the chain anchor records its {@code rows} with. The
+     * contract's predicate is {@code hash IS NOT NULL}, which the column's own constraint makes equal
+     * to the row count; asking the predicate keeps the two from drifting apart if that ever changes.
+     *
+     * 有多少行已入链 —— 链尾锚记录 `rows` 时用的分母。契约的判据是 `hash IS NOT NULL`，列上的约束使它与
+     * 行数相等；问那个谓词，是为了让两者在此后万一变化时不会悄悄漂开。
+     */
+    long countByHashIsNotNull();
+
+    /**
+     * The last chained row — the {@code lastId} / {@code lastHash} an anchor records. Ordered rather
+     * than fetched by a stored pointer: the tail is whatever the newest chained row is.
+     *
+     * 最后一行已入链的行 —— 锚记录的 `lastId` / `lastHash`。按 id 取，而不是读某个存下的指针：链尾就是
+     * 最新那条已入链的行。
+     */
+    Optional<AuditLog> findTopByHashIsNotNullOrderByIdDesc();
+
     List<AuditLog> findAllByOrderByIdAsc();
 
     /**
