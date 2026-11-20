@@ -12,7 +12,7 @@ replaying the same corpus is what surfaced the need for this: see `docs/ARCHITEC
 | wire object | this runtime's surface | notes |
 |---|---|---|
 | `audit-chain-verification` | `GET /api/v1/audit/verify` | the frozen object, `chain` included — **administrators or a read-only audit reader** (`read` on `AuditLog`), as the object's own implementation gates it |
-| `ai-audit-log-row` | `GET /api/v1/audit/logs` | one row per audit record, filtered by `userId` / `since` / `isError` — **administrators or a read-only audit reader** (`read` on `AuditLog`); the reference's `agentId` / `orgId` / `denied` filters are **refused** rather than ignored (see below) |
+| `ai-audit-log-row` | `GET /api/v1/audit/logs` | one row per audit record, filtered by `userId` / `since` / `until` / `isError` and by a business object (`objectType` + `objectId`, given together) — **administrators or a read-only audit reader** (`read` on `AuditLog`); the reference's `agentId` / `orgId` / `denied` filters are **refused** rather than ignored (see below) |
 | `chat-response` | `POST /api/v1/ai/chat` | the frozen object with nothing added — see below for where the outcome went |
 | `side-effect-revoke` — an effect | `GET /api/v1/ai/tool-effects` | list envelope `{total, page, limit, items}`. **Administrators or a read-only audit reader** (`read` on `ToolEffect`) see every caller's effects; anyone else sees their own only. The projection is the same for both readers — the field whitelist for a read-only reader is still to be decided, and this change adds no field |
 | `side-effect-revoke` — revoke result | `DELETE /api/v1/ai/tool-effects/{id}` | `{effectId, resultType, revokeClass, revokeStatus, revoked}` |
@@ -25,6 +25,27 @@ replaying the same corpus is what surfaced the need for this: see `docs/ARCHITEC
 | `operation-audit-log-row` | `GET /api/v1/audit/operations/logs` | the **operations** chain — business writes, **administrators or a read-only audit reader** (`read` on `OperationAudit`), newest first, envelopes as `{total, page, limit, items}`. A **second, separate** chain from the AI audit beside it: nothing joins the two, and neither is derived from the other. What the row deliberately does not carry is named below rather than left blank |
 | `my-confirmation-item` (the queue across callers) | `GET /api/v1/ai/confirmations` | every confirmation record, read-only, newest first, envelopes as `{total, page, limit, items}` — **administrators or a read-only audit reader** (`read` on `Confirmation`). One projection with `/ai/my/confirmations`: nothing is added for the reader. Reading moves nothing; deciding, approving and executing keep their own entries and guards |
 | `governance-policy` | `GET` / `PUT /api/v1/ai/governance/policy` | the policy in force and the surface a console changes it on — **readable by administrators or a read-only audit reader** (`read` on `GovernancePolicy`); **writable by administrators only** (the write action is the seam's `update`, which `manage` expands into). A written policy is **enforced** on the gate the engine runs every call through, not merely stored — see below. A submission naming a tool, a mode or a role this deployment cannot apply is refused with a `400` rather than stored and ignored |
+
+**The business-object filter has two roads, and the second road's spelling is defined once.**
+`objectType` + `objectId` first resolves through the effect ledger — the executions carrying that pair
+give their rows, the writes that landed. Only when the ledger answers nothing **inside the request's
+own scope** (caller, period, outcome) does the second road run: rows whose own sentence ends with a
+typed key (` · object MCP connection #12`), which is how an action with no tool (an MCP connect test)
+names its object. That spelling is defined in `conformance/typed-object-key.json`: end-anchored, no
+trailing-whitespace tolerance, kind word trimmed and compared literally (case-sensitive), business key
+1–18 ASCII digits with leading zeros significant. This runtime is the authority for that grammar; the
+host console's reader answers to the same definition, and `scripts/check-object-key-contract.mjs`
+compares the console's reader and the host writer's constant against it (run it where the host
+checkout exists; `--strict` turns a divergence into a non-zero exit).
+
+**业务对象过滤有两条路，第二条路的拼写只定义一次。** `objectType` + `objectId` 先经副作用台账解析 ——
+带这一对的执行给出它们的行，即**已落地的写**。只有台账在**本次请求自己的范围**（调用方、区间、结果）
+**内**什么都没答时，第二条路才跑：**自己句末**带类型键（` · object MCP connection #12`）的行 ——
+那是一次没有工具的动作（如 MCP 连通测试）点名自己对象的方式。这条拼写定义在
+`conformance/typed-object-key.json`：锚在句末、不容忍尾随空白、种类词 trim 后**逐字**比较（区分大小写）、
+业务主键为 1–18 位 ASCII 数字且**前导零有意义**。本运行时是这套文法的**权威**；宿主控制台的读取器以同一份
+定义为准，`scripts/check-object-key-contract.mjs` 拿控制台读取器与宿主写入方常量与它比对（在有宿主检出
+的环境跑；`--strict` 把分叉变成非零退出）。
 
 **Two of `ai-tool-inventory`'s fields now come from the governance policy; the third still has no
 source.** `enabled` and `allowedRoles` are read from the same per-tool override store the gate reads its

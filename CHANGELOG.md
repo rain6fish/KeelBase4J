@@ -10,6 +10,52 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [Unreleased]
+
+**English**
+
+### Added
+
+- **The typed object key's spelling now has one definition and a cross-repository check.**
+  `conformance/typed-object-key.json` states the exact spelling the fallback object filter matches
+  (` · object <kind> #<id>` — end-anchored, kind trimmed and compared literally, business key 1–18
+  ASCII digits with leading zeros significant) together with the pairs and row samples the runtime
+  answers to. A core unit test asserts the matcher against that file instead of restating the values,
+  and `scripts/check-object-key-contract.mjs` compares the host writer's kind constant and the host
+  console's reader against it — the two parties that live in another repository and could drift
+  silently. The check is report-only by default and takes `--host` / `KEELBASE_HOST_REPO` (it skips,
+  saying so, when there is no sibling checkout); `--strict` turns a divergence into an exit 1.
+
+### Fixed
+
+- **The runtime is the stated authority for the typed key's grammar, and the console's divergence from
+  it is now measured.** The host console used to accept a key followed by trailing whitespace, read
+  `#007` as `#7`, and drop a 17–18 digit key (`Number.isSafeInteger`). Those cases are now row samples
+  in `conformance/typed-object-key.json` and are reported, case by case, by the cross-repo check; the
+  console-side fix (end-anchored, digits kept as written past `Number`'s safe range) belongs to the
+  host repository and is not part of this change. `docs/wire-object-endpoints.md` now states the
+  grammar and names this runtime as its authority, beside the two roads of the object filter.
+
+**中文**
+
+### 新增
+
+- **带类型对象键的拼写现在只有一份定义，并有一道跨仓检查。**
+  `conformance/typed-object-key.json` 写明回落对象过滤所匹配的**精确**拼写
+  （` · object <kind> #<id>` —— 锚在句末、种类词 trim 后逐字比较、业务主键 1–18 位 ASCII 数字且前导零
+  有意义），以及运行时要作答的那些配对与行样例。core 的单元测试拿这个文件里的值断言匹配器，而不是在测试
+  里再写一遍；`scripts/check-object-key-contract.mjs` 拿宿主写入方的种类常量与宿主控制台的读取器与它比对
+  —— 那两方住在另一个仓，本来可以**静默**漂开。该检查默认只报告，用 `--host` / `KEELBASE_HOST_REPO`
+  指定宿主检出（没有兄弟仓检出的环境会**跳过并说明**）；`--strict` 才让分叉变成退出码 1。
+
+### 修复
+
+- **运行时被写明为带类型键文法的权威，而控制台与它的分叉现在可被量出来。** 宿主控制台过去容忍键后的尾随
+  空白、把 `#007` 读成 `#7`、并且丢掉 17–18 位主键（`Number.isSafeInteger`）。这三种情形现在都是
+  `conformance/typed-object-key.json` 里的行样例，并由跨仓检查**逐条**报出；控制台一侧的修法
+  （句末严格收尾、超出 `Number` 安全范围的主键按写下的字符串保留）属于宿主仓，不在本次改动内。
+  `docs/wire-object-endpoints.md` 现在写明这套文法、点名本运行时是它的权威，并与对象过滤的两条路写在一起。
+
 ## [0.1.20] - 2026-11-20
 
 **English**
