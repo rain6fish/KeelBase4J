@@ -31,6 +31,7 @@
  *   node scripts/check-object-key-contract.mjs --host ../KeelBase-Vue-Pro
  *   KEELBASE_HOST_REPO=/path/to/KeelBase-Vue-Pro node scripts/check-object-key-contract.mjs
  *   node scripts/check-object-key-contract.mjs --self-test         # positive and negative controls
+ *   node scripts/check-object-key-contract.mjs --strict --require  # the host must be there (release-gate)
  *
  * Exit codes: 0 clean (or report-only); 1 `--strict` and a divergence (or a failed self-test); 2
  * usage or environment (no definition, a host file whose shape changed).
@@ -60,9 +61,10 @@
  *   node scripts/check-object-key-contract.mjs --host ../KeelBase-Vue-Pro
  *   KEELBASE_HOST_REPO=/path/to/KeelBase-Vue-Pro node scripts/check-object-key-contract.mjs
  *   node scripts/check-object-key-contract.mjs --self-test         # 正向与负向对照
+ *   node scripts/check-object-key-contract.mjs --strict --require  # 宿主必须存在（release-gate 用）
  *
  * 退出码：0 干净（或只报告）；1 `--strict` 且有分叉（或自检失败）；2 用法 / 环境问题（没有定义、
- * 宿主文件形状变了）。
+ * 宿主文件形状变了、或 `--require` 且找不到宿主检出）。
  */
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -81,6 +83,7 @@ const arg = (name, dflt) => {
 }
 const STRICT = argv.includes('--strict')
 const SELF_TEST = argv.includes('--self-test')
+const REQUIRE = argv.includes('--require')
 const HOST = resolve(ROOT, arg('--host', process.env.KEELBASE_HOST_REPO ?? '../KeelBase-Vue-Pro'))
 
 const die = (message) => {
@@ -228,6 +231,10 @@ if (SELF_TEST) {
 }
 
 if (!existsSync(join(HOST, CONSOLE))) {
+  if (REQUIRE) {
+    console.error(`✗ 没有宿主检出：${HOST}（--require）`)
+    process.exit(2)
+  }
   console.log(`· 没有宿主检出（${HOST}）；只核对定义本身：${definition.kinds.length} 个种类、`
     + `${definition.pairs.length} 对拼写、${definition.rows.length} 行读回样例`)
   process.exit(0)

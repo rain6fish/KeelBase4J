@@ -31,6 +31,11 @@ Each version is written in two blocks — English first, then Chinese — marked
   disagrees. Its self-test mutates each of five literals and requires every mutation to be caught; CI
   runs that self-test, and `release-gate.sh` runs the real cross-repository comparison behind
   `HOST_ENV=1`, answering `SKIP` when the host checkout is absent.
+- **The behaviour-level gate now runs in `release-gate.sh` too.** Behind the same `HOST_ENV=1` it
+  feeds the definition's row samples to the console's own reader and fails on a divergence, so the
+  release gate carries both dimensions: the source-level gate compares the literals, and this one asks
+  what the console actually returns. `--require` was added so a `HOST_ENV=1` run with no host checkout
+  fails instead of silently checking the definition alone.
 
 ### Fixed
 
@@ -79,6 +84,9 @@ Each version is written in two blocks — English first, then Chinese — marked
   宿主写入方的 `AUDIT_OBJECT_KIND` 追加、控制台的 `OBJECT_KEY_KINDS` 与正则，前缀、后缀或种类词任一不一致
   即失败。它的自检逐个改动五个字面量、要求每一次都被抓住；CI 跑这个自检，`release-gate.sh` 把真实跨仓比对
   放在 `HOST_ENV=1` 之后，宿主检出缺席时答 `SKIP`。
+- **行为级闸也接进了 `release-gate.sh`。** 在同一个 `HOST_ENV=1` 之后，它把定义里的行样例喂给控制台自己的
+  读取器，分叉即失败 —— 故发布门禁现在两个维度都在：源码级闸比字面量，这一道**问控制台实际返回什么**。
+  新增 `--require`：`HOST_ENV=1` 却找不到宿主检出的那次运行会失败，而不是悄悄只查定义。
 
 ### 修复
 
