@@ -10,7 +10,7 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
-## [Unreleased]
+## [0.1.20] - 2026-11-20
 
 **English**
 
@@ -61,11 +61,6 @@ Each version is written in two blocks — English first, then Chinese — marked
   inline code and quoted material from both sides, and its self-test covers the two known misreadings.
   The wider scan found eight blocks with English after Chinese; all eight were reordered with comment
   lines only. `--strict` was already wired into CI and `release-gate.sh`.
-- **The version is `0.1.20-SNAPSHOT`.** All eight poms move from `0.1.19` to `0.1.20-SNAPSHOT`. `v0.1.19`
-  is published (tag object `c161a0fd` points at commit `9b49c1a`), and CI's `version-coordinate` job
-  refuses a tree that keeps building under a released number; on a clean runner no `0.1.20` tag exists,
-  so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
-  change.
 - **The object filter has a second road: the typed key at the end of a row's own sentence.** A connect
   test, a probe, any action that is not a tool call writes no ledger row, so the ledger answers "no
   match" for the object it dialled — and until now `GET /audit/logs?objectType=…&objectId=…` could not
@@ -134,9 +129,6 @@ Each version is written in two blocks — English first, then Chinese — marked
   门禁一言不发。检查现在按**行**判类（不是按段落），并把缩进的代码样例、表格、块标签、内联代码与引文两边
   都不算；自检覆盖了两种已知误判。更宽的扫描查出八处「中文在前、英文在后」，八处都只调了注释行序 ——
   `--strict` 本已接在 CI 与 `release-gate.sh` 上。
-- **版本为 `0.1.20-SNAPSHOT`。** 八个 pom 由 `0.1.19` 抬到 `0.1.20-SNAPSHOT`。`v0.1.19` 已发布（tag 对象
-  `c161a0fd` 指向提交 `9b49c1a`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
-  拒绝的；在干净 runner 上不存在 `0.1.20` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
 - **对象筛选多了第二条路：行末那句自带里那个带类型的键。** 一次连通测试、一次探测、任何**不是工具调用**的动作
   都不写台账行，故台账对它拨的那条对象只答「无匹配」—— 在此之前，`GET /audit/logs?objectType=…&objectId=…`
   **根本找不到**这一行。台账一条都没选出来时，读面改为把这一对与 `detail` 的后缀
@@ -1638,7 +1630,8 @@ application depends on.
   发布什么一直是由 **reactor** 决定的，0.1.2 的 `release.yml` 头注已按实况写明。原文保留在上。]**
 - 运行时的会话存储是 **transcript，不是 memory**：没有嵌入、没有检索、没有记忆策略。
 
-[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.19...HEAD
+[Unreleased]: https://github.com/rain6fish/KeelBase4J/compare/v0.1.20...HEAD
+[0.1.20]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.20
 [0.1.19]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.19
 [0.1.18]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.18
 [0.1.3]: https://github.com/rain6fish/KeelBase4J/releases/tag/v0.1.3
