@@ -62,6 +62,14 @@ Any coverage statement that accompanies such a package must also carry one more 
 the runtime is embedded in a host that owns the business write, that write and its audit row are not
 written in one transaction, so a crash between them leaves an executed write unaudited.
 
+**Chain-tail anchors are in the same position, for a different reason.** Contract `v1.22.0`'s
+`audit-chain-anchor` is vendored here and neither produced nor verified: only the AI audit chain is
+hash-chained in this runtime, so the record's `operationAudit` half could only ever be `null`, and
+neither JDK this line builds on carries SM2/SM3. A deployment that needs one must run a producer
+against the database that holds the chain; the TypeScript producer does not work against these tables
+today, because `operation_audit_logs` has no `hash` column. Publishing and key custody remain the
+deployer's obligation — an anchor kept on the host it describes proves nothing.
+
 ## 8. The coverage statement this deployment can answer
 
 `GET /audit/coverage?since=&until=&userId=` answers what a window was read from and what reading it
@@ -146,6 +154,12 @@ coverage is not a completed delivery.
 
 随这类证据包给出的覆盖声明还必须带上另一件事（`D28 ④`）：当运行时被嵌入一个**自己持有业务写**的宿主时，
 那次写与它的审计行**不在同一个事务里**写，两者之间崩溃会留下一条**已执行、未审计**的写。
+
+**链尾锚处在同一位置，理由不同。** 契约 `v1.22.0` 的 `audit-chain-anchor` 随仓 vendor，这里既不产出也不
+校验：本运行时只有 AI 审计链是一条哈希链，故该记录的 `operationAudit` 一半只能永远是 `null`；而本线构建所用的
+两个 JDK 都不带 SM2/SM3。需要这类锚的部署，得让一个产出方去读**持有这条链的那个库**；TypeScript 的产出脚本
+对着这些表今天跑不通，因为 `operation_audit_logs` 没有 `hash` 列。发布与密钥托管仍是部署方的义务 —— 留在它所
+描述的那台主机上的锚，什么也证明不了。
 
 ## 8. 本部署能答出的覆盖声明
 

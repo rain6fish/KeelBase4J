@@ -224,6 +224,13 @@ Read this section before quoting anything above.
    host", and an embedded host that owns the business write (or runs an AI path of its own) gets the
    corresponding gap. The statement is a read for administrators and audit readers, like the rest of
    the audit chain.
+10. **Not an audit-chain anchor.** The contract's `audit-chain-anchor` (v1.22.0) is vendored here but
+    neither produced nor verified: the record commits to **two** chains' tails and only the AI audit
+    chain is hashed in this runtime (the operation audit is a table, not a second chain), and neither
+    JDK this line builds on carries SM2/SM3. A chain that verifies internally still cannot show a
+    deleted tail — answering that is what such an anchor is for, and it only counts once someone
+    outside the trust domain publishes and compares it. `GET /audit/coverage` reports the same thing
+    as the `chain-tail-deletion` gap, which stays applicable.
 
 ---
 
