@@ -50,6 +50,13 @@ Each version is written in two blocks — English first, then Chinese — marked
   console-side fix (end-anchored, digits kept as written past `Number`'s safe range) belongs to the
   host repository and is not part of this change. `docs/wire-object-endpoints.md` now states the
   grammar and names this runtime as its authority, beside the two roads of the object filter.
+- **The object filter's second road is scoped like the answer.** When the ledger answered for the
+  pair, the read face never considered the sentence road — even when the ledger's rows were outside
+  the caller, period or outcome the request named. A write under another caller, after `until`, or
+  with the other `isError` value therefore hid a row that named the object inside the request's own
+  scope. The ledger is now asked with the same caller, period and outcome the answer is scoped to;
+  only when it answers nothing there does the sentence road run. The ledger still wins whenever it
+  answers inside that scope.
 
 **中文**
 
@@ -80,6 +87,11 @@ Each version is written in two blocks — English first, then Chinese — marked
   `conformance/typed-object-key.json` 里的行样例，并由跨仓检查**逐条**报出；控制台一侧的修法
   （句末严格收尾、超出 `Number` 安全范围的主键按写下的字符串保留）属于宿主仓，不在本次改动内。
   `docs/wire-object-endpoints.md` 现在写明这套文法、点名本运行时是它的权威，并与对象过滤的两条路写在一起。
+- **对象筛选的第二条路与答案同范围。** 台账对这一对答得出东西时，读面从不再看句末路 —— 哪怕台账那些行
+  落在所问的调用方、区间或结果之外。于是别的调用方名下的写、`until` 之后的写、或另一个 `isError` 取值的
+  写，会挡住本次请求范围内点名对象的那一行。台账现在按与答案相同的调用方、区间和结果先作答；只有它在这个
+  范围内什么都没答时，句末路才跑。台账只要在该范围内答得出来，仍由它决定。
+
 
 ## [0.1.20] - 2026-11-20
 

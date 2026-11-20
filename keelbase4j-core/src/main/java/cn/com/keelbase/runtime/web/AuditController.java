@@ -92,9 +92,10 @@ public class AuditController {
      * execution it authorized, the decision that let it through. A row written before the approval
      * carried that id (0.1.18 and earlier) has no link to walk and stays out; there the answer is the
      * write alone. A block, a pending proposal and a decline have no execution and are not in it
-     * either: they are mentions of the object, not writes to it. **When the ledger selects nothing**,
-     * the rows whose own sentence ends with a typed key (` · object MCP connection #12`) answer
-     * instead — a connect test or a probe writes no ledger row and names its object there. The
+     * either: they are mentions of the object, not writes to it. **When the ledger selects nothing
+     * inside the request's own scope** — caller, period and outcome — the rows whose own sentence
+     * ends with a typed key (` · object MCP connection #12`) answer instead — a connect test or a
+     * probe writes no ledger row and names its object there. The
      * fallback's word is compared with `objectType` literally, so a request for another kind matches
      * nothing. Two things the reference offers are still deliberately
      * not answered here — agent and organisation identity, and the authorization-verdict view —
@@ -111,7 +112,8 @@ public class AuditController {
      * 答案。这个集合是**已落地的那些写** —— 每次尝试的 intent 行与结果行，以及（因为批准行带着它所授权的
      * 那次执行）放行它的那次裁决。批准行带上这个 id **之前**（0.1.18 及更早）写下的行没有关联可走，仍不在
      * 其中；那种数据下答案只有那一笔写。拦截、待决与否决也没有执行，故同样不在其中：它们是对这条对象的
-     * **提及**，不是对它的**写**。**台账一条都没选出来时**，改为答那些**自己句末带类型键**的行
+     * **提及**，不是对它的**写**。**台账在本次请求自己的范围内（调用方、区间、结果）一条都没选出来时**，
+     * 改为答那些**自己句末带类型键**的行
      * （` · object MCP connection #12`）—— 一次连通测试或一次探测不写台账行，它在句末说出自己是哪条对象；
      * 回落里的词与 `objectType` **逐字**比较，故查另一种对象什么都不命中。参照实现另有的两样仍**刻意不答**
      * —— agent 与组织身份、以及授权结论那个
@@ -166,14 +168,20 @@ public class AuditController {
         }
         Instant sinceAt = since == null ? null : instant(since);
         Instant untilAt = until == null ? null : instant(until);
+        Boolean errorsOnly = outcome(isError);
+        // The ledger is asked within the same scope the answer is scoped to: a write that landed for
+        // another caller, outside the period, or with a different outcome must not suppress the row
+        // that names the object inside this request's scope.
+        // 台账在与答案相同的范围内先作答：落在别的调用方、区间之外、或结果不同的写，不得压掉本次请求范围内
+        // 点名对象的那一行。
         List<Long> objectRows = objectType == null
                 ? null
-                : audit.objectRowIds(objectType, objectId, sinceAt, untilAt);
+                : audit.objectRowIds(objectType, objectId, sinceAt, untilAt, userId, errorsOnly);
 
         return audit.rows(userId,
                 sinceAt,
                 untilAt,
-                outcome(isError),
+                errorsOnly,
                 Math.min(Math.max(limit, 1), MAX_LIMIT),
                 Math.min(Math.max(offset, 0), MAX_OFFSET),
                 objectRows);
