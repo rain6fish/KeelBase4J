@@ -46,7 +46,8 @@ import org.springframework.web.bind.annotation.RestController;
  * administrator holds through the expanded {@code manage} and an audit reader — {@code read} only —
  * does not. It is the only write on this surface that is not a revoke, and it writes no effect: the
  * claim stays occupied, because releasing a hold nobody can account for must not turn into a silent
- * retry.
+ * retry. The action is necessary, not enough: the hold must also be inside the caller's row range, so
+ * a tier-B grant scoped to its owner closes only its own.
  *
  * <p><b>What the items deliberately do not carry.</b> The console's model has fields this runtime has
  * no concept of — before/after snapshots, compensation groups, parent effects, and the change summary
@@ -63,7 +64,8 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><b>第三个端点不是调用方的动作，而是运维的。</b>`POST /ai/tool-effects/claims/{id}/release` 把一份滞留
  * 写占位关闭为未知，并在链上留下一行 `claim_release`；调用方须在这本账上持有 `update` —— 管理员经展开的
  * `manage` 持有它，而只有 `read` 的审计读者没有。它是这条面上唯一**不是撤销**的写，且不写任何 effect：
- * 占位仍被占住，因为释放一份没人说得清的占位，不能变成一次静默重试。
+ * 占位仍被占住，因为释放一份没人说得清的占位，不能变成一次静默重试。**动作是必要的，但不充分**：这份占位还
+ * 必须落在调用方的行范围内，故档 B 中按主人收窄的授予只关得了本人的。
  *
  * <p>本列表**刻意不装**的：控制台那个模型有、而本运行时没有概念的字段 —— 前后快照、补偿组、父副作用，以及由那些
  * 快照推出的变更摘要。它们**缺席而不是编出来**，读它们的控制台列在这里是空的：那是诚实的状态，不是一个填进去的猜测。
@@ -217,8 +219,14 @@ public class EffectController {
     public Map<String, Object> releaseClaim(@PathVariable Long id,
                                             @RequestBody ReleaseClaimRequest body) {
         Principal principal = principals.current();
+        // The action-wide gate runs before the row is even read, so a caller without it learns nothing
+        // about which claim ids exist. The row gate lives with the row, in the service: an
+        // owner-scoped grant reaches its own holds and nobody else's.
+        //
+        // 动作级的闸在读行之前就落下，故没有它的调用方**什么也学不到**（存在哪些占位 id）。行级的闸跟着行
+        // 待在服务里：按主人收窄的授予够得到本人的占位，别人的一概不行。
         guard.requireAction(principal, GovernanceReadSubjects.TOOL_EFFECT, "update");
-        WriteClaimReleaseService.Released released = claimReleases.release(id, principal.userId(),
+        WriteClaimReleaseService.Released released = claimReleases.release(id, principal,
                 body.note(), body.evidenceRef());
         Map<String, Object> answer = new LinkedHashMap<>();
         answer.put("claimId", released.claimId());

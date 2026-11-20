@@ -273,7 +273,7 @@ per-runtime branch:
 | POST | `/ai/confirmations/{token}` | `approve` (executes) or `decline` (writes nothing) |
 | GET | `/ai/tool-effects` | recorded side effects |
 | DELETE | `/ai/tool-effects/{id}` | revoke → local compensation (soft delete) |
-| POST | `/ai/tool-effects/claims/{id}/release` | close a stranded write hold as unknown and put one `claim_release` row on the chain; the key stays occupied — **administrators or anyone with `update` on `ToolEffect`** |
+| POST | `/ai/tool-effects/claims/{id}/release` | close a stranded write hold as unknown and put one `claim_release` row on the chain; the key stays occupied — **administrators or anyone with `update` on `ToolEffect`**, and only for holds inside their row range |
 | GET | `/audit/verify` | recompute and verify the audit hash chain |
 | GET | `/auth/me` | who the caller is, as this deployment knows them |
 | GET | `/auth/me/permissions` | the caller's capability list, in the frozen contract shape |

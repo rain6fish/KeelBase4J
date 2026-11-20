@@ -219,12 +219,16 @@ object: it closes a write hold that outlived its lease as `closed_unknown` and a
 `claim_release` row — the contract's additive `audit-payload` v4 action — carrying the operator's note
 and evidence reference, with no `outcome`. The conclusion stays unknown and the claim's key stays
 occupied, so the same call is refused rather than silently retried. It is gated by `update` on
-`ToolEffect`.
+`ToolEffect` and by the claim's row range: an owner-scoped grant closes only the holds taken for its
+own user. The close and its `claim_release` row commit together, so a failed append leaves the hold
+open and the retry is the repair.
 
 **本运行时自己的面（不是 wire 对象）。** `POST /api/v1/ai/tool-effects/claims/{id}/release` 也是本运行时
 自己的动作、不是 wire 对象：它把一份越过租约的写占位关闭为 `closed_unknown`，并追加一行 `claim_release`
 —— 契约的加性 `audit-payload` v4 动作 —— 带着运维的说明与证据引用，**没有 `outcome`**。结论仍然未知、
-占位的键仍被占住，故同一次调用会被拒绝、而不是被静默重试。它由 `ToolEffect` 上的 `update` 把关。
+占位的键仍被占住，故同一次调用会被拒绝、而不是被静默重试。它由 `ToolEffect` 上的 `update` 把关，同时还受
+占位的**行范围**约束：按主人收窄的授予只够得到为本人取的那些占位。关闭与它那一行 `claim_release` **一起提交**，
+故失败的追加会让占位保持打开，而**重试就是修复**。
 
 `GET /api/v1/keelbase/status` **不是**冻结 wire 对象，语料也不断言它。
 它是本运行时的接入健康度报告：按读/写与风险统计的已注册工具、从引擎自己的 `GovernanceService.decide` 读出的
