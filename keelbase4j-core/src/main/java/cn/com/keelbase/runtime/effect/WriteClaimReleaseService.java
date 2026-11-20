@@ -3,10 +3,14 @@ package cn.com.keelbase.runtime.effect;
 
 import cn.com.keelbase.runtime.audit.AuditLog;
 import cn.com.keelbase.runtime.audit.AuditService;
+import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
+import cn.com.keelbase.runtime.authz.OwnershipGuard;
 import cn.com.keelbase.runtime.governance.ExecutionAxis;
+import cn.com.keelbase.runtime.identity.Principal;
 import java.time.Instant;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -29,8 +33,30 @@ import org.springframework.web.server.ResponseStatusException;
  * attempt is not coming back, so there is one notion and one value. A second "staleness" knob would
  * be a second definition of the same question.
  *
+ * <p><b>The close and its row commit together.</b> The endpoint used to commit the status change and
+ * then append the chain row in a second transaction, so an append that failed left the ledger saying
+ * the hold was closed while the chain said nothing had happened — and a retry was refused as
+ * {@code already_closed}, so the missing row could never be written. Both steps now run in one
+ * transaction: a failed append rolls the status change back, the caller is told the release did not
+ * happen, and repeating it is the repair.
+ *
+ * <p><b>The row is also the tenant boundary.</b> Holding {@code update} on the ledger is necessary but
+ * not sufficient: the caller may only close a hold it could reach as a row. {@link WriteClaim} carries
+ * its owner, so the same row gate every other scoped entity uses
+ * ({@link OwnershipGuard#requireAccess}) answers "is this hold yours" — an administrator's range is
+ * everyone's, a tier-B grant scoped to its owner is its own.
+ *
  * <p>A deployment whose audit granularity is {@code off} writes no row, by policy; the release still
  * happens and the answer's {@code auditRowId} is null. That absence is the policy, not a failure.
+ *
+ * <p><b>关闭与它那一行一起提交。</b>这个端点此前先提交状态、再以另一个事务追加链行，于是追加失败会让账本说
+ * 占位已关、而链上说什么都没发生 —— 重试又被以 `already_closed` 拒绝，那一行永远补不上。如今两步同处一个事务：
+ * 追加失败会把状态改动一并回滚，调用方被告知释放没有发生，而**重试就是修复**。
+ *
+ * <p><b>这一行同时也是租户边界。</b>在账本上持有 `update` 是**必要而不充分**的：调用方只能关闭它**够得到**
+ * 的那一份占位。{@link WriteClaim} 带着它的主人，故与其它所有有范围实体同一道行闸
+ * （{@link OwnershipGuard#requireAccess}）来回答「这份占位是不是你的」—— 管理员的范围是所有人，
+ * 档 B 中按主人收窄的授予只含本人。
  *
  * 释放一份结局无人知晓的滞留写占位，并把这次动作记录一次。
  *
@@ -74,24 +100,36 @@ public class WriteClaimReleaseService {
 
     private final WriteClaimRepository claims;
     private final AuditService audit;
+    private final OwnershipGuard guard;
 
-    public WriteClaimReleaseService(WriteClaimRepository claims, AuditService audit) {
+    public WriteClaimReleaseService(WriteClaimRepository claims, AuditService audit,
+                                    OwnershipGuard guard) {
         this.claims = claims;
         this.audit = audit;
+        this.guard = guard;
     }
 
     /**
-     * Close {@code claimId} as unknown and put one row on the chain.
+     * Close {@code claimId} as unknown and put one row on the chain — in one transaction.
      *
      * <p>Refusals are kinds, not a bare {@code false}: {@code not_found} (no such row),
      * {@code not_claimable} (the execution settled or was already released), {@code not_stale} (still
      * inside the window, so there is nothing to release), {@code already_closed} (an operator closed
      * it before; no second row is written).
      *
-     * @param actorUserId the operator, recorded as the row's caller — a release is an act by a person
+     * <p>{@code not_stale} is also the answer when the conditional update matched nothing but the row
+     * still reads {@code claimed}: the age condition — the same one the pre-check asks — is what said
+     * no, so "not stale" is the reason. (Before, that path answered {@code not_claimable}, which named
+     * a state that had not changed.)
+     *
+     * <p>The caller is checked twice, in this order: the action on the ledger, then the row. The row
+     * gate is what keeps a tier-B non-administrator inside their own holds.
+     *
+     * @param actor the operator, recorded as the row's caller — a release is an act by a person
      * @return the closed claim, the tool it belongs to, and the row that recorded the act
      */
-    public Released release(Long claimId, String actorUserId, String note, String evidenceRef) {
+    @Transactional
+    public Released release(Long claimId, Principal actor, String note, String evidenceRef) {
         String cleanedNote = note == null ? "" : note.trim();
         if (cleanedNote.length() < MIN_NOTE || cleanedNote.length() > MAX_NOTE) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -107,6 +145,13 @@ public class WriteClaimReleaseService {
         WriteClaim claim = claims.findById(claimId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "unknown write claim " + claimId));
+        // The row half of the gate. `update` on the ledger says the caller may release holds at all;
+        // this says which holds. A claim belongs to the user it was taken for and carries no other
+        // scope fact, so an owner-scoped grant reaches its own and an administrator reaches all.
+        //
+        // 闸的行那一半。账本上的 `update` 说调用方**可以**释放占位；这一句说**哪些**占位。占位属于
+        // **为谁而取**的那个人、不带别的范围事实，故按主人收窄的授予够得到本人的，管理员够得到全部。
+        guard.requireAccess(actor, claim, GovernanceReadSubjects.TOOL_EFFECT, "update");
         if (!WriteClaim.CLAIMED.equals(claim.getStatus())) {
             throw refusal(WriteClaim.CLOSED_UNKNOWN.equals(claim.getStatus())
                     ? "already_closed" : "not_claimable", claim);
@@ -129,18 +174,34 @@ public class WriteClaimReleaseService {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "unknown write claim " + claimId);
             }
-            throw refusal(WriteClaim.CLOSED_UNKNOWN.equals(after.getStatus())
-                    ? "already_closed" : "not_claimable", after);
+            // Still `claimed` means the update's age condition is what failed — either the row is at
+            // the lease boundary or somebody reclaimed it and it is fresh again. Both are "not stale",
+            // so that is the truthful kind; `not_claimable` named a state that never changed.
+            //
+            // 仍是 `claimed` 说明失败的是更新里的**年龄条件** —— 要么这一行正卡在租约边界，要么有人把它
+            // 收回去了、它又变新鲜了。两者都是「不够陈旧」，故这才是如实的种类；`not_claimable` 点名的是
+            // 一个从未改变的状态。
+            throw refusal(WriteClaim.CLAIMED.equals(after.getStatus()) ? "not_stale"
+                    : WriteClaim.CLOSED_UNKNOWN.equals(after.getStatus())
+                            ? "already_closed" : "not_claimable", after);
         }
 
-        AuditLog row = audit.append("claim_release", actorUserId,
+        AuditLog row = audit.append("claim_release", actor.userId(),
                 detail(claim, cleanedNote, cleanedEvidence), false, null, claim.getToolName());
         return new Released(claimId, claim.getToolName(), WriteClaim.CLOSED_UNKNOWN,
                 row == null ? null : row.getId());
     }
 
+    /**
+     * Strictly past the lease — the same boundary the conditional updates ask in SQL ({@code
+     * claimedAt < staleBefore}). At exactly the lease the attempt is still inside it, so the answer
+     * here and the answer from the update are the same one rather than differing by a millisecond.
+     *
+     * <p>严格越过租约 —— 与条件更新在 SQL 里问的边界相同（{@code claimedAt < staleBefore}）。恰好落在
+     * 租约上时，那次尝试仍在租约之内，故这里的答案与更新的答案**是同一个**，而不是相差一毫秒。
+     */
     private static boolean isStale(WriteClaim claim, Instant now) {
-        return now.toEpochMilli() - claim.getClaimedAt().toEpochMilli() >= ExecutionAxis.LEASE_MILLIS;
+        return now.toEpochMilli() - claim.getClaimedAt().toEpochMilli() > ExecutionAxis.LEASE_MILLIS;
     }
 
     private static ResponseStatusException refusal(String kind, WriteClaim claim) {

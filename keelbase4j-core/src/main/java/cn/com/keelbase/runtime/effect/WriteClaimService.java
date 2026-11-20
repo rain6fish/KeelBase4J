@@ -262,9 +262,16 @@ public class WriteClaimService {
      * Whether a claim has outlived its lease — asked with the same constant, and about the same
      * question, as the confirmation row's execution claim ({@code ExecutionAxis}). A fresh claim means
      * an attempt may be running right now; an old one means it is not coming back.
+     *
+     * <p>Strictly past the lease, so this answer and {@link WriteClaimRepository#reclaim}'s SQL
+     * condition ({@code claimedAt < staleBefore}) agree at the boundary millisecond instead of
+     * disagreeing by one.
+     *
+     * <p>严格越过租约，故本答案与 {@link WriteClaimRepository#reclaim} 的 SQL 条件
+     * （{@code claimedAt < staleBefore}）在边界那一毫秒上一致，而不是相差一毫秒。
      */
     private static boolean isStale(WriteClaim claim, Instant now) {
-        return now.toEpochMilli() - claim.getClaimedAt().toEpochMilli() >= ExecutionAxis.LEASE_MILLIS;
+        return now.toEpochMilli() - claim.getClaimedAt().toEpochMilli() > ExecutionAxis.LEASE_MILLIS;
     }
 
     /** The execution finished; {@code effectId} is the effect it produced, or {@code null} if none did. */
