@@ -47,6 +47,20 @@ This copy exists so the Java project is self-contained and buildable offline.
 that tag, which is the version CI checks out and compares against (`sync-vectors.sh --check` prints
 the current file count, which is why this line does not carry one).
 
+## What this snapshot does not cover
+
+The snapshot vendors the contract's records, not an implementation of every member.
+`audit-chain-anchor` (v1.22.0) has no producer and no verifier in this repository: the operation audit
+log is not a hash chain, and SM2/SM3 are unavailable in the JDK, so nothing here produces or verifies
+a daily anchor. The vendored schema describes the member; it does not assert that this runtime
+implements it.
+
+## 本快照不覆盖什么
+
+快照只引入契约的记录，不引入每个成员的实现。`audit-chain-anchor`（v1.22.0）在本仓没有产出方、也没有
+校验方：操作审计日志不是哈希链，JDK 内也没有 SM2/SM3，故这里没有任何东西产出或校验每日锚。引入的
+schema 描述的是这个成员，并不表示本运行时实现了它。
+
 ## The two sources
 
 | Vendored set | Source | Why there |
