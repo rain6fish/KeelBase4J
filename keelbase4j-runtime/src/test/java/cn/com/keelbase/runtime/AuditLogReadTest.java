@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import cn.com.keelbase.protocol.Json;
 import cn.com.keelbase.protocol.Vectors;
 import cn.com.keelbase.protocol.WireSchemas;
+import cn.com.keelbase.runtime.audit.AuditLog;
 import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.domain.Customer;
 import cn.com.keelbase.runtime.domain.CustomerRepository;
@@ -304,6 +305,75 @@ class AuditLogReadTest {
                 "half an object filter must be refused rather than widened");
         assertEquals(400, get("/audit/logs?objectId=1", ADMIN).getStatusCode().value(),
                 "half an object filter must be refused rather than widened");
+    }
+
+    /**
+     * A row that names its object in its own sentence is found by that object when the ledger has
+     * nothing — and only by that kind.
+     *
+     * <p>A connect test is neither a tool call nor a write: it produces no ledger row, so the ledger
+     * road answers "no match" for the object it dialled. The row names it instead at the end of
+     * {@code detail} with a typed key whose word is readable (` · object MCP connection #12`) — a
+     * table name there would leave the export, where this text is drawn, refusing the whole file. The
+     * fallback compares that word literally: another kind matches nothing, and a key that could not
+     * have been written this way is not scanned for.
+     *
+     * 一行在**自己句末**点名对象的审计行，在台账什么都没有时按那条对象找得到 —— 且只按那一种。
+     *
+     * <p>一次连通测试既不是工具调用、也不是一次写：它不产生台账行，故台账那条路对它拨的那条对象只答
+     * 「无匹配」。这一行改在 {@code detail} 末尾用一个带类型的键点名，键上的词是**可读的**
+     * （` · object MCP connection #12`）—— 那里若是表名，这段会被画进的那份导出就会整份被拒。回落把词
+     * **逐字**比较：另一种对象什么都不命中，而一对不可能这样写下的输入不会被拿去扫。
+     */
+    @Test
+    void aRowThatNamesItsObjectInItsOwnSentenceIsFoundByThatObject() {
+        String key = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
+        String word = "MCP connection";
+        AuditLog row = audit.append("mcp_connect_test", "1",
+                "mcp test id=" + key + " result=ok · object " + word + " #" + key);
+
+        List<?> found = rows("?objectType=MCP+connection&objectId=" + key, ADMIN);
+        assertEquals(1, found.size(),
+                "the sentence's typed key is the second road of the object filter");
+        assertEquals(row.getId(), ((Number) ((Map<?, ?>) found.get(0)).get("id")).longValue(),
+                "the row that names the object is the one the filter answers with");
+
+        assertTrue(rows("?objectType=Another+kind&objectId=" + key, ADMIN).isEmpty(),
+                "a key about one kind must not answer a search for another");
+        assertTrue(rows("?objectType=MCP+connection&objectId=not-a-key", ADMIN).isEmpty(),
+                "a business key that could not have been written this way is not scanned for");
+        assertTrue(rows("?objectType=MCP+connection&objectId=" + key + "&until=2000-01-01", ADMIN)
+                        .isEmpty(),
+                "the period the caller gave bounds the sentence scan too");
+    }
+
+    /**
+     * A write that landed still wins over a sentence that mentions the same object.
+     *
+     * <p>The fallback is the ledger's second road, not a competitor: when the pair has a ledger row,
+     * that row's executions decide the answer, and a mention elsewhere on the chain is not added to
+     * it. Anything else would turn "the writes that landed" into "everything that said the name".
+     *
+     * 已落地的那次写仍然压过链上另一处提到同一条对象的句子。
+     *
+     * <p>回落是台账的**第二条路**、不是竞争者：这一对在台账里有行时，由那次执行的行决定答案，链上别处的
+     * 提及不会被并进去。否则「已落地的那些写」就变成了「凡说过这个名字的」。
+     */
+    @Test
+    void theLedgerStillWinsOverASentenceThatNamesTheSameObject() {
+        String who = "ledger-wins-" + UUID.randomUUID();
+        String key = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
+        String execution = "exec-" + UUID.randomUUID();
+        audit.append("tool_call", who, "touched the customer", false, "executed", "create_followup",
+                null, null, execution);
+        sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup",
+                "crm_customer", key, "local_compensate", "hash", null, null, null, execution));
+        audit.append("mcp_connect_test", "1", "probe · object crm_customer #" + key);
+
+        List<?> found = rows("?objectType=crm_customer&objectId=" + key, ADMIN);
+
+        assertEquals(1, found.size(), "the ledger road decides; the mention is not added to it");
+        assertEquals("touched the customer", ((Map<?, ?>) found.get(0)).get("detail"));
     }
 
     /**

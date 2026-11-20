@@ -49,6 +49,15 @@ Each version is written in two blocks — English first, then Chinese — marked
   refuses a tree that keeps building under a released number; on a clean runner no `0.1.20` tag exists,
   so the install no longer lands on a published coordinate. The eight poms and this entry are the whole
   change.
+- **The object filter has a second road: the typed key at the end of a row's own sentence.** A connect
+  test, a probe, any action that is not a tool call writes no ledger row, so the ledger answers "no
+  match" for the object it dialled — and until now `GET /audit/logs?objectType=…&objectId=…` could not
+  find that row at all. When the ledger selects nothing, the read face now matches the pair against a
+  suffix of `detail` (` · object MCP connection #12`), word for word, with the period the caller gave
+  as the bound. The ledger still decides whenever it answers, the word is compared literally so another
+  kind matches nothing, and the suffix scan is a literal `LIKE` (`!` escapes `%` and `_`). The word in
+  that key is a readable kind word, never a table name — this text reaches a console's export, where an
+  internal name refuses the whole file.
 
 ### Known limitations
 
@@ -87,6 +96,12 @@ Each version is written in two blocks — English first, then Chinese — marked
 - **版本为 `0.1.20-SNAPSHOT`。** 八个 pom 由 `0.1.19` 抬到 `0.1.20-SNAPSHOT`。`v0.1.19` 已发布（tag 对象
   `c161a0fd` 指向提交 `9b49c1a`），而一棵继续以已发布号构建的树正是 CI 的 `version-coordinate` 作业所
   拒绝的；在干净 runner 上不存在 `0.1.20` 的 tag，安装不再落进已发布坐标。本次改动就是这八个 pom 与这一条。
+- **对象筛选多了第二条路：行末那句自带里那个带类型的键。** 一次连通测试、一次探测、任何**不是工具调用**的动作
+  都不写台账行，故台账对它拨的那条对象只答「无匹配」—— 在此之前，`GET /audit/logs?objectType=…&objectId=…`
+  **根本找不到**这一行。台账一条都没选出来时，读面改为把这一对与 `detail` 的后缀
+  （` · object MCP connection #12`）**逐字**对上，并以调用方给的区间为界。台账答得出来时仍由台账决定；词逐字
+  比较，故另一种对象什么都不命中；后缀扫描是**字面** `LIKE`（`!` 转义 `%` 与 `_`）。键上的词是**可读的种类
+  词**、绝不是表名 —— 这段文字会进控制台的导出，那里出现内部名会让整份文件被拒。
 
 ### 已知限制
 
