@@ -366,7 +366,7 @@ class AuditLogReadTest {
         // The word comes from the definition, not from here — see MCP_KIND.
         // 这个词来自定义、不是写在这里 —— 见 MCP_KIND。
         String word = MCP_KIND;
-        AuditLog row = audit.append("mcp_connect_test", "1",
+        AuditLog row = audit.append("analyze", "1",
                 "mcp test id=" + key + " result=ok · object " + word + " #" + key);
 
         List<?> found = rows("?objectType=" + queryWord(word) + "&objectId=" + key, ADMIN);
@@ -406,7 +406,7 @@ class AuditLogReadTest {
                 null, null, execution);
         sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup",
                 "crm_customer", key, "local_compensate", "hash", null, null, null, execution));
-        audit.append("mcp_connect_test", "1", "probe · object crm_customer #" + key);
+        audit.append("analyze", "1", "probe · object crm_customer #" + key);
 
         List<?> found = rows("?objectType=crm_customer&objectId=" + key, ADMIN);
 
@@ -437,7 +437,7 @@ class AuditLogReadTest {
                 null, null, execution);
         sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), other, "create_followup", kind,
                 key, "local_compensate", "hash", null, null, null, execution));
-        AuditLog mine = audit.append("mcp_connect_test", me, "probe · object " + kind + " #" + key);
+        AuditLog mine = audit.append("analyze", me, "probe · object " + kind + " #" + key);
 
         List<?> found = rows("?objectType=" + kind + "&objectId=" + key + "&userId=" + me, ADMIN);
 
@@ -468,7 +468,7 @@ class AuditLogReadTest {
                 null, null, execution);
         sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup", kind,
                 key, "local_compensate", "hash", null, null, null, execution));
-        AuditLog probe = audit.append("mcp_connect_test", who, "probe · object " + kind + " #" + key,
+        AuditLog probe = audit.append("analyze", who, "probe · object " + kind + " #" + key,
                 true);
 
         List<?> found = rows("?objectType=" + kind + "&objectId=" + key + "&isError=true", ADMIN);
@@ -496,7 +496,7 @@ class AuditLogReadTest {
         String who = "scope-period-" + UUID.randomUUID();
         String kind = "period-kind-" + UUID.randomUUID();
         String key = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
-        AuditLog probe = audit.append("mcp_connect_test", who, "probe · object " + kind + " #" + key);
+        AuditLog probe = audit.append("analyze", who, "probe · object " + kind + " #" + key);
         // The write lands after the period's end; the probe is inside it. The boundary is taken from
         // the rows' own times, with a margin wider than the column's microsecond precision, and a
         // guard below says the two really straddle it — otherwise this test could go red or green on

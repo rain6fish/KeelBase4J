@@ -12,6 +12,33 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
+**English**
+
+### Changed
+
+- **`AuditService.append` now refuses an action outside the contract's closed vocabulary.** The row's
+  `action` is checked against the `audit-payload` v4 enum (`AuditAction` in `keelbase4j-protocol`)
+  before anything is written; an unknown word raises `UnknownAuditActionException` instead of being
+  chained. A host still writing a pre-contract word such as `mcp_connect_test` now fails where it
+  writes, rather than landing a row no consumer can classify. Every word this runtime and its
+  generated applications write — `tool_call`, `tool_confirmation`, `effect_revoke`, `claim_release` —
+  behaves as before, and `analyze` (what the host records a connect test as) is on the vocabulary.
+  Rows already on a chain are untouched: the guard covers new writes, and verification still
+  recomputes their hashes without consulting the vocabulary. A conformance test pins the Java list to
+  the vendored schema, so a contract bump that adds or removes a word fails there rather than drifting.
+
+**中文**
+
+### 变更
+
+- **`AuditService.append` 拒绝契约闭词表之外的动作。** 行的 `action` 在写入之前先对照 `audit-payload`
+  v4 枚举（`keelbase4j-protocol` 的 `AuditAction`）检查；未知的词抛 `UnknownAuditActionException`，
+  而不是被串上链。仍写契约前旧词（如 `mcp_connect_test`）的宿主，现在**在写入处失败**，而不是落下
+  一行没有消费方能归类的记录。本运行时与它生成的应用写下的每一个词 —— `tool_call`、
+  `tool_confirmation`、`effect_revoke`、`claim_release` —— 行为不变；宿主用于连通测试的 `analyze`
+  本身就在词表内。**已在链上的行不受影响**：这道闸只覆盖新的写入，而校验仍只重算哈希、不查词表。
+  一份符合性测试把 Java 词表钉在 vendored schema 上，故契约增删一个词会在那里失败，而不是两边漂开。
+
 ## [0.1.20] - 2026-11-21
 
 **English**
