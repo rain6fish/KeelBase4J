@@ -411,6 +411,66 @@ class GeneratorTest {
                 auditStore.indexOf("private static Map<String, Object> payload("));
         assertFalse(hashed.contains("isError"),
                 "and it stays out of the hashed payload, or every existing row stops verifying");
+        // F10: the generated read surface answers the same object/period filters the runtime's does.
+        // Spring drops an undeclared query parameter silently, so a filter this handler does not
+        // declare returns a wider list that looks filtered — the failure this pins shut. `until`
+        // closes the period, `objectType` + `objectId` resolve through this application's own ledger
+        // (the execution id is the link), and half a pair is refused rather than widened.
+        //
+        // F10：生成物读面答与运行时相同的对象/区间筛选。Spring 会**静默丢弃**未声明的查询参数，故一个
+        // 没被声明的筛选回出的是**看着像筛过、其实更宽**的列表 —— 这正是这里钉死的失败。`until` 闭合区间，
+        // `objectType` + `objectId` 经本应用**自己的台账**解析（执行 id 是那条关联），半个对子是**被拒绝**、
+        // 不是被放宽。
+        for (String declared : List.of("until", "objectType", "objectId")) {
+            assertTrue(logsBody.contains("@RequestParam(required = false) String " + declared + ","),
+                    "'" + declared + "' is declared, so Spring cannot drop it silently");
+        }
+        assertTrue(logsBody.contains("if ((objectType == null) != (objectId == null)) {"),
+                "half an object filter is a 400, not a wider read");
+        assertTrue(logsBody.contains("\"objectType and objectId must be given together\""),
+                "and says which pair it needs");
+        assertTrue(logsBody.contains("objectRowIds(objectType, objectId, from, to, userId, errorsOnly)"),
+                "the object filter is resolved once, before the rows are paged");
+        assertTrue(logsBody.contains(
+                        ".filter(row -> objectRowIds == null || objectRowIds.contains(row.id()))"),
+                "and applied to the rows, never dropped when it selects nothing");
+        assertTrue(logsBody.contains("!row.createdAt().isAfter(to)"),
+                "`until` closes the period at the row's own time");
+        assertTrue(logsBody.contains("instant(\"until\", until)"),
+                "and a bad `until` is named as `until`, not answered as a wider range");
+        assertTrue(governance.contains("sideEffects.findByResultTypeAndResultId(resultType, resultId)"),
+                "the object pair is resolved through this application's own ledger");
+        assertTrue(governance.contains("executions.contains(row.executionId())"),
+                "the ledger's execution ids select exactly those executions' rows");
+        assertTrue(governance.contains(
+                        "return new LinkedHashSet<>(sentenceRowIds(resultType, resultId, since, until));"),
+                "when the ledger selects nothing, the row's own typed key answers instead");
+        assertTrue(governance.contains("return \" · object \" + word + \" #\" + key;"),
+                "whose spelling is the contract's single definition");
+        assertTrue(governance.contains("word.length() > 120") && governance.contains("[0-9]{1,18}"),
+                "including the kind cap and the 1-18 digit key");
+        // The execution id is internal: it ties a write's rows together and must not enter the frozen
+        // row shape or the hashed payload. The wire view is asserted field-by-field above, and these
+        // two keep the new key out of both places a "helpful" addition would put it.
+        //
+        // 执行 id 是**内部**的：它把一次写的各行绑在一起，且**不得**进冻结的行形状、也不得进哈希载荷。
+        // 线上视图上面已逐字段断言过，这两条则把新键挡在「好意添加」会放的**两个**地方之外。
+        assertFalse(governance.contains("view.put(\"executionId\""),
+                "the internal execution key does not enter the frozen row shape");
+        assertFalse(hashed.contains("executionId"),
+                "nor the hashed payload, for the same reason `isError` stays out");
+        String effectStore = Files.readString(
+                out.resolve("src/main/java/com/example/crm/ai/SideEffectStore.java"));
+        assertTrue(effectStore.contains("findByResultTypeAndResultId(String resultType,"),
+                "the ledger answers the object filter by the pair it recorded");
+        assertTrue(effectStore.contains("String.valueOf(e.resultId()).equals(resultId)"),
+                "comparing the business key as text, so leading zeros stay significant");
+        assertTrue(engineSource.contains("String executionId = UUID.randomUUID().toString();"),
+                "each governed execution gets the id its rows share");
+        assertTrue(engineSource.contains("pending.conversationId(), executionId)"),
+                "the approval row and the run it authorizes carry one execution id");
+        assertTrue(engineSource.contains("conversationId, executionId).id()"),
+                "and the effect is recorded with the same id the rows carry");
         // The tool's *declared* result type, not its name: the console groups effects by what they made.
         String writeTool = Files.readString(
                 out.resolve("src/main/java/com/example/crm/ai/CreateFollowupTool.java"));

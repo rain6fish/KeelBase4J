@@ -366,7 +366,7 @@ class AuditLogReadTest {
         // The word comes from the definition, not from here — see MCP_KIND.
         // 这个词来自定义、不是写在这里 —— 见 MCP_KIND。
         String word = MCP_KIND;
-        AuditLog row = audit.append("mcp_connect_test", "1",
+        AuditLog row = audit.append("analyze", "1",
                 "mcp test id=" + key + " result=ok · object " + word + " #" + key);
 
         List<?> found = rows("?objectType=" + queryWord(word) + "&objectId=" + key, ADMIN);
@@ -402,14 +402,14 @@ class AuditLogReadTest {
     void theTypedKeyUsesTheRuntimesDigitAndBoundaryRules() {
         String kind = "boundary-kind-" + UUID.randomUUID();
         String base = "probe · object " + kind + " #";
-        audit.append("mcp_connect_test", "boundary", base + "12");
-        audit.append("mcp_connect_test", "boundary", base + "12 ");
-        audit.append("mcp_connect_test", "boundary", base + "12\n");
-        audit.append("mcp_connect_test", "boundary", base + "12.");
-        AuditLog zeroes = audit.append("mcp_connect_test", "boundary", base + "007");
-        AuditLog eighteen = audit.append("mcp_connect_test", "boundary",
+        audit.append("analyze", "boundary", base + "12");
+        audit.append("analyze", "boundary", base + "12 ");
+        audit.append("analyze", "boundary", base + "12\n");
+        audit.append("analyze", "boundary", base + "12.");
+        AuditLog zeroes = audit.append("analyze", "boundary", base + "007");
+        AuditLog eighteen = audit.append("analyze", "boundary",
                 base + "123456789012345678");
-        audit.append("mcp_connect_test", "boundary", base + "1234567890123456789");
+        audit.append("analyze", "boundary", base + "1234567890123456789");
 
         List<?> exact = rows("?objectType=" + kind + "&objectId=12", ADMIN);
         assertEquals(1, exact.size(),
@@ -453,7 +453,7 @@ class AuditLogReadTest {
                 null, null, execution);
         sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup",
                 "crm_customer", key, "local_compensate", "hash", null, null, null, execution));
-        audit.append("mcp_connect_test", "1", "probe · object crm_customer #" + key);
+        audit.append("analyze", "1", "probe · object crm_customer #" + key);
 
         List<?> found = rows("?objectType=crm_customer&objectId=" + key, ADMIN);
 
@@ -484,7 +484,7 @@ class AuditLogReadTest {
                 null, null, execution);
         sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), other, "create_followup", kind,
                 key, "local_compensate", "hash", null, null, null, execution));
-        AuditLog mine = audit.append("mcp_connect_test", me, "probe · object " + kind + " #" + key);
+        AuditLog mine = audit.append("analyze", me, "probe · object " + kind + " #" + key);
 
         List<?> found = rows("?objectType=" + kind + "&objectId=" + key + "&userId=" + me, ADMIN);
 
@@ -515,7 +515,7 @@ class AuditLogReadTest {
                 null, null, execution);
         sideEffects.save(new SideEffect("key-" + UUID.randomUUID(), who, "create_followup", kind,
                 key, "local_compensate", "hash", null, null, null, execution));
-        AuditLog probe = audit.append("mcp_connect_test", who, "probe · object " + kind + " #" + key,
+        AuditLog probe = audit.append("analyze", who, "probe · object " + kind + " #" + key,
                 true);
 
         List<?> found = rows("?objectType=" + kind + "&objectId=" + key + "&isError=true", ADMIN);
@@ -543,7 +543,7 @@ class AuditLogReadTest {
         String who = "scope-period-" + UUID.randomUUID();
         String kind = "period-kind-" + UUID.randomUUID();
         String key = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
-        AuditLog probe = audit.append("mcp_connect_test", who, "probe · object " + kind + " #" + key);
+        AuditLog probe = audit.append("analyze", who, "probe · object " + kind + " #" + key);
         // The write lands after the period's end; the probe is inside it. The boundary is taken from
         // the rows' own times, with a margin wider than the column's microsecond precision, and a
         // guard below says the two really straddle it — otherwise this test could go red or green on
@@ -615,5 +615,38 @@ class AuditLogReadTest {
                 "the fifth question reads the approver off this row");
         assertEquals(executed.get("executionId"), approval.get("executionId"),
                 "one execution, one id: the decision and the attempt it started are the same execution");
+    }
+
+    /**
+     * The deployment's default cap is 200 rows, and it holds against a request that asks for more.
+     *
+     * <p>The configurable version of this is pinned in {@code AuditLogReadCapTest}; this one pins the
+     * numbers a deployment gets without configuring anything, because they are what an unaudited
+     * default promises. The second page is asserted too: the cap must not come from cutting the
+     * answer, but from the window the query asks for — the remaining rows must still be reachable.
+     *
+     * 部署默认的上限是 200 行，且对一个要得更多的请求同样成立。
+     *
+     * <p>可配置那一面由 {@code AuditLogReadCapTest} 钉住；这里钉的是**什么都没配**的部署拿到的数字，
+     * 因为那是默认值所承诺的东西。第二页也一并断言：上限不能来自把答案砍掉，而来自查询所要的窗口 ——
+     * 剩下的行仍然够得到。
+     */
+    @Test
+    void theAnswerIsCappedAtTwoHundredRowsByDefault() {
+        String who = "cap-default-" + UUID.randomUUID();
+        for (int i = 0; i < 205; i++) {
+            audit.append("tool_call", who, "row " + i, false, "executed", "create_followup");
+        }
+
+        List<?> first = rows("?userId=" + who + "&limit=100000", ADMIN);
+        assertEquals(200, first.size(),
+                "205 matching rows and an unbounded request must still answer the default cap of 200");
+        assertEquals("row 204", ((Map<?, ?>) first.get(0)).get("detail"),
+                "the capped page is the newest 200 rows, newest first");
+
+        List<?> rest = rows("?userId=" + who + "&offset=200&limit=200", ADMIN);
+        assertEquals(5, rest.size(),
+                "the rows beyond the first page stay reachable — the cap cuts the page, not the query");
+        assertEquals("row 0", ((Map<?, ?>) rest.get(rest.size() - 1)).get("detail"));
     }
 }

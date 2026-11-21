@@ -1460,6 +1460,7 @@ public class JavaGenerator {
                 import java.util.ArrayList;
                 import java.util.List;
                 import java.util.Map;
+                import java.util.Objects;
                 import java.util.concurrent.atomic.AtomicLong;
                 import org.springframework.stereotype.Component;
 
@@ -1483,10 +1484,19 @@ public class JavaGenerator {
                 @Component
                 public class SideEffectStore {
 
+                    /**
+                     * One recorded write. {@code executionId} names the governed execution that produced
+                     * it, so the audit rows of that execution can be found again by the object it wrote —
+                     * the runtime's own link, kept here as an internal key and never in the frozen row
+                     * shape.
+                     *
+                     * 一次被记录的写。{@code executionId} 点名产出它的那次受治理执行，于是那次执行的审计行能按
+                     * 它写过的对象再找回来 —— 与运行时同一个关联键，在这里是**内部**键、从不进冻结的行形状。
+                     */
                     public record Effect(Long id, String userId, String toolName, String resultType,
                                          Long resultId, String revokeClass, String revokeStatus,
                                          String argsHash, String afterSnapshot, Instant createdAt,
-                                         String conversationId) {
+                                         String conversationId, String executionId) {
                     }
 
                     private final AtomicLong seq = new AtomicLong();
@@ -1494,7 +1504,8 @@ public class JavaGenerator {
 
                     public synchronized Effect record(String userId, String toolName, String resultType,
                                                       Long resultId, Map<String, Object> args,
-                                                      String afterSnapshot, String conversationId) {
+                                                      String afterSnapshot, String conversationId,
+                                                      String executionId) {
                         // Every write this application performs is on its own row, so the honest class is
                         // local compensation — and the revoke path does perform it: the controller
                         // soft-deletes the target. Never `governed_external` here: nothing outside this
@@ -1502,9 +1513,27 @@ public class JavaGenerator {
                         // not exist is how a console ends up offering a button that cannot work.
                         Effect e = new Effect(seq.incrementAndGet(), userId, toolName, resultType, resultId,
                                 "local_compensate", "executed", argsHash(args), afterSnapshot, Instant.now(),
-                                conversationId);
+                                conversationId, executionId);
                         effects.add(e);
                         return e;
+                    }
+
+                    /**
+                     * The effects that produced one business object — the ledger road an
+                     * {@code objectType} + {@code objectId} read starts from. The pair is compared as
+                     * text, so leading zeros are significant and a key other than the stored one matches
+                     * nothing.
+                     *
+                     * 产出一条业务对象的那些副作用 —— {@code objectType} + {@code objectId} 的读所走的
+                     * 第一条路（台账）。这一对按**文本**比较，故前导零有意义、与存下的键不同的输入什么都不命中。
+                     */
+                    public synchronized List<Effect> findByResultTypeAndResultId(String resultType,
+                                                                                 String resultId) {
+                        return effects.stream()
+                                .filter(e -> Objects.equals(resultType, e.resultType()))
+                                .filter(e -> e.resultId() != null
+                                        && String.valueOf(e.resultId()).equals(resultId))
+                                .toList();
                     }
 
                     /**
@@ -1535,7 +1564,8 @@ public class JavaGenerator {
                             if (e.id().equals(id)) {
                                 effects.set(i, new Effect(e.id(), e.userId(), e.toolName(), e.resultType(),
                                         e.resultId(), e.revokeClass(), "revoked", e.argsHash(),
-                                        e.afterSnapshot(), e.createdAt(), e.conversationId()));
+                                        e.afterSnapshot(), e.createdAt(), e.conversationId(),
+                                        e.executionId()));
                             }
                         }
                     }
@@ -1548,7 +1578,8 @@ public class JavaGenerator {
                             if (e.id().equals(id)) {
                                 effects.set(i, new Effect(e.id(), e.userId(), e.toolName(), e.resultType(),
                                         e.resultId(), e.revokeClass(), "revoke_failed", e.argsHash(),
-                                        e.afterSnapshot(), e.createdAt(), e.conversationId()));
+                                        e.afterSnapshot(), e.createdAt(), e.conversationId(),
+                                        e.executionId()));
                             }
                         }
                     }
@@ -1648,15 +1679,19 @@ public class JavaGenerator {
 
                     /**
                      * One row as it was written: what was recorded, who did it, when, whether it went the
-                     * way the caller asked, the two hashes tying it to its predecessor, and the
-                     * conversation that proposed it (null when none did).
+                     * way the caller asked, the two hashes tying it to its predecessor, the conversation
+                     * that proposed it (null when none did), and the governed execution it belongs to
+                     * (null for a block, a proposal, a decline or a revocation — none of which is an
+                     * execution).
                      *
                      * 一行，按它被写下的样子：记了什么、谁做的、什么时候、这件事有没有按调用方所求发生，把它与
-                     * 前一行绑在一起的两个哈希，以及**提议它的那条会话**（没有会话时为 null）。
+                     * 前一行绑在一起的两个哈希，**提议它的那条会话**（没有会话时为 null），以及它所属的那次
+                     * **受治理执行**（拦截、待决提议、否决与撤销都**不是**一次执行，故为 null）。
                      */
                     public record Row(int id, String action, String userId, String detail, Instant createdAt,
                                       boolean isError, String prevHash, String hash,
-                                      String outcome, String tool, String conversationId) {
+                                      String outcome, String tool, String conversationId,
+                                      String executionId) {
                     }
 
                     private final List<Row> rows = new ArrayList<>();
@@ -1671,18 +1706,19 @@ public class JavaGenerator {
 
                     /**
                      * A row for something that went the way the caller asked it to, plus the two
-                     * columns C-3 added: what this proposal came to, and which tool it was about.
-                     * Neither enters the hash payload — the payload is `action`/`userId`/`detail`, and
-                     * folding anything else in would make every row written before it unverifiable.
+                     * columns C-3 added — what this proposal came to, and which tool it was about — and
+                     * the execution it belongs to. None of the three enters the hash payload — the
+                     * payload is `action`/`userId`/`detail`, and folding anything else in would make
+                     * every row written before it unverifiable.
                      *
                      * There is deliberately one `append` here and not three. The runtime keeps
                      * shorter overloads because published artifacts carry those signatures; this copy
                      * has no such constraint, and an overload nothing calls is a shape a reader has to
                      * check before trusting it.
                      *
-                     * 一行 —— 记下这件事有没有按调用方所求发生，另加 C-3 的两列：这次提议的**结局**，以及它是
-                     * 关于**哪一个工具**的。两者都不进哈希载荷 —— 载荷是 `action`/`userId`/`detail`，折进别的
-                     * 东西会让**它之前写下的每一行**都验不过。
+                     * 一行 —— 记下这件事有没有按调用方所求发生，另加 C-3 的两列（这次提议的**结局**、它是
+                     * 关于**哪一个工具**的），以及它所属的那次执行。三者都不进哈希载荷 —— 载荷是
+                     * `action`/`userId`/`detail`，折进别的东西会让**它之前写下的每一行**都验不过。
                      *
                      * **这里刻意只有一个 `append`，不是三个**：运行时保留更短的重载，是因为**已发布的
                      * artifact 带着那些签名**；而这份副本没有那条约束，**一个没人调用的重载，是读的人必须先核
@@ -1690,7 +1726,7 @@ public class JavaGenerator {
                      */
                     public synchronized void append(String action, String userId, String detail,
                                                     boolean isError, String outcome, String tool,
-                                                    String conversationId) {
+                                                    String conversationId, String executionId) {
                         // The policy's audit granularity is applied here, on the one path every row
                         // travels: `off` writes nothing at all. `write` and `all` come to the same chain
                         // here, because this application records only tool-scoped rows. A policy that named
@@ -1705,7 +1741,7 @@ public class JavaGenerator {
                         String prev = rows.isEmpty() ? null : rows.get(rows.size() - 1).hash();
                         String hash = AuditChain.hash(key, prev, payload(action, userId, detail));
                         rows.add(new Row(rows.size() + 1, action, userId, detail, Instant.now(), isError,
-                                prev, hash, outcome, tool, conversationId));
+                                prev, hash, outcome, tool, conversationId, executionId));
                     }
 
                     /**
@@ -1769,6 +1805,7 @@ public class JavaGenerator {
                 import cn.com.keelbase.protocol.CanonicalJson;
                 import java.util.LinkedHashMap;
                 import java.util.Map;
+                import java.util.UUID;
                 import org.springframework.stereotype.Service;
 
                 /**
@@ -1819,11 +1856,12 @@ public class JavaGenerator {
                             // 一行是不是错误，看的是这次调用**有没有按调用方所求发生** —— 运行时用的就是这条规则。
                             // 拦截是一个「没有」；**只是在等人**的提议不是。
                             audit.append("tool_call", userId, toolName + " blocked", true,
-                                    "blocked", toolName, conversationId);
+                                    "blocked", toolName, conversationId, null);
                             return status("blocked");
                         }
                         if ("ALLOW".equals(decision)) {
-                            return run(tool, args, userId, conversationId);
+                            return run(tool, args, userId, conversationId,
+                                    UUID.randomUUID().toString());
                         }
                         // REQUIRE_APPROVAL is a *second person*, not a self-confirmation: the mode is
                         // carried onto the pending row so the claim can enforce it. Collapsing both
@@ -1836,7 +1874,7 @@ public class JavaGenerator {
                         String token = confirmations.create(userId, toolName, args, tool.riskLevel(),
                                 conversationId, needsApprover);
                         audit.append("tool_call", userId, toolName + " pending confirmation",
-                                false, "pending", toolName, conversationId);
+                                false, "pending", toolName, conversationId, null);
                         Map<String, Object> out = status("pending_confirmation");
                         out.put("token", token);
                         // The stream labels the card from this flag: an approval row cannot be approved
@@ -1862,10 +1900,17 @@ public class JavaGenerator {
                     public Map<String, Object> approve(String token, String userId) {
                         ConfirmationStore.Pending pending = confirmations.claim(token, userId, true);
                         AiTool tool = registry.require(pending.toolName());
+                        // The approval row carries the execution it authorizes, exactly as the runtime's
+                        // does — otherwise the decision that let the write through would be missing from
+                        // "the rows of the write that landed".
+                        //
+                        // 批准行带上它所授权的那次执行，与运行时一致 —— 否则放行这次写的那条裁决就会从
+                        // 「已落地的那些写的行」里缺席。
+                        String executionId = UUID.randomUUID().toString();
                         audit.append("tool_confirmation", userId, tool.name() + " approved",
-                                false, "approved", tool.name(), pending.conversationId());
-                        Map<String, Object> outcome =
-                                run(tool, confirmations.args(pending), userId, pending.conversationId());
+                                false, "approved", tool.name(), pending.conversationId(), executionId);
+                        Map<String, Object> outcome = run(tool, confirmations.args(pending), userId,
+                                pending.conversationId(), executionId);
                         // Last, and after the write is done: whoever is watching the stream hears about the
                         // decision once it is a fact. Nothing is waiting when nobody opened a stream, and
                         // that is an ordinary outcome rather than a failure.
@@ -1882,7 +1927,7 @@ public class JavaGenerator {
                         // 否决就是调用方**没拿到所求**，故它是一行错误 —— 也是「有人说了不」的那一行，而正是
                         // 操作者会来找的那一行。
                         audit.append("tool_confirmation", userId, pending.toolName() + " declined", true,
-                                "declined", pending.toolName(), pending.conversationId());
+                                "declined", pending.toolName(), pending.conversationId(), null);
                         watchers.decided(token, decision("decline", pending.toolName(), null));
                         return Map.of("status", "declined");
                     }
@@ -1909,15 +1954,18 @@ public class JavaGenerator {
                     }
 
                     private Map<String, Object> run(AiTool tool, Map<String, Object> args, String userId,
-                                                    String conversationId) {
+                                                    String conversationId, String executionId) {
                         // The intent row (D36 ②): written before the tool runs, so "who tried" never
                         // goes missing even when the tool's own write lands and the bookkeeping after
-                        // it does not. Its outcome is the line after it.
+                        // it does not. Its outcome is the line after it. Both carry the execution id, so
+                        // the pair stays one execution even when the same tool ran twice in a
+                        // conversation — the correlation the object filter walks.
                         //
                         // intent 行（D36 ②）：写在工具跑**之前**，好让「谁试过」**永不缺行** —— 即便工具
-                        // 自己那一笔落了地、而它后面的记账没有。它的结局在**它后面那一行**。
+                        // 自己那一笔落了地、而它后面的记账没有。它的结局在**它后面那一行**。两行都带执行 id，
+                        // 故同一个工具在同一条会话里跑了两次时，这一对仍是一次执行 —— 对象过滤走的就是这条关联。
                         audit.append("tool_call", userId, tool.name() + " attempted", false, "attempted",
-                                tool.name(), conversationId);
+                                tool.name(), conversationId, executionId);
                         Map<String, Object> result = tool.execute(args, userId);
                         Long effectId = null;
                         if (Boolean.TRUE.equals(result.get("success")) && result.get("resultId") instanceof Number n) {
@@ -1933,10 +1981,10 @@ public class JavaGenerator {
                             // 唯一时刻，再往后读到的就是这一行后来变成的样子了。冻结的 `traceItem` 把它读作
                             // `afterSnapshot`。
                             effectId = sideEffects.record(userId, tool.name(), tool.resultType(), resultId,
-                                    args, CanonicalJson.json(result), conversationId).id();
+                                    args, CanonicalJson.json(result), conversationId, executionId).id();
                         }
                         audit.append("tool_call", userId, tool.name() + " -> ok",
-                                false, "executed", tool.name(), conversationId);
+                                false, "executed", tool.name(), conversationId, executionId);
                         Map<String, Object> out = status("executed");
                         // The tool's answer is reported as `data`, the name the chat response uses —
                         // so the engine's own outcome and the wire shape are the same field set.
@@ -4211,9 +4259,11 @@ public class JavaGenerator {
                 import java.time.format.DateTimeParseException;
                 import java.util.ArrayList;
                 import java.util.LinkedHashMap;
+                import java.util.LinkedHashSet;
                 import java.util.List;
                 import java.util.Map;
                 import java.util.Optional;
+                import java.util.Set;
                 import org.springframework.http.HttpStatus;
                 import org.springframework.web.bind.annotation.DeleteMapping;
                 import org.springframework.web.bind.annotation.GetMapping;
@@ -4333,7 +4383,7 @@ public class JavaGenerator {
                             audit.append("effect_revoke", principal.userId(),
                                     effect.toolName() + " revoke failed (effect " + id + "): "
                                             + compensationFailure.getMessage(),
-                                    true, "failed", effect.toolName(), effect.conversationId());
+                                    true, "failed", effect.toolName(), effect.conversationId(), null);
                             throw compensationFailure;
                         }
                         sideEffects.setRevoked(id);
@@ -4351,7 +4401,7 @@ public class JavaGenerator {
                         // 尝试的诚实记录。
                         audit.append("effect_revoke", principal.userId(),
                                 effect.toolName() + " revoked (effect " + id + ")",
-                                false, "revoked", effect.toolName(), effect.conversationId());
+                                false, "revoked", effect.toolName(), effect.conversationId(), null);
                         // The console reads the outcome off `revokeStatus`, as the runtime's answer
                         // does, and that stays. `revoked` is added because the frozen `revokeResult`
                         // requires it — a consumer holding that object should not have to derive a
@@ -4446,8 +4496,20 @@ public class JavaGenerator {
                     }
 
                     /**
-                     * The rows on the chain, filtered by caller and by period — the read surface the
-                     * chain did not have, in the frozen {@code ai-audit-log-row} shape.
+                     * The rows on the chain, filtered by caller, by a closed period and by business
+                     * object — the read surface the chain did not have, in the frozen
+                     * {@code ai-audit-log-row} shape.
+                     *
+                     * <p>The period closes at both ends ({@code since} and {@code until}), as the
+                     * runtime's does, and an object ({@code objectType} + {@code objectId}) is what an
+                     * auditor's question needs ("everything that happened to customer #9005, last
+                     * week"). The object is resolved through the ledger **first**: the effects carrying
+                     * that pair give their execution ids, and the rows of exactly those executions —
+                     * the intent, the result and the approval that let it through — are the answer.
+                     * When the ledger selects nothing inside this request's own scope (caller, period
+                     * and outcome), the rows whose own sentence ends with a typed key answer instead —
+                     * a probe writes no ledger row and names its object there. Half an object filter is
+                     * refused rather than widened.
                      *
                      * <p><b>Administrators only, as the chain's own verdict is.</b> Both are the chain's
                      * state — the verdict says whether it holds, these say what it holds — and the
@@ -4460,8 +4522,15 @@ public class JavaGenerator {
                      * that is accepted and not applied would answer with a list that looks filtered and is
                      * not — nothing downstream could tell — so those are refused rather than ignored.
                      *
-                     * 链上的那些行，按调用者和一段时间筛选 —— 这是链**此前没有的读面**，按冻结的
-                     * {@code ai-audit-log-row} 形状。
+                     * 链上的那些行，按调用者、按闭合的区间、按业务对象筛选 —— 这是链**此前没有的读面**，按
+                     * 冻结的 {@code ai-audit-log-row} 形状。
+                     *
+                     * <p>区间两端闭合（{@code since} 与 {@code until}），与运行时一致；而一个对象
+                     * （{@code objectType} + {@code objectId}）正是审计员那个问题的要件（「客户 #9005 上周发生过
+                     * 什么」）。对象**先**经台账解析：带该对的副作用给出它们的执行 id，**恰好**那些执行的行 ——
+                     * intent、结果，以及放行它的那次批准 —— 就是答案。**台账在本次请求自己的范围内（调用方、
+                     * 区间、结果）一条都没选出来时**，改为答那些**自己句末带类型键**的行 —— 一次探测不写台账行，
+                     * 它在句末说出自己是哪条对象。**半个**对象过滤是**被拒绝**的，不是被放宽的。
                      *
                      * <p><b>只给管理员，链自身的结论也一样。</b> 两者都是**链的状态** —— 结论说它站不站得住，
                      * 这些说它上面有什么 —— 而控制台是在**只有管理员看得到**的页面上问其中任何一个的。参照实现
@@ -4475,6 +4544,9 @@ public class JavaGenerator {
                     public List<Map<String, Object>> logs(
                             @RequestParam(required = false) String userId,
                             @RequestParam(required = false) String since,
+                            @RequestParam(required = false) String until,
+                            @RequestParam(required = false) String objectType,
+                            @RequestParam(required = false) String objectId,
                             @RequestParam(required = false) String isError,
                             @RequestParam(required = false) String agentId,
                             @RequestParam(required = false) String orgId,
@@ -4497,12 +4569,30 @@ public class JavaGenerator {
                                             + "authorisation verdict on an audit row, so it cannot answer "
                                             + "those filters");
                         }
+                        // Half an object filter is a 400, not a silently wider read: an input error
+                        // that widens the answer is the failure this guard exists to stop.
+                        // 半个对象过滤是 400、不是悄悄放宽的读：一个把答案放大的输入错误，正是这条护栏要拦的。
+                        if ((objectType == null) != (objectId == null)) {
+                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                    "objectType and objectId must be given together");
+                        }
                         Boolean errorsOnly = outcome(isError);
-                        Instant from = since == null ? null : since(since);
+                        Instant from = since == null ? null : instant("since", since);
+                        Instant to = until == null ? null : instant("until", until);
+                        // The row-id set is applied before paging, so a page can never carry a row the
+                        // object filter did not select. An empty set selects nothing — the same
+                        // distinction the runtime makes between "nothing matched" and "no filter".
+                        // 行 id 集合在**分页之前**施加，故一页里不可能有对象过滤没选中的行。空集合什么都不选 ——
+                        // 这正是运行时在「没有匹配」与「没有过滤」之间做的区分。
+                        Set<Integer> objectRowIds = objectType == null
+                                ? null
+                                : objectRowIds(objectType, objectId, from, to, userId, errorsOnly);
                         List<AuditChainStore.Row> matched = audit.rows().stream()
                                 .filter(row -> userId == null || row.userId().equals(userId))
                                 .filter(row -> from == null || !row.createdAt().isBefore(from))
+                                .filter(row -> to == null || !row.createdAt().isAfter(to))
                                 .filter(row -> errorsOnly == null || row.isError() == errorsOnly)
+                                .filter(row -> objectRowIds == null || objectRowIds.contains(row.id()))
                                 .toList();
                         // Newest first, which is how the runtime's own listing orders the same rows.
                         List<Map<String, Object>> newestFirst = new ArrayList<>();
@@ -4543,6 +4633,97 @@ public class JavaGenerator {
                     }
 
                     /**
+                     * The chain rows that touched one business object: the effects carrying that
+                     * {@code (resultType, resultId)} give their execution ids, and the rows of exactly
+                     * those executions come back — the intent, the result and the approval that let it
+                     * through. <b>When that selects nothing inside the request's own scope</b> (caller,
+                     * period and outcome), the rows whose own sentence ends with a typed key answer
+                     * instead; a write that landed elsewhere must not hide the row naming the object
+                     * here, which is why the ledger is asked scoped before the fallback is considered.
+                     *
+                     * 碰过同一条业务对象的链上那些行：带该 {@code (resultType, resultId)} 的副作用给出它们的
+                     * 执行 id，取回**恰好**那些执行的行 —— intent、结果，以及放行它的那次批准。**若在本次请求
+                     * 自己的范围内（调用方、区间、结果）一条都没选出来**，改为答那些**自己句末带类型键**的行；
+                     * 落在范围之外的写不得挡住这里点名对象的那一行 —— 这正是先按范围问台账、再考虑回落的原因。
+                     */
+                    private Set<Integer> objectRowIds(String resultType, String resultId, Instant since,
+                                                      Instant until, String userId, Boolean isError) {
+                        Set<String> executions = new LinkedHashSet<>();
+                        for (SideEffectStore.Effect effect
+                                : sideEffects.findByResultTypeAndResultId(resultType, resultId)) {
+                            if (effect.executionId() != null) {
+                                executions.add(effect.executionId());
+                            }
+                        }
+                        if (!executions.isEmpty()) {
+                            List<Integer> viaLedger = audit.rows().stream()
+                                    .filter(row -> row.executionId() != null
+                                            && executions.contains(row.executionId()))
+                                    .filter(row -> userId == null || userId.equals(row.userId()))
+                                    .filter(row -> since == null || !row.createdAt().isBefore(since))
+                                    .filter(row -> until == null || !row.createdAt().isAfter(until))
+                                    .filter(row -> isError == null || row.isError() == isError)
+                                    .map(AuditChainStore.Row::id)
+                                    .toList();
+                            if (!viaLedger.isEmpty()) {
+                                return new LinkedHashSet<>(viaLedger);
+                            }
+                        }
+                        return new LinkedHashSet<>(sentenceRowIds(resultType, resultId, since, until));
+                    }
+
+                    /**
+                     * The mention a row wrote about itself: the typed key at the end of its own
+                     * sentence. The comparison is {@code endsWith} in Java, so a case-insensitive
+                     * collation cannot make one kind answer for another, and the period, when given,
+                     * bounds the scan.
+                     *
+                     * 一行**关于自己**写下的提及：它句末那个带类型的键。比较是 Java 里的 {@code endsWith}，
+                     * 故大小写不敏感的排序规则不能让一种对象替另一种作答；调用方给了区间时，扫描以区间为界。
+                     */
+                    private List<Integer> sentenceRowIds(String resultType, String resultId, Instant since,
+                                                         Instant until) {
+                        String suffix = typedObjectKeySuffix(resultType, resultId);
+                        if (suffix == null) {
+                            return List.of();
+                        }
+                        return audit.rows().stream()
+                                .filter(row -> row.detail() != null && row.detail().endsWith(suffix))
+                                .filter(row -> since == null || !row.createdAt().isBefore(since))
+                                .filter(row -> until == null || !row.createdAt().isAfter(until))
+                                .map(AuditChainStore.Row::id)
+                                .toList();
+                    }
+
+                    /**
+                     * The typed key a row would carry for this pair — {@code " · object MCP connection
+                     * #12"} — or null when the pair cannot be one. The grammar has a single written
+                     * definition, {@code conformance/typed-object-key.json}: the word is trimmed and
+                     * capped at 120 characters with no line break, and the business key is 1–18 ASCII
+                     * digits with leading zeros significant. A pair that could not have been written
+                     * this way is not scanned for.
+                     *
+                     * 这一对会写的带类型键 —— {@code " · object MCP connection #12"} —— 或者当这一对**不可能**
+                     * 是这种键时的 null。文法有一份**写下**的定义 {@code conformance/typed-object-key.json}：
+                     * 词被 trim、限 120 字符且不许含换行，业务主键为 1–18 位 ASCII 数字且**前导零有意义**。
+                     * 一对不可能这样写下的输入**不被拿去扫**。
+                     */
+                    static String typedObjectKeySuffix(String kind, String key) {
+                        if (kind == null || key == null) {
+                            return null;
+                        }
+                        String word = kind.trim();
+                        if (word.isEmpty() || word.length() > 120
+                                || word.indexOf('\\n') >= 0 || word.indexOf('\\r') >= 0) {
+                            return null;
+                        }
+                        if (!key.matches("[0-9]{1,18}")) {
+                            return null;
+                        }
+                        return " · object " + word + " #" + key;
+                    }
+
+                    /**
                      * The reference reads this filter as the two words, so anything else is a request
                      * this surface cannot answer rather than one that quietly means "false".
                      *
@@ -4568,6 +4749,22 @@ public class JavaGenerator {
                      * **说明自己读不懂输入**的部署更糟。
                      */
                     private static Instant since(String text) {
+                        return instant("since", text);
+                    }
+
+                    /** The same parser, for the closed end of the period. / 同一个解析器，用于区间的闭合端。 */
+                    private static Instant until(String text) {
+                        return instant("until", text);
+                    }
+
+                    /**
+                     * The reference parses both bounds with {@code new Date(...)}; the parser names the
+                     * field it is refusing, so a bad {@code until} does not read as a bad {@code since}.
+                     *
+                     * 参照实现用 {@code new Date(...)} 解析两个边界；这个解析器**点名**它拒绝的是哪个字段，故
+                     * 一个坏的 {@code until} 不会被读成一个坏的 {@code since}。
+                     */
+                    private static Instant instant(String field, String text) {
                         try {
                             return Instant.parse(text);
                         } catch (DateTimeParseException notAnInstant) {
@@ -4575,8 +4772,8 @@ public class JavaGenerator {
                                 return LocalDate.parse(text).atStartOfDay(ZoneOffset.UTC).toInstant();
                             } catch (DateTimeParseException notADateEither) {
                                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                        "since must be an ISO-8601 instant or date, such as 2026-10-09 "
-                                                + "or 2026-10-09T00:00:00Z");
+                                        field + " must be an ISO-8601 instant or date, such as "
+                                                + "2026-10-09 or 2026-10-09T00:00:00Z");
                             }
                         }
                     }

@@ -232,8 +232,9 @@ Read this section before quoting anything above.
     the two halves that need neither — `ChainAnchorService` reads the chained tail (`rows` / `lastId`
     / `lastHash`) and compares the chain against a tail read elsewhere (`ok` / `grew` /
     `tail-missing` / `last-row-changed` / `tail-replaced`), and
-    `-Dkeelbase.anchor.command=payload` prints the record **without** its `sm2` segment for a deployer
-    to sign and publish. An unsigned payload is not evidence: `GET /audit/coverage` keeps reporting
+    `-Dkeelbase.anchor.command=payload` prints the record's **signable subset** — five keys, with
+    `publishedAt` and `sm2` to be added at publication per the schema — for a deployer to sign and
+    publish. An unsigned payload is not evidence: `GET /audit/coverage` keeps reporting
     the `chain-tail-deletion` gap, which stays applicable until someone outside the trust domain
     publishes a signed anchor and compares it.
 
@@ -346,9 +347,10 @@ This runtime neither signs nor verifies an anchor, and there is no route (the co
 record and its semantics, not an endpoint). Since 2026-11-20 it does supply the two halves that need
 neither a signing key nor SM2: `ChainAnchorService` reads the AI chain's chained tail (`rows` /
 `lastId` / `lastHash`), compares it against a tail read elsewhere (`ok` / `grew` / `tail-missing` /
-`last-row-changed` / `tail-replaced`), and `-Dkeelbase.anchor.command=payload` prints the record
-**without** its `sm2` segment for a deployer to sign and publish. An unsigned payload is not the wire
-object and is not evidence.
+`last-row-changed` / `tail-replaced`), and `-Dkeelbase.anchor.command=payload` prints the record's
+**signable subset** — five keys, with `publishedAt` and `sm2` to be added at publication per the
+schema — for a deployer to sign and publish. An unsigned payload is not the wire object and is not
+evidence.
 
 Two facts decide the shape of that gap. First, the operation audit log in this repository is **not a
 hash chain**: `operation_audit_logs` carries no `hash`/`prevHash` columns and rows are written
@@ -366,8 +368,9 @@ and this runtime is a consumer of the protocol rather than an implementation of 
 `audit-chain-anchor`，即每日链锚。本运行时既不签名也不验签，也没有路由（契约定义的是记录与语义，不是
 端点）。自 2026-11-20 起，它提供不需要签名密钥、也不需要 SM2 的那两半：`ChainAnchorService` 读 AI 审计链
 的已入链链尾（`rows` / `lastId` / `lastHash`），把它与一份从别处读来的链尾对照（`ok` / `grew` /
-`tail-missing` / `last-row-changed` / `tail-replaced`），`-Dkeelbase.anchor.command=payload` 打印
-**不带 `sm2` 段**的记录，供部署方签名并发布。未签名载荷不是 wire 对象，也不是证据。
+`tail-missing` / `last-row-changed` / `tail-replaced`），`-Dkeelbase.anchor.command=payload` 打印记录的
+**可签名子集** —— 五个键，`publishedAt` 与 `sm2` 仍要在发布时按 schema 补上 —— 供部署方签名并发布。
+未签名载荷不是 wire 对象，也不是证据。
 
 这个缺口由两个事实决定其形状。其一，本仓的操作审计日志**不是哈希链**：`operation_audit_logs` 没有
 `hash`/`prevHash` 列，行是直接写入的，故对那条链做锚没有可锚之物；只有 AI 审计链是真哈希链。其二，

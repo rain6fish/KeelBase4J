@@ -314,15 +314,16 @@ if [ "${HOST_ENV:-}" = "1" ]; then
       gate "Host(闸自检)" fail "check-object-key-contract.mjs --self-test"
       echo "── 明细 — 自检输出尾部 ──"; printf '%s\n' "$SELF_OUT" | tail -n 40; echo "── /明细 ──"
     fi
-    if HOST_OUT=$(node scripts/check-object-key-contract.mjs --strict --host "$HOST_REPO" 2>&1); then
+    if HOST_OUT=$(node scripts/check-object-key-contract.mjs --strict --require --host "$HOST_REPO" 2>&1); then
       gate "Host(定义 ↔ 宿主写入方 ↔ 控制台)" pass
     else
-      gate "Host(定义 ↔ 宿主写入方 ↔ 控制台)" fail "check-object-key-contract.mjs --strict --host"
+      gate "Host(定义 ↔ 宿主写入方 ↔ 控制台)" fail "check-object-key-contract.mjs --strict --require --host"
       echo "── 明细 — 输出尾部 ──"; printf '%s\n' "$HOST_OUT" | tail -n 40; echo "── /明细 ──"
     fi
   fi
+
 else
-  echo "  ↷ 跨仓实跑标注（HOST_ENV=1 时跑 check-object-key-contract.mjs --strict --host … 与 --self-test —— 需 KeelBase-Vue-Pro 检出）"
+  echo "  ↷ 跨仓实跑标注（HOST_ENV=1 时跑 check-object-key-contract.mjs --strict --require --host … 与 --self-test —— 需 KeelBase-Vue-Pro 检出）"
 fi
 
 echo ""

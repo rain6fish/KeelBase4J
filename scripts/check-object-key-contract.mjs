@@ -28,10 +28,11 @@
  *
  *   node scripts/check-object-key-contract.mjs                     # report; exit 0 when clean
  *   node scripts/check-object-key-contract.mjs --strict            # exit 1 on any divergence
- *   node scripts/check-object-key-contract.mjs --definition-only   # skip the host comparison
  *   node scripts/check-object-key-contract.mjs --host ../KeelBase-Vue-Pro
  *   KEELBASE_HOST_REPO=/path/to/KeelBase-Vue-Pro node scripts/check-object-key-contract.mjs
  *   node scripts/check-object-key-contract.mjs --self-test         # positive and negative controls
+ *   node scripts/check-object-key-contract.mjs --strict --require  # the host must be there (release-gate)
+ *   node scripts/check-object-key-contract.mjs --strict --definition-only  # skip the host comparison
  *
  * Exit codes: 0 clean (or report-only); 1 `--strict` and a divergence (or a failed self-test); 2
  * usage or environment (no definition, a host file whose shape changed).
@@ -58,13 +59,14 @@
  *
  *   node scripts/check-object-key-contract.mjs                     # 只报告；干净时退出 0
  *   node scripts/check-object-key-contract.mjs --strict            # 有任何分叉即退出 1
- *   node scripts/check-object-key-contract.mjs --definition-only   # 不比对宿主
  *   node scripts/check-object-key-contract.mjs --host ../KeelBase-Vue-Pro
  *   KEELBASE_HOST_REPO=/path/to/KeelBase-Vue-Pro node scripts/check-object-key-contract.mjs
  *   node scripts/check-object-key-contract.mjs --self-test         # 正向与负向对照
+ *   node scripts/check-object-key-contract.mjs --strict --require  # 宿主必须存在（release-gate 用）
+ *   node scripts/check-object-key-contract.mjs --strict --definition-only  # 不比对宿主
  *
  * 退出码：0 干净（或只报告）；1 `--strict` 且有分叉（或自检失败）；2 用法 / 环境问题（没有定义、
- * 宿主文件形状变了）。
+ * 宿主文件形状变了、或 `--require` 且找不到宿主检出）。
  */
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -83,6 +85,7 @@ const arg = (name, dflt) => {
 }
 const STRICT = argv.includes('--strict')
 const SELF_TEST = argv.includes('--self-test')
+const REQUIRE = argv.includes('--require')
 const DEFINITION_ONLY = argv.includes('--definition-only')
 const HOST = resolve(ROOT, arg('--host', process.env.KEELBASE_HOST_REPO ?? '../KeelBase-Vue-Pro'))
 
@@ -231,10 +234,13 @@ if (SELF_TEST) {
 }
 
 if (DEFINITION_ONLY || !existsSync(join(HOST, CONSOLE))) {
+  if (!DEFINITION_ONLY && REQUIRE) {
+    console.error(`✗ 没有宿主检出：${HOST}（--require）`)
+    process.exit(2)
+  }
   const why = DEFINITION_ONLY ? '按 --definition-only，不比对宿主' : `没有宿主检出（${HOST}）`
-  console.log(`· ${why}；只查定义的顶层形状（配对与读回样例由 core 的 TypedObjectKeyTest 校验）：`
-    + `${definition.kinds.length} 个种类、${definition.pairs.length} 对拼写、`
-    + `${definition.rows.length} 行读回样例`)
+  console.log(`· ${why}；只核对定义本身：${definition.kinds.length} 个种类、`
+    + `${definition.pairs.length} 对拼写、${definition.rows.length} 行读回样例`)
   process.exit(0)
 }
 
