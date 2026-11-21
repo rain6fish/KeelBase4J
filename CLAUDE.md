@@ -31,7 +31,7 @@ This repository only **consumes** both.
 bash scripts/release-gate.sh        # 一条命令跑全部确定性验证（本机约 9 分钟），末尾一行 PASS/FAIL 汇总
                                     # 覆盖：mvn verify · 快照漂移(按 pin) · 双语注释 · 三个生成物 demo · release 发布集合
                                     # LLM_ENV=1 时再加两个适配器 demo（需模型 key）；PG_ENV=1 时再加 PostgreSQL 那条（需 Docker）
-                                    # HOST_ENV=1 时再加跨仓对象键拼写比对（需 KeelBase-Vue-Pro 检出）
+                                    # HOST_ENV=1 时再加带类型对象键的单一定义跨仓比对（需 KeelBase-Vue-Pro 检出）
 mvn test                            # 协议一致性 + 生成器 + 运行时 + 适配器
 mvn package -Dkeelbase.contract.version="$(bash scripts/check-pin-lag.sh --print-pin)"
                                     # 产物自述契约版本：清单写 KeelBase-Contract-Version（见下）
@@ -44,7 +44,7 @@ bash scripts/demo-golden-path.sh    # 前端自己的模块打本运行时（需
 bash scripts/demo-springai.sh       # 真模型上接缝（需 DEEPSEEK_API_KEY；无 key 时会明确报错退出）
 bash scripts/demo-springai-task.sh  # 真模型驱动框架自己的多步循环，走 POST /ai/task（同需 DEEPSEEK_API_KEY）
 bash scripts/check-bilingual-comments.sh  # 注释的双语形状（默认只报告；--strict 才拦；--self-test 自检）
-node scripts/check-host-object-key.mjs  # 跨仓：运行时 ↔ 宿主写入方 ↔ 控制台的对象键拼写（无宿主检出时 SKIP；--require 则失败）
+node scripts/check-object-key-contract.mjs --strict  # 单一定义：conformance/typed-object-key.json（--host 比对宿主；--definition-only 只查定义）
 
 # 第三种方言（PostgreSQL）真跑一遍：迁移 + ddl-auto=validate，对真的 PG。
 # 无 KEELBASE_PG_URL 时该测试自动跳过；CI 侧对第三方言的闸是 MigrationDialectsTest（哪儿都跑）。

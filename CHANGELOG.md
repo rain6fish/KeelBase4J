@@ -82,18 +82,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   and `scripts/check-object-key-contract.mjs` compares the host writer's kind constant and the host
   console's reader against it — the two parties that live in another repository and could drift
   silently. The check is report-only by default and takes `--host` / `KEELBASE_HOST_REPO` (it skips,
-  saying so, when there is no sibling checkout); `--strict` turns a divergence into an exit 1.
-- **A second, source-reading gate runs in CI and in the release gate.** `scripts/check-host-object-key.mjs`
-  reads the runtime's suffix construction, the host writer's `AUDIT_OBJECT_KIND` append and the
-  console's `OBJECT_KEY_KINDS` and regex, and fails when the prefix, the suffix or the kind word
-  disagrees. Its self-test mutates each of five literals and requires every mutation to be caught; CI
-  runs that self-test, and `release-gate.sh` runs the real cross-repository comparison behind
-  `HOST_ENV=1`, answering `SKIP` when the host checkout is absent.
-- **The behaviour-level gate now runs in `release-gate.sh` too.** Behind the same `HOST_ENV=1` it
-  feeds the definition's row samples to the console's own reader and fails on a divergence, so the
-  release gate carries both dimensions: the source-level gate compares the literals, and this one asks
-  what the console actually returns. `--require` was added so a `HOST_ENV=1` run with no host checkout
-  fails instead of silently checking the definition alone.
+  saying so, when there is no sibling checkout); `--strict` turns a divergence into an exit 1, and
+  `--definition-only` checks the file without a host. `release-gate.sh` runs the definition check by
+  default and the host comparison plus its self-test behind `HOST_ENV=1`, with `--require` making a
+  missing host checkout a failure there; CI runs the definition-only check.
 
 - **A published jar now says which contract it was built against.** Every jar carries
   `KeelBase-Contract-Version` in `META-INF/MANIFEST.MF`, written at build time by `maven-jar-plugin`
@@ -213,14 +205,9 @@ Each version is written in two blocks — English first, then Chinese — marked
   有意义），以及运行时要作答的那些配对与行样例。core 的单元测试拿这个文件里的值断言匹配器，而不是在测试
   里再写一遍；`scripts/check-object-key-contract.mjs` 拿宿主写入方的种类常量与宿主控制台的读取器与它比对
   —— 那两方住在另一个仓，本来可以**静默**漂开。该检查默认只报告，用 `--host` / `KEELBASE_HOST_REPO`
-  指定宿主检出（没有兄弟仓检出的环境会**跳过并说明**）；`--strict` 才让分叉变成退出码 1。
-- **另一道读源码的闸，跑在 CI 与发布门禁里。** `scripts/check-host-object-key.mjs` 读运行时的后缀构造、
-  宿主写入方的 `AUDIT_OBJECT_KIND` 追加、控制台的 `OBJECT_KEY_KINDS` 与正则，前缀、后缀或种类词任一不一致
-  即失败。它的自检逐个改动五个字面量、要求每一次都被抓住；CI 跑这个自检，`release-gate.sh` 把真实跨仓比对
-  放在 `HOST_ENV=1` 之后，宿主检出缺席时答 `SKIP`。
-- **行为级闸也接进了 `release-gate.sh`。** 在同一个 `HOST_ENV=1` 之后，它把定义里的行样例喂给控制台自己的
-  读取器，分叉即失败 —— 故发布门禁现在两个维度都在：源码级闸比字面量，这一道**问控制台实际返回什么**。
-  新增 `--require`：`HOST_ENV=1` 却找不到宿主检出的那次运行会失败，而不是悄悄只查定义。
+  指定宿主检出（没有兄弟仓检出的环境会**跳过并说明**）；`--strict` 才让分叉变成退出码 1，
+  `--definition-only` 让检查不依赖宿主。`release-gate.sh` 默认跑定义检查，`HOST_ENV=1` 时再跑宿主比对、
+  自检，并以 `--require` 让宿主检出缺席变成失败；CI 跑只查定义的检查。
 
 - **已发布的 jar 现在自述它按哪一版契约构建。** 每个 jar 的 `META-INF/MANIFEST.MF` 都带
   `KeelBase-Contract-Version`，由 `maven-jar-plugin` 在构建期写入，值来自发布工作流按契约 pin 填好的

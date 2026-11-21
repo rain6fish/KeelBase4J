@@ -386,6 +386,53 @@ class AuditLogReadTest {
     }
 
     /**
+     * The typed key is judged exactly: it must end the sentence, its digits are 1–18, and a leading
+     * zero is a character, not a number.
+     *
+     * <p>These are the same six cases the console pins in `audit-query.test.mjs` — trailing space,
+     * line break and period are not the end; `#007` is not `#7`; eighteen digits are a key and
+     * nineteen are not. The two read faces have to answer alike, so the cases live on both sides.
+     *
+     * 带类型的键按**恰好**判：必须收尾、数字 1–18 位、前导零是字符而不是数字。
+     *
+     * <p>这六个情形与控制台 `audit-query.test.mjs` 里钉的是同一组 —— 尾随空格、换行、句号都不算收尾；
+     * `#007` 不是 `#7`；18 位是键、19 位不是。两条读面必须答得一样，故两侧各钉一份。
+     */
+    @Test
+    void theTypedKeyUsesTheRuntimesDigitAndBoundaryRules() {
+        String kind = "boundary-kind-" + UUID.randomUUID();
+        String base = "probe · object " + kind + " #";
+        audit.append("analyze", "boundary", base + "12");
+        audit.append("analyze", "boundary", base + "12 ");
+        audit.append("analyze", "boundary", base + "12\n");
+        audit.append("analyze", "boundary", base + "12.");
+        AuditLog zeroes = audit.append("analyze", "boundary", base + "007");
+        AuditLog eighteen = audit.append("analyze", "boundary",
+                base + "123456789012345678");
+        audit.append("analyze", "boundary", base + "1234567890123456789");
+
+        List<?> exact = rows("?objectType=" + kind + "&objectId=12", ADMIN);
+        assertEquals(1, exact.size(),
+                "a trailing space, line break or period does not end the key");
+        assertEquals("probe · object " + kind + " #12",
+                ((Map<?, ?>) exact.get(0)).get("detail"));
+
+        List<?> leadingZero = rows("?objectType=" + kind + "&objectId=007", ADMIN);
+        assertEquals(1, leadingZero.size(), "#007 is a key of its own");
+        assertEquals(zeroes.getId(),
+                ((Number) ((Map<?, ?>) leadingZero.get(0)).get("id")).longValue());
+        assertTrue(rows("?objectType=" + kind + "&objectId=7", ADMIN).isEmpty(),
+                "#7 must not answer for #007");
+
+        List<?> longKey = rows("?objectType=" + kind + "&objectId=123456789012345678", ADMIN);
+        assertEquals(1, longKey.size(), "eighteen digits are still a key");
+        assertEquals(eighteen.getId(),
+                ((Number) ((Map<?, ?>) longKey.get(0)).get("id")).longValue());
+        assertTrue(rows("?objectType=" + kind + "&objectId=1234567890123456789", ADMIN).isEmpty(),
+                "nineteen digits are past the key's bound and are not scanned for");
+    }
+
+    /**
      * A write that landed still wins over a sentence that mentions the same object.
      *
      * <p>The fallback is the ledger's second road, not a competitor: when the pair has a ledger row,
