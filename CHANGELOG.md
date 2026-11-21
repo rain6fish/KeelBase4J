@@ -12,33 +12,6 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ## [Unreleased]
 
-**English**
-
-### Changed
-
-- **`AuditService.append` now refuses an action outside the contract's closed vocabulary.** The row's
-  `action` is checked against the `audit-payload` v4 enum (`AuditAction` in `keelbase4j-protocol`)
-  before anything is written; an unknown word raises `UnknownAuditActionException` instead of being
-  chained. A host still writing a pre-contract word such as `mcp_connect_test` now fails where it
-  writes, rather than landing a row no consumer can classify. Every word this runtime and its
-  generated applications write — `tool_call`, `tool_confirmation`, `effect_revoke`, `claim_release` —
-  behaves as before, and `analyze` (what the host records a connect test as) is on the vocabulary.
-  Rows already on a chain are untouched: the guard covers new writes, and verification still
-  recomputes their hashes without consulting the vocabulary. A conformance test pins the Java list to
-  the vendored schema, so a contract bump that adds or removes a word fails there rather than drifting.
-
-**中文**
-
-### 变更
-
-- **`AuditService.append` 拒绝契约闭词表之外的动作。** 行的 `action` 在写入之前先对照 `audit-payload`
-  v4 枚举（`keelbase4j-protocol` 的 `AuditAction`）检查；未知的词抛 `UnknownAuditActionException`，
-  而不是被串上链。仍写契约前旧词（如 `mcp_connect_test`）的宿主，现在**在写入处失败**，而不是落下
-  一行没有消费方能归类的记录。本运行时与它生成的应用写下的每一个词 —— `tool_call`、
-  `tool_confirmation`、`effect_revoke`、`claim_release` —— 行为不变；宿主用于连通测试的 `analyze`
-  本身就在词表内。**已在链上的行不受影响**：这道闸只覆盖新的写入，而校验仍只重算哈希、不查词表。
-  一份符合性测试把 Java 词表钉在 vendored schema 上，故契约增删一个词会在那里失败，而不是两边漂开。
-
 ## [0.1.20] - 2026-11-21
 
 **English**
@@ -105,6 +78,17 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### Changed
 
+- **`AuditService.append` now refuses an action outside the contract's closed vocabulary.** The row's
+  `action` is checked against the `audit-payload` v4 enum (`AuditAction` in `keelbase4j-protocol`)
+  before anything is written; an unknown word raises `UnknownAuditActionException` instead of being
+  chained. A host still writing a pre-contract word such as `mcp_connect_test` now fails where it
+  writes, rather than landing a row no consumer can classify. Every word this runtime and its
+  generated applications write — `tool_call`, `tool_confirmation`, `effect_revoke`, `claim_release` —
+  behaves as before, and `analyze` (what the host records a connect test as) is on the vocabulary.
+  Rows already on a chain are untouched: the guard covers new writes, and verification still
+  recomputes their hashes without consulting the vocabulary. A conformance test pins the Java list to
+  the vendored schema, so a contract bump that adds or removes a word fails there rather than drifting.
+
 - **The bilingual-comments gate now reads line and block comments, not only javadoc.** A Chinese `//`
   line followed by an English one could sit in the tree while the gate stayed silent. The check now
   classifies each line rather than a paragraph, excludes indented code samples, tables, block tags,
@@ -122,6 +106,12 @@ Each version is written in two blocks — English first, then Chinese — marked
   internal name refuses the whole file.
 
 ### Fixed
+
+- **The object read face has an assertable page cap.** `GET /audit/logs` resolves `limit` and `offset`
+  through `AuditReadLimits` — default 50, maximum 200, maximum offset 1000, all configurable and
+  validated at startup — applies every filter inside the query before pagination, and gives both
+  object roads the same `offset + limit` window. A query can no longer return or scan beyond the cap,
+  and the scan no longer grows with the chain. No contract field changed.
 
 - **A generated application's audit read face now answers the same object and period questions as the
   runtime's.** The generated `GET /audit/logs` declared only a start time and no object filter, so a
@@ -228,6 +218,14 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### 变更
 
+- **`AuditService.append` 拒绝契约闭词表之外的动作。** 行的 `action` 在写入之前先对照 `audit-payload`
+  v4 枚举（`keelbase4j-protocol` 的 `AuditAction`）检查；未知的词抛 `UnknownAuditActionException`，
+  而不是被串上链。仍写契约前旧词（如 `mcp_connect_test`）的宿主，现在**在写入处失败**，而不是落下
+  一行没有消费方能归类的记录。本运行时与它生成的应用写下的每一个词 —— `tool_call`、
+  `tool_confirmation`、`effect_revoke`、`claim_release` —— 行为不变；宿主用于连通测试的 `analyze`
+  本身就在词表内。**已在链上的行不受影响**：这道闸只覆盖新的写入，而校验仍只重算哈希、不查词表。
+  一份符合性测试把 Java 词表钉在 vendored schema 上，故契约增删一个词会在那里失败，而不是两边漂开。
+
 - **双语注释门禁现在也读行注释与块注释，不再只读 javadoc。** 中文 `//` 行后面跟英文行此前可以留在树里而
   门禁一言不发。检查现在按**行**判类（不是按段落），并把缩进的代码样例、表格、块标签、内联代码与引文两边
   都不算；自检覆盖了两种已知误判。更宽的扫描查出八处「中文在前、英文在后」，八处都只调了注释行序 ——
@@ -240,6 +238,11 @@ Each version is written in two blocks — English first, then Chinese — marked
   词**、绝不是表名 —— 这段文字会进控制台的导出，那里出现内部名会让整份文件被拒。
 
 ### 修复
+
+- **对象读面现在有可断言的分页上限。** `GET /audit/logs` 的 `limit` 与 `offset` 经 `AuditReadLimits`
+  解析 —— 默认 50、封顶 200、翻页深度 1000，均可配置且启动期校验 —— 所有筛选都在查询内先于分页施加，
+  对象的两条路共用同一个 `offset + limit` 窗口。查询不可能返回或扫描超过上限，扫描也不再随链的规模增长。
+  未改契约字段。
 
 - **生成应用的审计读面现在回答与运行时相同的对象与区间问题。** 生成物的 `GET /audit/logs` 过去只声明
   起点、没有对象过滤，于是按一个业务对象去问的调用方会静默拿到更宽的列表。现在它声明 `until`、
