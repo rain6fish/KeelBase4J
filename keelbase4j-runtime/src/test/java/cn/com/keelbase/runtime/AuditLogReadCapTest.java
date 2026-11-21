@@ -247,7 +247,7 @@ class AuditLogReadCapTest {
         String word = "sentence-kind-" + UUID.randomUUID();
         String sentenceKey = "14" + Math.abs(UUID.randomUUID().getMostSignificantBits() % 100_000_000L);
         for (int i = 1; i <= 7; i++) {
-            audit.append("mcp_connect_test", mine,
+            audit.append("analyze", mine,
                     "probe " + i + " · object " + word + " #" + sentenceKey);
         }
         String sentenceQuery = "?objectType=" + word + "&objectId=" + sentenceKey;
