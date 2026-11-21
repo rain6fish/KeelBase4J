@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.web;
 
+import cn.com.keelbase.runtime.audit.AuditReadLimits;
 import cn.com.keelbase.runtime.audit.AuditService;
 import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
 import cn.com.keelbase.runtime.authz.OwnershipGuard;
@@ -46,32 +47,17 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 public class AuditController {
 
-    /**
-     * The reference's own audit query answers 50 rows by default and caps a page at 200.
-     *
-     * 参照实现自己那条审计查询默认答 50 行、一页封顶 200。
-     */
-    private static final int DEFAULT_LIMIT = 50;
-    private static final int MAX_LIMIT = 200;
-
-    /**
-     * How far into the chain a caller may start. The rows before {@code offset} are fetched and
-     * dropped (see {@code AuditService.rows}), so this is what keeps that fetch bounded — past it,
-     * the honest answer is a refusal rather than a scan.
-     *
-     * 调用方能从链上多深开始。{@code offset} 之前的行是**取回来再丢掉**的（见 {@code AuditService.rows}），
-     * 故这个数正是那次取数有界的原因 —— 超过它，诚实的答案是**拒绝**，不是全表扫。
-     */
-    private static final int MAX_OFFSET = 1000;
-
     private final AuditService audit;
     private final CurrentPrincipal principals;
     private final OwnershipGuard guard;
+    private final AuditReadLimits readLimits;
 
-    public AuditController(AuditService audit, CurrentPrincipal principals, OwnershipGuard guard) {
+    public AuditController(AuditService audit, CurrentPrincipal principals, OwnershipGuard guard,
+                           AuditReadLimits readLimits) {
         this.audit = audit;
         this.principals = principals;
         this.guard = guard;
+        this.readLimits = readLimits;
     }
 
     @GetMapping("/audit/verify")
@@ -104,6 +90,13 @@ public class AuditController {
      * is not, and nothing downstream can tell the difference, which is worse than an error that says
      * so.
      *
+     * <p><b>The page is bounded, and the bound is a deployment setting.</b> A page defaults to 50
+     * rows and is capped at 200; a caller may start at most 1000 rows into the chain. Asking for more
+     * is served at the cap rather than refused, so a paging cursor survives a request that guessed
+     * too large. The semantics live on {@link AuditReadLimits}, and the same cap covers both object
+     * roads — the scan for the rows an object answers with is given the span this page can reach, so
+     * it cannot select more than the answer may carry.
+     *
      * <p>链上的那些行，按调用者、按闭合的区间、按业务对象筛选。
      *
      * <p>它答的就是参照实现那条查询的形状：一个调用者、一段时间、一个结果、一个窗口 —— 现在还加上区间的
@@ -120,6 +113,11 @@ public class AuditController {
      * 视图 —— 因为本运行时在审计行上**一个都不记**。它们是**被拒绝**的、不是被忽略的：一个**被接受却没被
      * 施加**的筛选回出来的是一份**看着像筛过、其实没有**的列表，而下游分不出这个区别 —— 那比一个**把话说
      * 出来**的错误更糟。
+     *
+     * <p><b>一页有界，而这个界是部署设置。</b>一页默认 50 行、封顶 200 行；调用方在链上最多从第 1000 行
+     * 开始。多要的部分按上限作答、而不是被拒绝，故翻页游标能挺过一次猜大的请求。语义写在
+     * {@link AuditReadLimits} 上，而同一个上限覆盖两条对象路 —— 对象作答所依据的那次扫描拿到的是这一页
+     * 够得到的跨度，故选不出多于答案能携带的行。
      */
     @GetMapping("/audit/logs")
     public List<Map<String, Object>> logs(
@@ -132,8 +130,8 @@ public class AuditController {
             @RequestParam(required = false) String agentId,
             @RequestParam(required = false) String orgId,
             @RequestParam(required = false) String denied,
-            @RequestParam(defaultValue = "50") int limit,
-            @RequestParam(defaultValue = "0") int offset) {
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset) {
         requireAuditRead();
 
         if (agentId != null) {
@@ -169,6 +167,13 @@ public class AuditController {
         Instant sinceAt = since == null ? null : instant(since);
         Instant untilAt = until == null ? null : instant(until);
         Boolean errorsOnly = outcome(isError);
+        // The page is clamped once, here, and the object scan is given exactly the span that page can
+        // reach — so both roads select no more rows than the answer may carry, and neither can grow
+        // with the size of the chain.
+        // 这一页只在这里钳制一次，对象扫描拿到的正好是这一页够得到的跨度 —— 故两条路选出的行都不多于答案
+        // 能携带的，也都不随链的规模增长。
+        int size = readLimits.limit(limit);
+        int skip = readLimits.offset(offset);
         // The ledger is asked within the same scope the answer is scoped to: a write that landed for
         // another caller, outside the period, or with a different outcome must not suppress the row
         // that names the object inside this request's scope.
@@ -176,15 +181,10 @@ public class AuditController {
         // 点名对象的那一行。
         List<Long> objectRows = objectType == null
                 ? null
-                : audit.objectRowIds(objectType, objectId, sinceAt, untilAt, userId, errorsOnly);
+                : audit.objectRowIds(objectType, objectId, sinceAt, untilAt, userId, errorsOnly,
+                        size + skip);
 
-        return audit.rows(userId,
-                sinceAt,
-                untilAt,
-                errorsOnly,
-                Math.min(Math.max(limit, 1), MAX_LIMIT),
-                Math.min(Math.max(offset, 0), MAX_OFFSET),
-                objectRows);
+        return audit.rows(userId, sinceAt, untilAt, errorsOnly, size, skip, objectRows);
     }
 
     /**

@@ -6,7 +6,9 @@ import cn.com.keelbase.protocol.AuditChain;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
 import cn.com.keelbase.runtime.governance.GovernancePolicyStore;
+import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -47,6 +49,7 @@ public class AuditService {
     private final String chainKey;
     private final ExecutionTraceLinkService traceLinks;
     private final SideEffectRepository sideEffects;
+    private final AuditReadLimits readLimits;
 
     public AuditService(AuditLogRepository repository, AuditChainHeadRepository heads,
                         GovernancePolicyStore policy,
@@ -58,7 +61,7 @@ public class AuditService {
                         GovernancePolicyStore policy,
                         @Value("${keelbase.audit.hmac-key}") String chainKey,
                         ExecutionTraceLinkService traceLinks) {
-        this(repository, heads, policy, chainKey, traceLinks, null);
+        this(repository, heads, policy, chainKey, traceLinks, null, AuditReadLimits.defaults());
     }
 
     @Autowired
@@ -66,13 +69,15 @@ public class AuditService {
                         GovernancePolicyStore policy,
                         @Value("${keelbase.audit.hmac-key}") String chainKey,
                         ExecutionTraceLinkService traceLinks,
-                        SideEffectRepository sideEffects) {
+                        SideEffectRepository sideEffects,
+                        AuditReadLimits readLimits) {
         this.repository = repository;
         this.heads = heads;
         this.policy = policy;
         this.chainKey = chainKey;
         this.traceLinks = traceLinks;
         this.sideEffects = sideEffects;
+        this.readLimits = readLimits;
     }
 
     /**
@@ -348,8 +353,8 @@ public class AuditService {
      *
      * <p>The window is expressed the way the reference expresses it — a count to skip and a count to
      * take — and a {@code PageRequest} can only skip a multiple of the page size, so the span is
-     * fetched and the leading rows dropped here. The caller caps {@code offset}, which is what keeps
-     * that fetch bounded.
+     * fetched and the leading rows dropped here. The configured {@link AuditReadLimits} cap both
+     * {@code limit} and {@code offset}, which is what keeps that fetch bounded.
      *
      * 链上符合筛选的那些行，最新的在前，落在所要的窗口里。
      *
@@ -362,7 +367,8 @@ public class AuditService {
      * 反馈、授权结论 —— 本运行时**没有这些概念**；**缺席**正是这么说的，而 null 会**主张**这一行本可以带一个值。
      *
      * <p>窗口按参照实现的说法表达 —— 跳过几条、取几条 —— 而 {@code PageRequest} 只能跳**页大小的整数倍**，
-     * 故这里把整段取回来、再把前面几行丢掉。**调用方封顶 {@code offset}**，那正是这次取数有界的原因。
+     * 故这里把整段取回来、再把前面几行丢掉。配置的 {@link AuditReadLimits} 同时封顶 {@code limit} 与
+     * {@code offset}，那正是这次取数有界的原因。
      */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> rows(String userId, Instant since, Boolean isError,
@@ -393,6 +399,14 @@ public class AuditService {
         if (objectRowIds != null && objectRowIds.isEmpty()) {
             return List.of();
         }
+        // The clamp is enforced here, at the seam, not only in the controller: a caller that reaches
+        // this service directly cannot ask for a page larger than the deployment allows. Every filter
+        // is part of the specification below and is therefore applied before this window, never to
+        // the window's leftovers.
+        // 钳制施加在**这个接缝**上、不只是控制器里：直接够到本服务的调用方也拿不到比部署所允许更大的页。
+        // 每一个过滤都是下面那份规格的一部分，故都**先于**这个窗口施加，绝不会只作用在窗口的剩余物上。
+        int size = readLimits.limit(limit);
+        int skip = readLimits.offset(offset);
         Specification<AuditLog> filter = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             if (userId != null) {
@@ -412,10 +426,10 @@ public class AuditService {
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
-        Pageable span = PageRequest.of(0, limit + offset, Sort.by(Sort.Direction.DESC, "id"));
+        Pageable span = PageRequest.of(0, size + skip, Sort.by(Sort.Direction.DESC, "id"));
         return repository.findAll(filter, span).stream()
-                .skip(offset)
-                .limit(limit)
+                .skip(skip)
+                .limit(size)
                 .map(AuditService::row)
                 .toList();
     }
@@ -479,21 +493,56 @@ public class AuditService {
     @Transactional(readOnly = true)
     public List<Long> objectRowIds(String resultType, String resultId, Instant since, Instant until,
                                    String userId, Boolean isError) {
+        return objectRowIds(resultType, resultId, since, until, userId, isError,
+                readLimits.window(readLimits.defaultLimit(), 0));
+    }
+
+    /**
+     * The same, with the window the caller's page will span. Both roads select at most {@code window}
+     * rows — the newest the page can reach, since {@code rows} pages newest first — so one object
+     * search can never turn into an unbounded scan or an unbounded {@code IN} list, and filtering
+     * still happens before paging: the scope is part of the query that the window cuts.
+     *
+     * <p><b>The cap is the same on both roads and it is the page's own span</b>, not a second number:
+     * a scan capped below {@code offset + limit} could return a short page that looks like "no more
+     * rows" while rows exist, and one capped above it would fetch what no request can show.
+     *
+     * 同上，另加调用方那一页横跨的窗口。两条路都至多选 {@code window} 行 —— 即这一页够得到的最新那些行，
+     * 因为 {@code rows} 按最新在前翻页 —— 故一次对象检索绝不会变成无界的扫描或无界的 {@code IN} 清单，
+     * 而过滤仍先于分页：范围正是窗口所切的那条查询的一部分。
+     *
+     * <p><b>两条路的上限是同一个，且就是这一页自己的跨度</b>，不是第二个数字：扫描上限若低于
+     * {@code offset + limit}，就会回一页**短**结果、看着像「没有更多行了」而其实还有；若高于它，就会去取
+     * 没有任何请求能显示的东西。
+     */
+    @Transactional(readOnly = true)
+    public List<Long> objectRowIds(String resultType, String resultId, Instant since, Instant until,
+                                   String userId, Boolean isError, int window) {
+        int scan = Math.min(Math.max(window, 1), readLimits.window(readLimits.maxLimit(),
+                readLimits.maxOffset()));
         List<Long> viaLedger = objectRowIdsFromLedger(resultType, resultId, since, until, userId,
-                isError);
+                isError, scan);
         if (!viaLedger.isEmpty()) {
             return viaLedger;
         }
-        return objectRowIdsFromSentence(resultType, resultId, since, until);
+        return objectRowIdsFromSentence(resultType, resultId, since, until, userId, isError, scan);
     }
 
     /**
      * The write that landed: the ledger row's execution ids lead to exactly those executions' rows.
      *
+     * <p>The caller, period and outcome are part of the query, not a Java filter after it: applying
+     * them after a paged read would let the newest {@code window} rows outside the scope crowd out
+     * the in-scope rows the page is supposed to carry.
+     *
      * 已落地的那次写：台账行的执行 id 指向**恰好**那些执行的行。
+     *
+     * <p>调用方、区间与结果是**查询的一部分**，不是查询之后的 Java 过滤：在分页读之后施压，会让窗口里最新
+     * 的那些**范围之外**的行挤掉这一页本该携带的范围内行。
      */
     private List<Long> objectRowIdsFromLedger(String resultType, String resultId, Instant since,
-                                              Instant until, String userId, Boolean isError) {
+                                              Instant until, String userId, Boolean isError,
+                                              int window) {
         if (sideEffects == null) {
             return List.of();
         }
@@ -506,16 +555,14 @@ public class AuditService {
         if (executions.isEmpty()) {
             return List.of();
         }
-        // The same scope `rows` will apply to the answer. Asking the ledger unscoped would let a write
-        // that landed elsewhere answer "the ledger has this object" and suppress the sentence road
-        // for a caller/period/outcome the write is not part of.
-        // 与 `rows` 施加在答案上的范围相同。不问范围地问台账，会让一笔落在别处的写答成「台账有这条对象」，
-        // 从而把与那笔写无关的调用方/区间/结果的句末路压掉。
-        return repository.findByExecutionIdIn(executions).stream()
-                .filter(row -> userId == null || userId.equals(row.getUserId()))
-                .filter(row -> since == null || !row.getCreatedAt().isBefore(since))
-                .filter(row -> until == null || !row.getCreatedAt().isAfter(until))
-                .filter(row -> isError == null || row.isError() == isError)
+        Specification<AuditLog> filter = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(root.get("executionId").in(executions));
+            addScope(predicates, root, cb, since, until, userId, isError);
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        Pageable page = PageRequest.of(0, window, Sort.by(Sort.Direction.DESC, "id"));
+        return repository.findAll(filter, page).stream()
                 .map(AuditLog::getId)
                 .toList();
     }
@@ -523,18 +570,23 @@ public class AuditService {
     /**
      * The mention a row wrote about itself: the typed key at the end of its own sentence. The like is a
      * literal suffix scan — `!` is the escape, so a `%` or `_` in the word is a character and never a
-     * wildcard — and `detail` has no index, so it is a scan of the chain. The deciding comparison is
-     * `endsWith` in Java, which keeps the match exact on a case-insensitive collation too. That is the
-     * price of answering a question the ledger cannot: the period, when given, is the bound, and the
-     * caller may narrow by caller and outcome in the same request.
+     * wildcard — and `detail` has no index, so it is a scan of the chain, bounded by the same window
+     * as the ledger road. The deciding comparison is `endsWith` in Java, which keeps the match exact
+     * on a case-insensitive collation too; a row the narrowing LIKE admitted but `endsWith` rejects
+     * consumes a slot of the window, which errs short rather than wide. The period, when given, is the
+     * bound, and the caller may narrow by caller and outcome in the same request — all three are part
+     * of the query, so the window cuts the answer and not a broader set.
      *
      * 一行**关于自己**写下的提及：它句末那个带类型的键。like 是字面后缀扫描 —— `!` 是转义符，故词里的
-     * `%` 或 `_` 是字符、绝不是通配符 —— 而 `detail` 没有索引，故它扫的是整条链。**决定**的那次比较是 Java
-     * 里的 `endsWith`，它在大小写不敏感的排序规则下也让匹配保持精确。这就是回答一个台账答不了的问题所要付的
-     * 代价：给了区间就以区间为界，调用方还可以在同一次请求里按调用者与结果再收窄。
+     * `%` 或 `_` 是字符、绝不是通配符 —— 而 `detail` 没有索引，故它扫的是整条链，并以与台账路**同一个窗口**
+     * 为界。**决定**的那次比较是 Java 里的 `endsWith`，它在大小写不敏感的排序规则下也让匹配保持精确；一条被
+     * 收窄的 LIKE 放进来、却被 `endsWith` 拒掉的行会占掉窗口一个位置，这个方向的误差是**偏短**、不是偏宽。
+     * 给了区间就以区间为界，调用方还可以在同一次请求里按调用者与结果再收窄 —— 三样都是**查询的一部分**，
+     * 故窗口切的是答案本身，而不是一个更宽的集合。
      */
     private List<Long> objectRowIdsFromSentence(String resultType, String resultId, Instant since,
-                                                Instant until) {
+                                                Instant until, String userId, Boolean isError,
+                                                int window) {
         String suffix = typedObjectKeySuffix(resultType, resultId);
         if (suffix == null) {
             return List.of();
@@ -543,21 +595,35 @@ public class AuditService {
         Specification<AuditLog> filter = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.like(root.get("detail"), pattern, '!'));
-            if (since != null) {
-                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), since));
-            }
-            if (until != null) {
-                predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), until));
-            }
+            addScope(predicates, root, cb, since, until, userId, isError);
             return cb.and(predicates.toArray(new Predicate[0]));
         };
+        Pageable page = PageRequest.of(0, window, Sort.by(Sort.Direction.DESC, "id"));
         // The LIKE narrows; the comparison that decides is `endsWith` in Java, so a case-insensitive
         // collation cannot make one kind answer for another.
         // LIKE 只是收窄；**决定**的是 Java 里的 `endsWith`，故大小写不敏感的排序规则无法让一种对象替另一种作答。
-        return repository.findAll(filter).stream()
+        return repository.findAll(filter, page).stream()
                 .filter(row -> row.getDetail() != null && row.getDetail().endsWith(suffix))
                 .map(AuditLog::getId)
                 .toList();
+    }
+
+    /** The caller, period and outcome every road applies inside its query. / 每条路都在自己的查询里施加的调用方、区间与结果。 */
+    private static void addScope(List<Predicate> predicates, Root<AuditLog> root,
+                                 CriteriaBuilder cb,
+                                 Instant since, Instant until, String userId, Boolean isError) {
+        if (userId != null) {
+            predicates.add(cb.equal(root.get("userId"), userId));
+        }
+        if (since != null) {
+            predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), since));
+        }
+        if (until != null) {
+            predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), until));
+        }
+        if (isError != null) {
+            predicates.add(cb.equal(root.get("error"), isError));
+        }
     }
 
     /**
