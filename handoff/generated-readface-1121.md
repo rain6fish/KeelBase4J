@@ -3,7 +3,7 @@
 ## 分支与提交
 
 - 分支：`claude/gen-audit-readface-1121-01155b`（独立 worktree，未 push、未合 main）
-- 代码与测试提交：`b53d457`（本报告随后单独提交）
+- 代码与测试提交：`b53d457`（筛选与关联键）、`d41bce7`（对外回 `executionId`）
 
 ## 改动文件:行
 
@@ -17,9 +17,12 @@
     半个对象过滤 400；`until` 闭合区间（按行自身时间）；对象过滤在分页前施加。
   - 新增 `objectRowIds` / `sentenceRowIds` / `typedObjectKeySuffix` / `instant(field, value)` 辅助方法
     （约 4635–4760），文法与 `conformance/typed-object-key.json` 一致。
-- `keelbase4j-generator/src/test/java/cn/com/keelbase/gen/GeneratorTest.java`（约 414–472）
+  - `auditRow(...)` 与副作用/轨迹 `view(...)`：对外回 `executionId`（用户 2026-11-21 裁定「对外回出」）。
+    v6/v7 `ai-audit-log-row` 与 `side-effect-revoke` 都把它声明为**可选** `string|null`，故这不是新增契约字段；
+    审计行与副作用行答**同一个值**，控制台不必靠 tool + user + 时间配对。
+- `keelbase4j-generator/src/test/java/cn/com/keelbase/gen/GeneratorTest.java`（约 414–480）
   - 钉住：三个参数被声明、半个对象过滤 400、台账→执行 id→审计行、台账空时回落到句末带类型键、
-    `until` 闭合区间、执行键不进冻结行形状与哈希载荷。
+    `until` 闭合区间、审计行与副作用行都回同一个 `executionId`、它仍不进哈希载荷。
 
 ## 语义对照（生成物 ↔ 运行时）
 
@@ -31,15 +34,18 @@
 | 台账无命中 | 回落到 `detail` 句末带类型键（`endsWith`），区间为界 | 同 |
 | 空集合 | 「没有匹配」，不是「没有过滤」 | 同（空 `Set` 什么都不选） |
 | 拒绝项 | `agentId/orgId/denied` 400（本部署不记） | 同（改动前已如此） |
+| `executionId` | 审计行与副作用行都回（链外列，不入哈希） | 同（用户裁定对外回出） |
 
-未新增契约字段、未改 `ai-audit-log-row` 行 schema；`executionId` 只存在于生成物内部类型，
-既不进线上行形状，也不进哈希载荷（测试有断言）。
+未新增契约字段、未改 `ai-audit-log-row` 行 schema；`executionId` 用的是 v6/v7 已声明的**可选**字段，
+不进哈希载荷（测试有断言）。非执行行（拦截 / 待决 / 否决 / 撤销）回 `null`，schema 允许。
 
 ## 测试读数
 
 - 改前红（把 `JavaGenerator.java` 临时还原为 HEAD、保留新测试）：
   `GeneratorTest.s2_generates_a_real_project_that_compiles` 失败于
   `'until' is declared, so Spring cannot drop it silently ==> expected: <true> but was: <false>`。
+- 第二增量的改前红（先加「对外回 `executionId`」断言、后补实现）：
+  `the audit row answers the contract's optional executionId ==> expected: <true> but was: <false>`。
 - 改后绿：
   - `mvn -pl keelbase4j-generator test -Dtest=GeneratorTest` → Tests run: 2, Failures: 0
   - `mvn -pl keelbase4j-generator test` → 17/17 绿（Changeability 1 · Generator 2 · RegenerationMerge 5 ·
@@ -55,20 +61,21 @@
     and row scope is enforced`（exit 0；含 `a token approved by eight at once writes exactly once`、
     `revoke marks the effect revoked`、`the revocation left one line on the audit chain` 等全部检查）。
     `app.log` 无 `Exception`。
+  - 对外回 `executionId` 之后，用 `PORT=18141` 再跑一次：**PASS**（同上全部检查通过）。
+- 双语检查（新增注释后复跑）：`0 block(s) with English after Chinese, across 302 Java file(s)`。
 
 ## 仍需用户裁定的点
 
-1. **执行键是生成物内部新增的**。运行时的 `AuditLog` 有 `executionId` 列，生成物此前没有；为了精确复现
-   「台账 → 执行 id → intent/结果/批准行」，在 `SideEffectStore.Effect` 与 `AuditChainStore.Row` 上加了
-   内部字段。它不进冻结行形状、不进哈希载荷。若用户希望生成物**对外**也回 `executionId`（运行时读面
-   现在会回它，且 v6 契约行 schema 含该字段），那是另一项决定，本次未做。
+1. ~~执行键是否对外回出~~ —— **已裁定（2026-11-21 用户）：「对外回出」**。审计行与副作用/轨迹视图
+   都回 `executionId`，用 v6/v7 已声明的可选字段；不进哈希载荷。
 2. **`objectType` 的双重身份**：运行时对同一个参数先当台账的 `resultType`、再当句末键的可读词使用；
    生成物照此实现。若宿主控制台将来改为「发可读词、由服务端映射到 resultType」，两边需一起改。
 
 ## 提交
 
 - `b53d457`（代码 + 测试）：`JavaGenerator.java`（+275/−39）、`GeneratorTest.java`（+60）
-- 本报告随同一分支的下一个提交归档。
+- `d41bce7`（代码 + 测试）：两个读面回 `executionId`（+28/−8）
+- 报告在早先的 `5d26d55` 归档；本文件关于 `executionId` 的更新随下一个提交归档。
 
 ## 未做 / 边界
 
