@@ -96,6 +96,14 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### Fixed
 
+- **A generated application's audit read face now answers the same object and period questions as the
+  runtime's.** The generated `GET /audit/logs` declared only a start time and no object filter, so a
+  caller asking for one business object silently got the wider list. It now declares `until`,
+  `objectType` and `objectId`, refuses half an object filter with 400, resolves the object through the
+  generated ledger's result and an internal execution id, falls back to the typed key at the end of a
+  row's sentence when the ledger answers nothing, and applies the object filter before pagination.
+  The internal execution id is not part of the frozen row shape or the hash payload.
+
 - **A database failure during an anchor reading is reported, not fatal.** `ChainAnchorCommand` caught
   only usage and file errors, so a `DataAccessException` escaped `run()` and the application failed to
   start even with `exit=false` — the opposite of what the class promises. It now reports the failure
@@ -205,6 +213,11 @@ Each version is written in two blocks — English first, then Chinese — marked
   词**、绝不是表名 —— 这段文字会进控制台的导出，那里出现内部名会让整份文件被拒。
 
 ### 修复
+
+- **生成应用的审计读面现在回答与运行时相同的对象与区间问题。** 生成物的 `GET /audit/logs` 过去只声明
+  起点、没有对象过滤，于是按一个业务对象去问的调用方会静默拿到更宽的列表。现在它声明 `until`、
+  `objectType` 与 `objectId`，半个对象过滤回 400，经生成物自己的台账与内部执行 id 解析对象，台账答不出时
+  回落到行末句子里那个带类型的键，并在分页之前施加对象过滤。内部执行 id 不进冻结的行形状，也不进哈希载荷。
 
 - **读锚时读不了库，会被如实报出，而不是把应用打下去。** `ChainAnchorCommand` 过去只捕用法错误与文件
   错误，于是 `DataAccessException` 会从 `run()` 逃出、即使 `exit=false` 应用也会启动失败 —— 与类注释的
