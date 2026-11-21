@@ -4429,6 +4429,13 @@ public class JavaGenerator {
                         view.put("conversationId", effect.conversationId());
                         view.put("resultType", effect.resultType());
                         view.put("resultId", effect.resultId());
+                        // The execution that wrote this row — the key that pairs it with that
+                        // execution's audit rows, read from the record rather than guessed from tool,
+                        // user and time.
+                        //
+                        // 写下本行的那一次执行 —— 把它与那次执行的审计行配成对的键；从记录里读，绝不靠
+                        // tool、user 与时间推。
+                        view.put("executionId", effect.executionId());
                         view.put("argsHash", effect.argsHash());
                         view.put("createdAt", effect.createdAt().toString());
                         Optional<%s> target = target(effect);
@@ -4629,6 +4636,15 @@ public class JavaGenerator {
                         // C-3：结局与工具名，链外两列。不是关于某一个工具的行是 null，而不是编出来的名字。
                         view.put("outcome", row.outcome());
                         view.put("tool", row.tool());
+                        // The governed execution this row belongs to, and the key that pairs it with the
+                        // side-effect row that execution wrote (contract v6, optional there: null on a
+                        // row that is not a tool execution). Chain-external, so it stays out of the
+                        // hashed payload.
+                        //
+                        // 本行所属的那一次受治理执行，也是把它与那次执行写下的副作用行配成对的键（契约 v6，
+                        // 在那里是**可选**的：不是一次工具执行的行上为 null）。它是链外列，故留在哈希载荷
+                        // 之外。
+                        view.put("executionId", row.executionId());
                         return view;
                     }
 
