@@ -250,6 +250,13 @@ check "write tool is gated" '"confirmation_request"' "$(cat "$STREAM_TOKEN_LOG")
 APPROVED=$(curl -s -X POST "$BASE/ai/confirmations/$TOKEN" -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $ALICE" -d '{"decision":"approve"}')
 check "approve executes and records an effect" '"effectId"' "$APPROVED"
+# The row the write produced — the business key an auditor searches by. Read from the tool's own answer
+# rather than guessed: `data.resultId` is the id the write returned.
+#
+# 那笔写产出的那一行 —— 审计员拿来找的业务键。从**工具自己的答案**读、不靠猜：`data.resultId`
+# 就是这笔写返回的 id。
+FU_ID=$(printf '%s' "$APPROVED" | sed -n 's/.*"resultId":\([0-9][0-9]*\).*/\1/p')
+[ -n "$FU_ID" ] || { echo "  FAIL the approval never named the row it wrote"; fail=1; }
 wait "$STREAM_TOKEN_PID" 2>/dev/null || true
 check "and the decision comes back on the stream that asked" '"confirmation_decision"' \
   "$(cat "$STREAM_TOKEN_LOG")"
@@ -322,6 +329,47 @@ check "and carry the frozen row's own fields" '"isError":' "$LOGS"
 check_absent "with no other caller's row in them" '"userId":"bob"' "$LOGS"
 check "the rows are refused to a plain caller" '403' \
   "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$BASE/audit/logs")"
+
+# ── the business object and the period's end, on the second read face ─────────────────────────────
+# The same query an auditor asks — "what happened to this one business object" — answered on the
+# generated application's own read face. Before this, Spring MVC silently ignored the two parameters
+# and the face returned a wider list that looked filtered: the failure the runtime's face had already
+# been corrected for (F10). The assertions below are the negative control as much as the positive one:
+# an object nothing wrote answers no rows (not the chain), and the unrelated tool's rows are absent.
+#
+# 审计员问的那个同一查询 ——「这一条业务对象身上发生了什么」—— 在**生成物自己的读面**上作答。此前 Spring MVC
+# 会静默忽略那两个参数、读面回一份**看着像筛过、其实更宽**的列表：那正是运行时那条读面已经修掉的失效（F10）。
+# 下面的断言既是正例也是负向对照：没有写过的对象答没有行（不是整条链），而无关工具的行不出现。
+OBJ="objectType=follow_up&objectId=$FU_ID"
+# The control for the positive assertions below: the same window **without** the object filter is
+# wider, and it carries both rows the filter must leave out. Without this, "the answer had no such
+# row" could just mean the chain was empty.
+#
+# 下面那些正例的**对照**：同一个窗口**不带对象过滤**时更宽，且带着过滤必须排除的那两行。没有这条，
+# 「答案里没有那一行」也可能只是**链是空的**。
+WINDOW=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?userId=alice&limit=200")
+check "the unfiltered window is wider: the other tool's rows are there" 'analyze_customer_risk' "$WINDOW"
+check "and so is the block the object filter must leave out" 'create_followup blocked' "$WINDOW"
+OBJ_LOGS=$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?$OBJ")
+check "the object filter answers the write's own result row" 'create_followup -> ok' "$OBJ_LOGS"
+check "including the attempt written before the tool ran" 'create_followup attempted' "$OBJ_LOGS"
+check "and the approval that let it through" 'create_followup approved' "$OBJ_LOGS"
+check_absent "without the other tool's rows" 'analyze_customer_risk' "$OBJ_LOGS"
+check_absent "and without a block, which is a mention rather than a write" 'create_followup blocked' "$OBJ_LOGS"
+check_absent "or the proposal that was still waiting on a person" 'pending confirmation' "$OBJ_LOGS"
+OBJ_ROWS=$(printf '%s' "$OBJ_LOGS" | grep -o '"id":' | wc -l | tr -d ' ')
+check "with exactly those three rows and nothing else" '3' "$OBJ_ROWS"
+check "an object nothing wrote answers no rows, not the whole chain" '[]' \
+  "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?objectType=follow_up&objectId=99999999")"
+check "half an object filter is refused rather than widened" '400' \
+  "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $CAROL" \
+     "$BASE/audit/logs?objectType=follow_up")"
+check "a period ending before the write excludes it" '[]' \
+  "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?$OBJ&until=2000-01-01")"
+check "a period ending after the write includes it" 'create_followup -> ok' \
+  "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?$OBJ&until=2099-01-01")"
+check "and the end of the period narrows the chain on its own" '[]' \
+  "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?until=2000-01-01")"
 
 # The identity seam and the contract-derived decision, on the generated artifact.
 PERMS=$(curl -s "$BASE/auth/me/permissions" -H "Authorization: Bearer $ALICE")
