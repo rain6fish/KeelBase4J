@@ -48,7 +48,7 @@ class AuditChainConcurrencyTest {
         AtomicReference<Throwable> failed = new AtomicReference<>();
 
         Thread holder = new Thread(() -> new TransactionTemplate(transactions).execute(status -> {
-            audit.append("holder", "alice", "takes the chain");
+            audit.append("chat", "alice", "takes the chain");
             holding.countDown();
             await(release);
             return null;
@@ -59,7 +59,7 @@ class AuditChainConcurrencyTest {
 
         Thread second = new Thread(() -> {
             try {
-                audit.append("second", "bob", "must wait");
+                audit.append("chat", "bob", "must wait");
             } catch (Throwable failure) {
                 failed.set(failure);
             } finally {
@@ -96,7 +96,7 @@ class AuditChainConcurrencyTest {
                 appends.add(pool.submit(() -> {
                     await(start);
                     for (int i = 0; i < each; i++) {
-                        audit.append("concurrent", "user-" + id, "append " + i);
+                        audit.append("chat", "user-" + id, "append " + i);
                     }
                     return null;
                 }));

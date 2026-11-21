@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.audit;
 
+import cn.com.keelbase.protocol.AuditAction;
 import cn.com.keelbase.protocol.AuditChain;
 import cn.com.keelbase.runtime.effect.SideEffect;
 import cn.com.keelbase.runtime.effect.SideEffectRepository;
@@ -189,6 +190,19 @@ public class AuditService {
     public AuditLog append(String action, String userId, String detail, boolean isError,
                            String outcome, String tool, String conversationId, String authorization,
                            String executionId) {
+        // Fail closed on the action before anything else: a word outside the contract's vocabulary is
+        // a row no consumer could classify, and this runtime must not be the one that puts it on the
+        // chain. The check is deliberately ahead of the `off` granularity below — that policy decides
+        // whether a *legal* row is written, not whether an illegal word is acceptable; a caller that
+        // got the word wrong has to hear it whatever the policy says, and has to hear it now rather
+        // than the day the policy is switched to `write`. Every other append overload ends here, so
+        // this is the one place the guard has to stand.
+        //
+        // 对 **action** 先 fail-closed：一个跑出契约词表的词，是一行**没有任何消费方能归类**的记录，本运行时
+        // 不该是把它放上链的那一个。这道检查**刻意排在**下面的 `off` 粒度之前 —— 那条策略决定的是**合法**的行
+        // 写不写，不是**非法的**词可不可接受；把词弄错的调用方，无论策略怎么说都必须当场知道，而不是等策略
+        // 哪天切到 `write` 才知道。其余每个 append 重载最后都走到这里，故这道闸只站这一处。
+        AuditAction.require(action);
         // The governance policy's audit granularity is applied here, on the one path every row travels:
         // `off` writes nothing at all, which is the one value that changes the chain. `write` and `all`
         // come to the same set here because this runtime records only tool-scoped rows — it has no
