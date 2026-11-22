@@ -159,6 +159,24 @@ public class ConfirmationStore {
     }
 
     /**
+     * One operator's records, newest first, paged — the queue narrowed to its owner.
+     *
+     * <p>Unlike {@link #mine}, nothing is filtered by status, mode or the offline window: the queue's
+     * semantics are the whole table narrowed to its owner, so an approval row and a row whose sweep
+     * has not run yet are both here. Narrowing by {@code operatorId} is the row half of the same
+     * capability {@link #all} serves globally.
+     *
+     * 某个操作者自己的记录，最新在前、分页 —— 收窄到主人的队列。
+     *
+     * <p>与 {@link #mine} 不同，这里不按状态、mode 或离线窗口过滤：队列的语义就是**整张表收窄到它的
+     * 主人**，故审批行与尚未被清扫的行都在。按 `operatorId` 收窄，与 {@link #all} 全局服务的是同一个
+     * 能力的行那一半。
+     */
+    public Page<ConfirmationRequest> owned(String operatorId, Pageable pageable) {
+        return repository.findByOperatorIdOrderByCreatedAtDesc(operatorId, pageable);
+    }
+
+    /**
      * The cutoff an offline window has reached at {@code now}: a row created before it is past its
      * window. {@link #expireStale} asks the database with this number and {@link #mine} asks the same
      * question in memory with it — one arithmetic, so the two cannot disagree about the same row.

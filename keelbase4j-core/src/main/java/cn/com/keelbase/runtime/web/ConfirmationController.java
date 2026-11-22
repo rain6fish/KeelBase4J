@@ -75,23 +75,34 @@ public class ConfirmationController {
      * Reading moves nothing. Approving and executing are separate entries that keep their own guards,
      * and an audit reader holds no write capability, so those answer 403 by construction (B8(a)).
      *
+     * <p><b>An owner-scoped grant sees its own rows.</b> The capability's scope decides which query
+     * runs: {@code own} narrows to the caller's operator id, {@code all} answers the whole queue. A
+     * request cannot choose between them — the scope comes from the grant, not from the query string.
+     *
      * <p>全部确认队列，**只读** —— JV-63 为审计读者新增的那一面。
      *
      * <p>它答与 `/ai/my/confirmations` **同一份** wire 投影（只有一份，故两者不可能对「一条确认长什么样」
      * 各执一词），但覆盖**所有调用方**的行、且不施加调用方自己的窗口：一个检视队列的读者，要的就是它的**现状**。
      * **读它不移动任何东西**。审批与执行是各自保留守卫的独立入口，而审计读者一项写能力都没有，故那些入口按构造
      * 答 403（B8(a)）。
+     *
+     * <p>**带主人范围的授予只看本人的行。** 用哪条查询由能力的 scope 决定：`own` 收窄到调用者的 operator id，
+     * `all` 答整个队列。请求**选不了**这两者 —— 范围来自授予，不来自查询串。
      */
     @GetMapping("/ai/confirmations")
     public Map<String, Object> list(@RequestParam(defaultValue = "1") int page,
                                     @RequestParam(defaultValue = "20") int limit) {
-        guard.requireAction(principals.current(), GovernanceReadSubjects.CONFIRMATION,
+        Principal principal = principals.current();
+        guard.requireAction(principal, GovernanceReadSubjects.CONFIRMATION,
                 PermissionAuthorizer.ACTION_READ);
         int size = Math.max(1, Math.min(limit, MAX_LIMIT));
         int index = Math.max(1, page) - 1;
         Instant now = Instant.now();
         long offlineTtlMillis = ConfirmationLifecycle.DEFAULT_OFFLINE_TTL_MILLIS;
-        Page<ConfirmationRequest> found = confirmations.all(PageRequest.of(index, size));
+        Page<ConfirmationRequest> found =
+                guard.ownerScoped(principal, GovernanceReadSubjects.CONFIRMATION)
+                        ? confirmations.owned(principal.userId(), PageRequest.of(index, size))
+                        : confirmations.all(PageRequest.of(index, size));
         List<Map<String, Object>> items = found.getContent().stream()
                 .map(row -> ConfirmationItemView.item(row, now, offlineTtlMillis, tools))
                 .toList();

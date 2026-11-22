@@ -7,6 +7,7 @@ import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
 import cn.com.keelbase.runtime.authz.OwnershipGuard;
 import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
+import cn.com.keelbase.runtime.identity.Principal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,11 @@ import org.springframework.web.bind.annotation.RestController;
  * than left for a reader to wonder about. Nothing is padded with a placeholder: a null the object does
  * not declare is not written at all.
  *
+ * <p><b>An owner-scoped grant narrows to the caller.</b> The route answers the whole operations
+ * ledger only for a global reader. When the capability says {@code own}, the query is narrowed to
+ * {@code principal.userId()}: the capability list never says {@code own} about a face that is
+ * about to answer everyone.
+ *
  * <p>**操作审计**：对**业务**做了什么，最新的在前 —— 给管理员或审计读者。
  *
  * <p>这是控制台的操作审计页，它读的链与旁边那条决策轨迹**不同**：这里的行是**业务写**，包括**没有 AI 参与**的那些；
@@ -40,6 +46,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>这些项按冻结的 `operation-audit-log-row` 作答，用的是**本运行时取得到**的字段。其中缺的那些 —— 请求正文、
  * 字段级变更差异、功能名、两个哈希列 —— 之所以缺，是因为这里**没有东西产出它们**；每一条都点名在同一行里，而不是
  * 让读的人去猜。**不拿占位值凑数**：该对象没有声明的 null，**一个都不写**。
+ *
+ * <p>**带主人范围的授予收窄到调用者。** 这条路由只对全局读者答整本操作审计账。能力说 `own` 时，查询收窄到
+ * `principal.userId()`：能力清单绝不会在一条马上要答所有人的面上说 `own`。
  */
 @RestController
 public class OperationAuditController {
@@ -60,11 +69,16 @@ public class OperationAuditController {
     @GetMapping("/audit/operations/logs")
     public Map<String, Object> logs(@RequestParam(defaultValue = "1") int page,
                                     @RequestParam(defaultValue = "20") int limit) {
-        guard.requireAction(principals.current(), GovernanceReadSubjects.OPERATION_AUDIT,
+        Principal principal = principals.current();
+        guard.requireAction(principal, GovernanceReadSubjects.OPERATION_AUDIT,
                 PermissionAuthorizer.ACTION_READ);
         int size = Math.max(1, Math.min(limit, MAX_LIMIT));
         int index = Math.max(1, page) - 1;
-        Page<OperationAuditLog> found = logs.findAllByOrderByIdDesc(PageRequest.of(index, size));
+        Page<OperationAuditLog> found =
+                guard.ownerScoped(principal, GovernanceReadSubjects.OPERATION_AUDIT)
+                        ? logs.findByUserIdOrderByIdDesc(principal.userId(),
+                                PageRequest.of(index, size))
+                        : logs.findAllByOrderByIdDesc(PageRequest.of(index, size));
         List<Map<String, Object>> items = found.getContent().stream()
                 .map(OperationAuditController::view)
                 .toList();

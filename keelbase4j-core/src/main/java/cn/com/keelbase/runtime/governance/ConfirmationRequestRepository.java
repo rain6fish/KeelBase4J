@@ -58,6 +58,18 @@ public interface ConfirmationRequestRepository extends JpaRepository<Confirmatio
     Page<ConfirmationRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     /**
+     * One operator's confirmation records, newest first, paged — the queue narrowed to its owner,
+     * for an owner-scoped grant on {@code Confirmation}. Unlike {@code findByOperatorIdAndMode…},
+     * this applies no mode filter: the queue's semantics are the whole table minus the other
+     * callers, so approval rows are here too.
+     *
+     * 某个操作者自己的确认记录，最新在前、分页 —— 按主人收窄的队列，供 `Confirmation` 上带主人范围的
+     * 授予。与 `findByOperatorIdAndMode…` 不同，这里不施 mode 过滤：队列的语义就是**整张表减去别的
+     * 调用方**，故审批行也在这里。
+     */
+    Page<ConfirmationRequest> findByOperatorIdOrderByCreatedAtDesc(String operatorId, Pageable pageable);
+
+    /**
      * The offline window's arbitration: every still-{@code pending} row whose window has closed
      * becomes {@code timeout}.
      *
