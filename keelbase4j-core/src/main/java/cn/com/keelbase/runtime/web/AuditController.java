@@ -7,6 +7,7 @@ import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
 import cn.com.keelbase.runtime.authz.OwnershipGuard;
 import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
 import cn.com.keelbase.runtime.identity.CurrentPrincipal;
+import cn.com.keelbase.runtime.identity.Principal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -97,6 +98,13 @@ public class AuditController {
      * roads — the scan for the rows an object answers with is given the span this page can reach, so
      * it cannot select more than the answer may carry.
      *
+     * <p><b>An owner-scoped grant narrows to the caller.</b> The capability seam lets a deployment
+     * declare {@code read} with an owner field, and the capability list then says {@code scope=own}.
+     * This route must agree: for such a grant the effective caller is {@code principal.userId()}, and
+     * a request that names somebody else answers the caller's own rows rather than that somebody
+     * else's. A global reader keeps the request's filter. Object search is given the same effective
+     * caller, so the ledger road cannot widen what the row filter narrowed.
+     *
      * <p>链上的那些行，按调用者、按闭合的区间、按业务对象筛选。
      *
      * <p>它答的就是参照实现那条查询的形状：一个调用者、一段时间、一个结果、一个窗口 —— 现在还加上区间的
@@ -118,6 +126,11 @@ public class AuditController {
      * 开始。多要的部分按上限作答、而不是被拒绝，故翻页游标能挺过一次猜大的请求。语义写在
      * {@link AuditReadLimits} 上，而同一个上限覆盖两条对象路 —— 对象作答所依据的那次扫描拿到的是这一页
      * 够得到的跨度，故选不出多于答案能携带的行。
+     *
+     * <p>**带主人范围的授予收窄到调用者。** 能力缝允许部署方声明带 owner 字段的 `read`，能力清单于是说
+     * `scope=own`。这条路由必须同意：这种授予下**实际调用者**是 `principal.userId()`，点名别人的请求答的是
+     * 调用者本人的行、不是那个人的。全局读者保留请求里的筛选。对象检索拿到的是同一个实际调用者，故台账路
+     * 放不宽行过滤已经收窄的东西。
      */
     @GetMapping("/audit/logs")
     public List<Map<String, Object>> logs(
@@ -132,7 +145,8 @@ public class AuditController {
             @RequestParam(required = false) String denied,
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) Integer offset) {
-        requireAuditRead();
+        Principal principal = principals.current();
+        requireAuditRead(principal);
 
         if (agentId != null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -174,6 +188,15 @@ public class AuditController {
         // 能携带的，也都不随链的规模增长。
         int size = readLimits.limit(limit);
         int skip = readLimits.offset(offset);
+        // An owner-scoped grant is narrowed to the caller here, so a request that names another
+        // caller answers the caller's own rows rather than theirs — the same rule the ledger
+        // applies. A global reader keeps the request's filter.
+        //
+        // 带主人范围的授予在这里收窄到调用者，故点名别人的请求答的是调用者本人的行、不是那个人的 ——
+        // 与台账同一条规则。全局读者保留请求里的筛选。
+        String scopedUser = guard.ownerScoped(principal, GovernanceReadSubjects.AUDIT_LOG)
+                ? principal.userId()
+                : userId;
         // The ledger is asked within the same scope the answer is scoped to: a write that landed for
         // another caller, outside the period, or with a different outcome must not suppress the row
         // that names the object inside this request's scope.
@@ -181,10 +204,10 @@ public class AuditController {
         // 点名对象的那一行。
         List<Long> objectRows = objectType == null
                 ? null
-                : audit.objectRowIds(objectType, objectId, sinceAt, untilAt, userId, errorsOnly,
+                : audit.objectRowIds(objectType, objectId, sinceAt, untilAt, scopedUser, errorsOnly,
                         size + skip);
 
-        return audit.rows(userId, sinceAt, untilAt, errorsOnly, size, skip, objectRows);
+        return audit.rows(scopedUser, sinceAt, untilAt, errorsOnly, size, skip, objectRows);
     }
 
     /**
@@ -202,7 +225,11 @@ public class AuditController {
      * 一个**全部授予都只有 `read`** 的身份。
      */
     private void requireAuditRead() {
-        guard.requireAction(principals.current(), GovernanceReadSubjects.AUDIT_LOG,
+        requireAuditRead(principals.current());
+    }
+
+    private void requireAuditRead(Principal principal) {
+        guard.requireAction(principal, GovernanceReadSubjects.AUDIT_LOG,
                 PermissionAuthorizer.ACTION_READ);
     }
 

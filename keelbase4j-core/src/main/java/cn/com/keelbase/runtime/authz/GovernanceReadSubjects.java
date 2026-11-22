@@ -31,7 +31,12 @@ public final class GovernanceReadSubjects {
     /** The AI audit chain: {@code /audit/verify} and {@code /audit/logs}. */
     public static final String AUDIT_LOG = "AuditLog";
 
-    /** The operations audit: business writes, including the ones no AI took part in. */
+    /**
+     * The operations audit: business writes, including the ones no AI took part in. A global reader
+     * sees every caller's rows; an owner-scoped grant sees its own.
+     *
+     * 操作审计：业务写，包括没有 AI 参与的那些。全局读者看所有调用方的行；带主人范围的授予看本人的。
+     */
     public static final String OPERATION_AUDIT = "OperationAudit";
 
     /** The tool inventory: what this runtime can be asked to do, and how each tool is governed. */
@@ -43,7 +48,12 @@ public final class GovernanceReadSubjects {
     /** Recorded AI write side effects — read-only here; revoking stays on its own terms. */
     public static final String TOOL_EFFECT = "ToolEffect";
 
-    /** Confirmation records, read-only across callers — deciding is a different entry and a different mode. */
+    /**
+     * Confirmation records, read-only — deciding is a different entry and a different mode. A global
+     * reader sees every caller's rows; an owner-scoped grant sees its own.
+     *
+     * 确认记录，只读 —— 裁决是另一个入口、另一种 mode。全局读者看所有调用方的行；带主人范围的授予看本人的。
+     */
     public static final String CONFIRMATION = "Confirmation";
 
     /**
