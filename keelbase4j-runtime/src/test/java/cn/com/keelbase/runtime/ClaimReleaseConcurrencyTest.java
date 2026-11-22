@@ -28,6 +28,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -47,6 +49,10 @@ import org.springframework.web.server.ResponseStatusException;
  * winner and one refusal — so the test is not flaky, only occasionally less adversarial. The run
  * counts how many rounds had both calls in flight at once and prints that alongside the timing.
  *
+ * <p>The class runs on the embedded H2 by default and on a real PostgreSQL when {@code
+ * KEELBASE_PG_URL} is set, so the same arbitration is measured on both the in-memory row lock and the
+ * dialect a host actually runs.
+ *
  * 两位运维在同一瞬间释放同一份滞留占位，只能关闭它一次。
  *
  * <p>关闭是一次条件更新（`status = claimed and claimedAt < staleBefore`），故至多一个调用能动这一行 ——
@@ -57,6 +63,9 @@ import org.springframework.web.server.ResponseStatusException;
  * <p>断言落在「恰好一个」上、而不是落在「谁赢」上：它必须在任何交错下都成立，因而与调度无关。输家在赢家
  * 提交之后才读到那一行，也是一种合法交错 —— 它同样得到一赢一拒，故本测试不会时红时绿，只是偶尔不够对抗。
  * 运行时会数出「两个调用同时在飞」的轮数，并与耗时一起打印。
+ *
+ * <p>本类默认跑在嵌入式 H2 上；设了 {@code KEELBASE_PG_URL} 则跑在真的 PostgreSQL 上，于是同一个仲裁
+ * 在内存库行锁与宿主实际运行的方言上都得到测量。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -72,6 +81,32 @@ class ClaimReleaseConcurrencyTest {
      * 轮数足够多，至少有一对调用是真正同时在飞的。
      */
     private static final int ROUNDS = 50;
+
+    /**
+     * Run the same case on a real PostgreSQL when one is offered, and stay on the embedded H2 when
+     * none is: the suite's default and the CI posture are H2, while {@code KEELBASE_PG_URL} is the
+     * repository's own convention for "here is a real database, measure against it".
+     *
+     * 有人给真 PostgreSQL 时就在它上面跑同一条用例，没人给就留在嵌入式 H2 上：套件默认与 CI 的姿态都是
+     * H2，而 `KEELBASE_PG_URL` 是本仓自己的约定 ——「这里有一个真库，拿它做实测」。
+     */
+    @DynamicPropertySource
+    static void pointAtPostgresWhenOffered(DynamicPropertyRegistry registry) {
+        String url = System.getenv("KEELBASE_PG_URL");
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        registry.add("spring.datasource.url", () -> url);
+        registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
+        registry.add("spring.datasource.username", () -> envOrDefault("KEELBASE_PG_USER", "keelbase"));
+        registry.add("spring.datasource.password",
+                () -> envOrDefault("KEELBASE_PG_PASSWORD", "keelbase"));
+    }
+
+    private static String envOrDefault(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
+    }
 
     @Autowired
     WriteClaimService claims;
@@ -178,8 +213,9 @@ class ClaimReleaseConcurrencyTest {
         long elapsed = (System.nanoTime() - started) / 1_000_000;
         assertTrue(audit.verify().valid(), "the chain stays one valid line through every race");
 
+        String dialect = System.getenv("KEELBASE_PG_URL") == null ? "h2" : "postgresql";
         StringBuilder report = new StringBuilder();
-        report.append("claim_release concurrency: ").append(ROUNDS)
+        report.append("claim_release concurrency on ").append(dialect).append(": ").append(ROUNDS)
                 .append(" rounds, one winner + one already_closed each, ")
                 .append(overlapping).append(" rounds had both calls in flight at once, ")
                 .append("elapsed ").append(elapsed).append(" ms, per-round ")
