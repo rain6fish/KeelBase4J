@@ -66,6 +66,24 @@
       <scope>test</scope>
     </dependency>
 
+    <!--
+      The PostgreSQL driver, test scope. The suite runs on the embedded H2 the runtime ships, and —
+      when KEELBASE_PG_URL points at a real PostgreSQL — the same concurrency case runs again on the
+      dialect a host actually uses, where row locks are real rather than an in-memory database's.
+      A deployment brings its own driver; this one exists so that measurement can happen, and test
+      scope keeps it out of the runtime and every consumer of it.
+
+      PostgreSQL 驱动，test scope。测试套件跑在运行时自带的嵌入式 H2 上；而当 `KEELBASE_PG_URL`
+      指向真的 PostgreSQL 时，同一条并发用例会在宿主实际使用的方言上再跑一遍 —— 那里行锁是真的，
+      不是内存库的。部署自己带驱动；这一条存在的意义是让那次测量跑得起来，而 test scope 使它既不到
+      运行时里、也不到它的任何消费者手里。
+    -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+
     <!-- The conformance loader (Vectors) is shared with the protocol module's own tests, so the
          runtime reproduces the frozen vectors through exactly one implementation. Test scope:
          it is not part of what the runtime ships. -->
