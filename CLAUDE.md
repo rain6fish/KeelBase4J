@@ -45,6 +45,7 @@ bash scripts/demo-springai.sh       # 真模型上接缝（需 DEEPSEEK_API_KEY�
 bash scripts/demo-springai-task.sh  # 真模型驱动框架自己的多步循环，走 POST /ai/task（同需 DEEPSEEK_API_KEY）
 bash scripts/check-bilingual-comments.sh  # 注释的双语形状（默认只报告；--strict 才拦；--self-test 自检）
 node scripts/check-object-key-contract.mjs --strict  # 单一定义：conformance/typed-object-key.json（--host 比对宿主；--definition-only 只查定义）
+node scripts/check-host-object-key.mjs            # 旧闸：源码字面量跨仓比对（--host / KEELBASE_VUEPRO_DIR；--self-test 自检）
 
 # 第三种方言（PostgreSQL）真跑一遍：迁移 + ddl-auto=validate，对真的 PG。
 # 无 KEELBASE_PG_URL 时该测试自动跳过；CI 侧对第三方言的闸是 MigrationDialectsTest（哪儿都跑）。

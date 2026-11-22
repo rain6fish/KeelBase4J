@@ -29,6 +29,12 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### Fixed
 
+- **Both typed-object-key gates are kept, as the 2026-11-21 hold required.** The source-level checker
+  (`scripts/check-host-object-key.mjs`) had been removed by `5629f3a`, which merged after the hold; it is
+  restored byte-for-byte from `9eb76f9`, and CI and the release gate now run it beside the
+  written-definition check. Both self-tests and the definition check run by default; both
+  cross-repository comparisons run behind `HOST_ENV=1`.
+
 - **The object read face has an assertable page cap.** `GET /audit/logs` resolves `limit` and `offset`
   through `AuditReadLimits` — default 50, maximum 200, maximum offset 1000, all configurable and
   validated at startup — applies every filter inside the query before pagination, and gives both
@@ -56,6 +62,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   一份符合性测试把 Java 词表钉在 vendored schema 上，故契约增删一个词会在那里失败，而不是两边漂开。
 
 ### 修复
+
+- **带类型对象键的两道闸按 2026-11-21 的 hold 保留。** 源码级检查器（`scripts/check-host-object-key.mjs`）
+  曾被在 hold 之后合入的 `5629f3a` 删除；现从 `9eb76f9` 逐字节恢复，CI 与发布门禁把它与单一定义检查并列
+  执行。两道闸的自检与定义检查默认跑，两处跨仓比对都在 `HOST_ENV=1` 之后。
 
 - **对象读面现在有可断言的分页上限。** `GET /audit/logs` 的 `limit` 与 `offset` 经 `AuditReadLimits`
   解析 —— 默认 50、封顶 200、翻页深度 1000，均可配置且启动期校验 —— 所有筛选都在查询内先于分页施加，

@@ -18,9 +18,10 @@
 #   7. the release workflow's keyserver step still fails in minutes rather than hanging — its self-test
 #      drives a deliberately hanging gpg, and `release.yml` is checked to still call it (a raw
 #      `gpg --send-keys` there would pass the self-test while the pipeline went back to being unbounded).
-#   8. the typed object key has one written definition (`conformance/typed-object-key.json`); the
-#      definition check runs by default, and the host writer/console comparison plus its self-test sit
-#      behind `HOST_ENV=1` because they need the host checkout.
+#   8. the typed object key is checked by two gates that stay together: the source-level checker's
+#      self-test (`check-host-object-key.mjs`, five drifts) and the written definition
+#      (`conformance/typed-object-key.json`) both run by default; their host-writer/console comparisons
+#      sit behind `HOST_ENV=1` because they need the host checkout.
 #
 # Five things are deliberately out of the default run, each for a reason rather than for time:
 #   * `demo-golden-path.sh` needs the main repository's Web-Admin-Vue checkout. A gate that depends on a
@@ -33,9 +34,10 @@
 #     `LLM_ENV`: a gate that fails because a machine has no Docker is a gate people learn to ignore.
 #   * `demo-pm-reference.sh` is a reference-project demonstration, not a capability assertion; it stays
 #     manual by decision, so the gate does not grow a dimension that only re-shows a sample app.
-#   * the cross-repository object-key check (`check-object-key-contract.mjs`) needs the KeelBase-Vue-Pro
-#     checkout. The definition-only check stays in the default run; the host comparison and its self-test
-#     sit behind `HOST_ENV=1` for the same reason as the Web-Admin-Vue demo above.
+#   * the cross-repository object-key comparisons (`check-object-key-contract.mjs` and
+#     `check-host-object-key.mjs`) need the KeelBase-Vue-Pro checkout. Both self-tests and the definition
+#     check stay in the default run; the comparisons sit behind `HOST_ENV=1` for the same reason as the
+#     Web-Admin-Vue demo above.
 #
 # The contract pin is *read* from `.github/workflows/ci.yml` rather than written here a third time: a
 # hand-copied version rots the moment the workflows move, and this repository has already paid for that
@@ -65,8 +67,9 @@
 #   6. 带 provider 的部署在打开本地调试、且**没有模型 key** 时仍走完整条治理链 —— 去掉开关则起不来（反向证明）；
 #   7. 发布工作流上传公钥那一步仍在几分钟内失败、而不是挂死 —— 它的自检驱动一个故意挂起的 gpg，并核对
 #      `release.yml` 仍调用它（那里改回裸 `gpg --send-keys`，自检照样绿，而流水线重新变得无界）。
-#   8. 带类型对象键有一份写下来的单一定义（`conformance/typed-object-key.json`）—— 定义检查默认跑；
-#      与宿主写入方/控制台的比对及自检放在 `HOST_ENV=1` 之后，因为它们需要宿主检出。
+#   8. 带类型对象键由**两道闸**同时守着：源码级检查器的自检（`check-host-object-key.mjs`，五种漂移）与
+#      写下来的单一定义（`conformance/typed-object-key.json`）都默认跑；与宿主写入方/控制台的比对放在
+#      `HOST_ENV=1` 之后，因为它们需要宿主检出。
 #
 # 有五件事**有意**不在默认跑，理由各有其理、不是省时间：
 #   * `demo-golden-path.sh` 需要主仓的 Web-Admin-Vue 检出。门禁若依赖相邻仓库的工作树，就会在本就没有它
@@ -77,8 +80,9 @@
 #     `PG_ENV=1` 之后，理由与适配器 demo 放在 `LLM_ENV` 之后相同：一个因为机器上没有 Docker 就变红的门禁，
 #     是会被人们学会忽略的那种门禁。
 #   * `demo-pm-reference.sh` 是参考项目演示，不是能力断言；按决定保持手动，门禁不再长出一条只重复展示样例应用的维度。
-#   * 跨仓对象键检查（`check-object-key-contract.mjs`）需要 KeelBase-Vue-Pro 检出。只查定义的检查留在默认
-#     跑里；宿主比对与自检放在 `HOST_ENV=1` 之后，理由与上面那条 Web-Admin-Vue demo 相同。
+#   * 跨仓对象键比对（`check-object-key-contract.mjs` 与 `check-host-object-key.mjs`）需要 KeelBase-Vue-Pro
+#     检出。两道闸的自检与定义检查都留在默认跑里；跨仓比对放在 `HOST_ENV=1` 之后，理由与上面那条
+#     Web-Admin-Vue demo 相同。
 #
 # 契约的 pin 是**读**自 `.github/workflows/ci.yml`，不在这里写第三份：手抄的版本会在工作流变动的那一刻烂掉，
 # 而本仓已经为这条教训付过一次账。`release.yml` 也读，两者不一致即判失败。
@@ -294,13 +298,21 @@ else
   echo "→ [Generated] PostgreSQL 部分标注（PG_ENV=1 时跑 demo-generated-app-pg.sh —— 需 Docker 起一个 postgres:17）"
 fi
 
-# ── Host：带类型对象键的单一定义（定义自洽常跑；跨仓比对需 HOST_ENV=1 + 宿主检出）──────
-echo "→ [Host] 带类型对象键：单一定义 ↔ 宿主写入方 ↔ 控制台"
+# ── Host：带类型对象键——两道闸都留（旧闸自检 + 单一定义常跑；跨仓比对需 HOST_ENV=1 + 宿主检出）──
+# 用户 2026-11-21 hold：源码级 check-host-object-key.mjs 与行为级 check-object-key-contract.mjs 两道都留。
+echo "→ [Host] 带类型对象键：旧闸（源码字面量）↔ 单一定义（行为）↔ 宿主写入方 ↔ 控制台"
 if DEF_OUT=$(node scripts/check-object-key-contract.mjs --strict --definition-only 2>&1); then
   gate "Host(单一定义文件形状)" pass
 else
   gate "Host(单一定义文件形状)" fail "check-object-key-contract.mjs --strict --definition-only"
   echo "── 明细 — 输出尾部 ──"; printf '%s\n' "$DEF_OUT" | tail -n 40; echo "── /明细 ──"
+fi
+OLD_SELF=$(node scripts/check-host-object-key.mjs --self-test 2>&1) || true
+if grep -q '^SELF-TEST PASS' <<<"$OLD_SELF"; then
+  gate "Host(旧跨仓闸自检：五种漂移都抓住)" pass
+else
+  gate "Host(旧跨仓闸自检)" fail "check-host-object-key.mjs --self-test"
+  echo "── 明细 — 自检输出尾部 ──"; printf '%s\n' "$OLD_SELF" | tail -n 40; echo "── /明细 ──"
 fi
 if [ "${HOST_ENV:-}" = "1" ]; then
   HOST_REPO="${KEELBASE_VUEPRO_DIR:-$FAMILY_ROOT/KeelBase-Vue-Pro}"
@@ -320,10 +332,17 @@ if [ "${HOST_ENV:-}" = "1" ]; then
       gate "Host(定义 ↔ 宿主写入方 ↔ 控制台)" fail "check-object-key-contract.mjs --strict --require --host"
       echo "── 明细 — 输出尾部 ──"; printf '%s\n' "$HOST_OUT" | tail -n 40; echo "── /明细 ──"
     fi
+    OLD_HOST=$(node scripts/check-host-object-key.mjs --require --host "$HOST_REPO" 2>&1) || true
+    if grep -qE '^PASS' <<<"$OLD_HOST"; then
+      gate "Host(旧闸：对象键拼写跨仓一致)" pass
+    else
+      gate "Host(旧闸：对象键拼写跨仓一致)" fail "check-host-object-key.mjs --require --host"
+      echo "── 明细 — 输出尾部 ──"; printf '%s\n' "$OLD_HOST" | tail -n 40; echo "── /明细 ──"
+    fi
   fi
 
 else
-  echo "  ↷ 跨仓实跑标注（HOST_ENV=1 时跑 check-object-key-contract.mjs --strict --require --host … 与 --self-test —— 需 KeelBase-Vue-Pro 检出）"
+  echo "  ↷ 跨仓实跑标注（HOST_ENV=1 时跑两道闸：check-object-key-contract.mjs --strict --require --host … 与 check-host-object-key.mjs --require --host —— 需 KeelBase-Vue-Pro 检出）"
 fi
 
 echo ""
