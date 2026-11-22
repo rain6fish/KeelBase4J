@@ -39,6 +39,11 @@
 #   8. host-object-key — the typed object key is checked twice and both stay: the source-level checker's
 #      self-test and the written definition. CI runs both checks; the host writer/console comparisons
 #      need the host checkout, so they sit behind `HOST_ENV=1` in `scripts/release-gate.sh`, not in CI.
+#   9. commit-order — every commit a push or a pull request adds keeps the house message order: an English
+#      block first, a Chinese block second, no `Co-Authored-By`. Not a conformance claim, and the same
+#      kind of gate as 3: the rule lives in a user-level file that no job reads, and the three bodies it
+#      did find were found by eye. Only the commits an event adds are judged — never the history behind
+#      them, where the rule was not yet in force.
 #
 # ── 中文 ──
 #
@@ -72,6 +77,10 @@
 #   8. host-object-key —— 带类型对象键由两道闸同时守着：源码级检查器的自检与写下来的单一定义。
 #      CI 两样都跑；与宿主写入方/控制台的比对需要宿主检出，故放在 `scripts/release-gate.sh` 的
 #      `HOST_ENV=1` 之后，不在 CI 里。
+#   9. commit-order —— 一次 push 或一个 pull request 新增的每一笔提交都保持本仓的提交信息顺序：英文块在前、
+#      中文块在后、不带 `Co-Authored-By`。这不是一致性声明，而是与第 3 条同类的闸：那条规则写在一份没有
+#      任何 job 去读的用户级文件里，而它确实逮到的三笔正是靠人眼看出来的。只判一次事件新增的提交 —— 绝不判
+#      它们背后的历史，那里规矩尚未生效。
 name: CI
 
 on:
@@ -327,6 +336,53 @@ jobs:
         run: node scripts/check-object-key-contract.mjs --strict --definition-only
       - name: Every claimed drift is caught
         run: node scripts/check-host-object-key.mjs --self-test
+
+  commit-order:
+    name: Commit messages keep the bilingual order
+    # A brand-new main has no "commits this push added" — the rule is not retroactive.
+    # 刚创建的 main 没有「这次 push 新增的提交」—— 规矩不追溯。
+    if: >-
+      github.event_name == 'pull_request'
+      || (github.event_name == 'push'
+      && github.event.before != '0000000000000000000000000000000000000000')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The gate resolves the base commit by name; a shallow clone would not hold it.
+          # 门禁按名字解析基线提交，浅克隆里没有它。
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      # `origin/main` is the base it judges against, and actions/checkout creates no such ref on either
+      # event — it fetches that event's own ref only. One step points `origin/main` at the base each
+      # event names, so CI and the local invocation documented below run the same command spelling.
+      # 它判的基线是 `origin/main`，而 actions/checkout 在这两种事件上都不会创建这个引用 —— 它只拉那一次
+      # 事件自己的引用。一个 step 把 `origin/main` 指到事件给出的基线，于是 CI 与下面写明的本地调用跑的是
+      # 同一个命令写法。
+      - name: Point origin/main at the pull request's base
+        if: github.event_name == 'pull_request'
+        run: git update-ref refs/remotes/origin/main ${{ github.event.pull_request.base.sha }}
+      - name: Point origin/main at the push's previous tip
+        if: github.event_name == 'push'
+        run: git update-ref refs/remotes/origin/main ${{ github.event.before }}
+      # The self-test runs first, for the same reason the comment checker's does above: it is what says
+      # the classification works on *this* machine. The test file then drives the real command against
+      # throwaway repositories and asserts the vendored copy's digest against
+      # `scripts/check-commit-order.vendor.json` — a local edit that does not move the pin is a red here.
+      #
+      # 先跑自检，理由与上面注释检查器的自检相同：它才是「这台机器上分类确实成立」的那句话。随后测试文件拿
+      # 临时仓驱动**真正会跑的那个命令**，并把 vendored 副本的摘要对到
+      # `scripts/check-commit-order.vendor.json` —— 改了本地副本却没挪 pin，在这里就是红。
+      - name: The checker agrees with itself here
+        run: node scripts/check-commit-order.mjs --self-test
+      - name: The vendored copy matches its pin, and the CLI contract holds
+        run: node --test scripts/check-commit-order.test.mjs
+      - name: Every added commit keeps the bilingual order
+        # Locally: node scripts/check-commit-order.mjs --base origin/main
+        # 本地：node scripts/check-commit-order.mjs --base origin/main
+        run: node scripts/check-commit-order.mjs --base origin/main
 
   release-rehearsal:
     name: The publish set builds the way a release would build it (JDK ${{ matrix.java }})
