@@ -449,16 +449,20 @@ class GeneratorTest {
                 "whose spelling is the contract's single definition");
         assertTrue(governance.contains("word.length() > 120") && governance.contains("[0-9]{1,18}"),
                 "including the kind cap and the 1-18 digit key");
-        // The execution id is internal: it ties a write's rows together and must not enter the frozen
-        // row shape or the hashed payload. The wire view is asserted field-by-field above, and these
-        // two keep the new key out of both places a "helpful" addition would put it.
+        // The execution id is the contract's optional correlation key (v6/v7 `ai-audit-log-row` and
+        // `side-effect-revoke`), so both the audit row and the effect row answer it with the same
+        // value — that is what lets a console pair them without guessing from tool + user + time.
+        // It still must not enter the hashed payload, which is the frozen three-field shape.
         //
-        // 执行 id 是**内部**的：它把一次写的各行绑在一起，且**不得**进冻结的行形状、也不得进哈希载荷。
-        // 线上视图上面已逐字段断言过，这两条则把新键挡在「好意添加」会放的**两个**地方之外。
-        assertFalse(governance.contains("view.put(\"executionId\""),
-                "the internal execution key does not enter the frozen row shape");
+        // 执行 id 是契约的可选关联键（v6/v7 的 `ai-audit-log-row` 与 `side-effect-revoke`），故审计行与
+        // 副作用行用**同一个值**答它 —— 这正是控制台不必靠 tool + user + 时间去猜就能配对的原因。它仍
+        // **不得**进哈希载荷，载荷是冻结的三字段形状。
+        assertTrue(governance.contains("view.put(\"executionId\", row.executionId());"),
+                "the audit row answers the contract's optional executionId");
+        assertTrue(governance.contains("view.put(\"executionId\", effect.executionId());"),
+                "and the effect row answers the same value, so the two can be paired");
         assertFalse(hashed.contains("executionId"),
-                "nor the hashed payload, for the same reason `isError` stays out");
+                "the correlation key stays out of the hashed payload, for the same reason `isError` does");
         String effectStore = Files.readString(
                 out.resolve("src/main/java/com/example/crm/ai/SideEffectStore.java"));
         assertTrue(effectStore.contains("findByResultTypeAndResultId(String resultType,"),
