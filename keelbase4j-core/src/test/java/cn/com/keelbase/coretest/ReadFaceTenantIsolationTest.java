@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import cn.com.keelbase.protocol.OrgMembershipScope;
 import cn.com.keelbase.protocol.PermissionCapabilityList;
 import cn.com.keelbase.runtime.audit.AuditService;
+import cn.com.keelbase.runtime.audit.OperationAuditLog;
+import cn.com.keelbase.runtime.audit.OperationAuditLogRepository;
 import cn.com.keelbase.runtime.authz.AuthorizationRules;
 import cn.com.keelbase.runtime.authz.GovernanceReadSubjects;
 import cn.com.keelbase.runtime.authz.PermissionAuthorizer;
@@ -25,6 +27,7 @@ import cn.com.keelbase.runtime.web.AuditController;
 import cn.com.keelbase.runtime.web.ConfirmationController;
 import cn.com.keelbase.runtime.web.EffectController;
 import cn.com.keelbase.runtime.web.MyConfirmationController;
+import cn.com.keelbase.runtime.web.OperationAuditController;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -57,13 +60,13 @@ import org.springframework.web.server.ResponseStatusException;
  * capability is owner-scoped, the row filter — and whether an ordinary caller, an owner-scoped
  * governance reader and a global reader each stay inside it.
  *
- * <p><b>The run records a split verdict, and two of the assertions pin a defect.</b> The side-effect
- * ledger narrows a non-global reader to its own rows, whatever user the request names. The audit
- * chain list and the confirmation queue do not: an {@code AuditLog:read} / {@code Confirmation:read}
- * grant carries {@code scope=own} on the wire, and the faces answer every caller's rows anyway.
- * Those two assertions say "DEFECT" in their message on purpose: they are characterisation, not
- * endorsement, and a fix must flip them. The global reader (administrator or read-only auditor) is
- * asserted to cross tenants as well — that is the roster the faces are designed to be, not a defect.
+ * <p><b>Every face is asserted to agree with the capability it declares.</b> A non-global reader
+ * sees its own rows on the audit chain list, object search, the confirmation queue, the operations
+ * ledger and the side-effect ledger, whatever user the request names; an {@code AuditLog:read} /
+ * {@code Confirmation:read} / {@code OperationAudit:read} / {@code ToolEffect:read} grant with an
+ * owner field answers only the caller's rows. The global reader (administrator or read-only
+ * auditor) is asserted to cross tenants as well — that is the roster the faces are designed to be,
+ * not a defect.
  *
  * <p>Guarded on {@code KEELBASE_PG_URL}, like {@code PostgresMigrationTest}: without a PostgreSQL this
  * class is skipped rather than silently run on the H2 twin.
@@ -76,11 +79,10 @@ import org.springframework.web.server.ResponseStatusException;
  * 唯一有的行事实是调用者的 user id。于是能测的是运行时**确实声称**的那道边界 —— 能力闸，以及能力带主人
  * 条件时的行过滤 —— 以及普通调用方、带主人范围的治理读者、全局读者各自是否留在边界内。
  *
- * <p>**本轮给出的是分裂的判定，其中两条断言钉的是缺陷。** 副作用台账把非全局读者收窄到本人的行，无论请求
- * 点名哪个用户。审计链列表与确认队列**没有**：`AuditLog:read` / `Confirmation:read` 的授予在 wire 上
- * 带 `scope=own`，而这两个面照样回出所有人的行。那两条断言的消息里写着「DEFECT」是有意的：它们是**表征**、
- * 不是背书，修复时必须把它们翻转。全局读者（管理员或只读审计读者）跨租户读到，也被断言 —— 那是这些面
- * **本来就是**的花名册，不是缺陷。
+ * <p>**每个面都被断言与它声明的能力一致。** 非全局读者在审计链列表、对象检索、确认队列、操作审计与
+ * 副作用台账上只看到本人的行，无论请求点名哪个用户；带 owner 字段的 `AuditLog:read` /
+ * `Confirmation:read` / `OperationAudit:read` / `ToolEffect:read` 授予只答调用者本人的行。全局读者
+ * （管理员或只读审计读者）跨租户读到，也被断言 —— 那是这些面**本来就是**的花名册，不是缺陷。
  *
  * <p>与 `PostgresMigrationTest` 一样由 `KEELBASE_PG_URL` 把守：没有 PostgreSQL 就跳过，而不是悄悄在 H2
  * 双胞胎上跑一遍。
@@ -161,6 +163,7 @@ class ReadFaceTenantIsolationTest {
                         List<Rule> rules = new ArrayList<>(super.rulesFor(principal));
                         rules.add(new Rule(GovernanceReadSubjects.AUDIT_LOG, "read", "userId"));
                         rules.add(new Rule(GovernanceReadSubjects.CONFIRMATION, "read", "operatorId"));
+                        rules.add(new Rule(GovernanceReadSubjects.OPERATION_AUDIT, "read", "userId"));
                         rules.add(new Rule(GovernanceReadSubjects.TOOL_EFFECT, "read", "userId"));
                         return rules;
                     }
@@ -200,6 +203,12 @@ class ReadFaceTenantIsolationTest {
     EffectController effectController;
 
     @Autowired
+    OperationAuditController operationAuditController;
+
+    @Autowired
+    OperationAuditLogRepository operationRows;
+
+    @Autowired
     AuditService audit;
 
     @Autowired
@@ -216,15 +225,20 @@ class ReadFaceTenantIsolationTest {
 
     private String objectKey;
     private Long aliceAuditId;
+    private Long bobAuditId;
     private Long aliceEffectId;
     private Long bobEffectId;
     private String aliceToken;
+    private String bobToken;
+    private Long aliceOperationId;
+    private Long bobOperationId;
 
     @BeforeEach
     void twoTenantsLeaveRows() {
         String marker = UUID.randomUUID().toString();
         objectKey = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L));
         String execution = "exec-" + marker;
+        String bobExecution = "exec-" + marker + "-b";
         String args = "{\"run\":\"" + marker + "\"}";
         String bobArgs = "{\"run\":\"" + marker + "-b\"}";
 
@@ -232,15 +246,22 @@ class ReadFaceTenantIsolationTest {
                 objectKey, args, "local_compensate", null, "{\"ok\":true}", null, execution);
         aliceEffectId = aliceEffect.getId();
         bobEffectId = sideEffects.record(BOB, "create_followup", "crm_customer", objectKey,
-                bobArgs, "local_compensate", null, "{\"ok\":true}", null,
-                "exec-" + marker + "-b").getId();
+                bobArgs, "local_compensate", null, "{\"ok\":true}", null, bobExecution).getId();
 
         aliceAuditId = audit.append("tool_call", TENANT_A, "tenant A row " + marker, false,
                 "executed", "create_followup", null, null, execution).getId();
+        bobAuditId = audit.append("tool_call", TENANT_B, "tenant B row " + marker, false,
+                "executed", "create_followup", null, null, bobExecution).getId();
 
         aliceToken = confirmations.create(ALICE, "create_followup", args, "R3",
                 ConfirmationMode.IMMEDIATE).getToken();
-        confirmations.create(BOB, "create_followup", bobArgs, "R3", ConfirmationMode.IMMEDIATE);
+        bobToken = confirmations.create(BOB, "create_followup", bobArgs, "R3",
+                ConfirmationMode.IMMEDIATE).getToken();
+
+        aliceOperationId = operationRows.save(new OperationAuditLog(TENANT_A, "UPDATE", "PUT",
+                "/crm/customer/1", "1", 200, "127.0.0.1", "isolation-test")).getId();
+        bobOperationId = operationRows.save(new OperationAuditLog(TENANT_B, "UPDATE", "PUT",
+                "/crm/customer/2", "2", 200, "127.0.0.1", "isolation-test")).getId();
     }
 
     @AfterEach
@@ -287,6 +308,7 @@ class ReadFaceTenantIsolationTest {
         assertRefused(() -> auditController.logs(null, null, null, null, null, null, null, null, null,
                 200, 0), "the audit chain list");
         assertRefused(() -> confirmationController.list(1, 100), "the confirmation queue");
+        assertRefused(() -> operationAuditController.logs(1, 100), "the operations ledger");
 
         assertFalse(effectIds(null).contains(aliceEffectId),
                 "the ledger narrows an ordinary caller to its own rows");
@@ -295,15 +317,15 @@ class ReadFaceTenantIsolationTest {
     }
 
     /**
-     * The defect, on the audit face and on object search: the capability list promises {@code own},
-     * and the routes answer every caller's rows. The last assertion drives the ledger road, which is
-     * how an auditor's "everything that happened to object X" reaches the write.
+     * An owner-scoped audit grant stays inside the caller's rows — on the list, on an unfiltered
+     * page and on object search, which drives the ledger road. Naming another tenant's user does not
+     * widen it: the capability says {@code own}, and the face agrees.
      *
-     * <p>审计面与对象检索上的缺陷：能力清单承诺 {@code own}，路由却回出所有调用方的行。最后一条断言走
-     * 台账路 —— 审计员问「对象 X 上发生过什么」正是经它够到那笔写。
+     * <p>带主人范围的审计授予留在调用者本人的行内 —— 列表、不过滤的一页、以及走台账路的对象检索都一样。
+     * 点名另一租户的用户放不宽它：能力说 {@code own}，而这个面同意了。
      */
     @Test
-    void anOwnerScopedAuditGrantIsDeclaredOwnButReadsAnotherTenantsRows() {
+    void anOwnerScopedAuditGrantNarrowsToTheCallersOwnRows() {
         assertEquals(PermissionCapabilityList.SCOPE_OWN,
                 authorizer.capabilityFor(BOB, GovernanceReadSubjects.AUDIT_LOG).scope(),
                 "the capability list promises a row-level owner condition");
@@ -312,53 +334,76 @@ class ReadFaceTenantIsolationTest {
 
         List<Map<String, Object>> named = auditController.logs(TENANT_A, null, null, null, null, null,
                 null, null, null, 200, 0);
-        assertTrue(ids(named).contains(aliceAuditId),
-                "DEFECT: an own-scoped reader naming another tenant's user receives that user's rows");
-        assertTrue(named.stream().allMatch(row -> TENANT_A.equals(row.get("userId"))),
-                "and they really are the other tenant's rows: " + named);
+        assertFalse(ids(named).contains(aliceAuditId),
+                "an own-scoped reader cannot reach another tenant's rows by naming them");
+        assertTrue(ids(named).contains(bobAuditId), "the caller's own rows are still there");
+        assertTrue(named.stream().allMatch(row -> TENANT_B.equals(row.get("userId"))),
+                "and every row is the caller's: " + named);
 
-        assertTrue(ids(auditController.logs(null, null, null, null, null, null, null, null, null,
-                200, 0)).contains(aliceAuditId),
-                "DEFECT: an unfiltered page carries the other tenant's rows too");
+        List<Map<String, Object>> unfiltered = auditController.logs(null, null, null, null, null,
+                null, null, null, null, 200, 0);
+        assertFalse(ids(unfiltered).contains(aliceAuditId),
+                "an unfiltered page is narrowed to the caller too");
+        assertTrue(ids(unfiltered).contains(bobAuditId));
 
         List<Map<String, Object>> byObject = auditController.logs(null, null, null, "crm_customer",
                 objectKey, null, null, null, null, 200, 0);
-        assertTrue(ids(byObject).contains(aliceAuditId),
-                "DEFECT: object search reaches the other tenant's write through the effect ledger");
+        assertFalse(ids(byObject).contains(aliceAuditId),
+                "object search cannot reach the other tenant's write through the effect ledger");
+        assertTrue(ids(byObject).contains(bobAuditId),
+                "the caller's own write on the same object is still found");
     }
 
     /**
-     * The defect, on the confirmation queue: the all-callers queue is served under an own-scoped
-     * grant. The operator's own face beside it is asserted to stay narrow, so the failure is located
-     * in the queue rather than in every confirmation reader.
+     * An owner-scoped confirmation grant answers only the caller's queue. The operator's own face
+     * stays narrow as before; the queue now agrees with it.
      *
-     * <p>确认队列上的缺陷：全局队列在带主人范围的授予下被送出。旁边的「本人面」被断言仍收窄，故失败点
-     * 定位在队列、而不是每一个确认读者。
+     * <p>带主人范围的确认授予只答调用者本人的队列。旁边的「本人面」照旧收窄；队列现在与它一致。
      */
     @Test
-    void anOwnerScopedConfirmationGrantIsDeclaredOwnButAnswersTheWholeQueue() {
+    void anOwnerScopedConfirmationGrantAnswersOnlyTheCallersOwnQueue() {
         assertEquals(PermissionCapabilityList.SCOPE_OWN,
                 authorizer.capabilityFor(BOB, GovernanceReadSubjects.CONFIRMATION).scope(),
                 "the capability list promises a row-level owner condition");
 
         as(BOB);
 
-        assertTrue(queueTokens().contains(aliceToken),
-                "DEFECT: the queue lists another tenant's pending confirmation under an own-scoped grant");
+        List<String> queued = queueTokens();
+        assertFalse(queued.contains(aliceToken),
+                "the queue must not list another tenant's pending confirmation");
+        assertTrue(queued.contains(bobToken), "the caller's own confirmation is still there");
         assertFalse(tokens(myConfirmations.mine(null)).contains(aliceToken),
-                "the operator's own face is correctly narrowed, so the leak is the queue's");
+                "the operator's own face stays narrow");
     }
 
     /**
-     * The contrast that locates the defect: the same kind of owner-scoped grant on the ledger is
-     * enforced. A non-global reader sees its own rows, and naming another user does not lift the
-     * filter — the controller decides global-read from the capability's scope.
+     * The operations ledger follows the same rule as the AI chain: an owner-scoped grant sees only
+     * the caller's rows.
      *
-     * <p>定位缺陷的对照：账本上同样那种带主人范围的授予**是**被兑现的。非全局读者看到本人的行，点名
-     * 另一个用户也抬不掉过滤 —— 控制器从能力的 scope 判定是否全局读。
+     * <p>操作审计账与 AI 链同一条规则：带主人范围的授予只看本人的行。
      */
     @Test
-    void theSideEffectLedgerHonoursTheOwnerScopeTheOtherFacesIgnore() {
+    void anOwnerScopedOperationAuditGrantNarrowsToTheCallersOwnRows() {
+        assertEquals(PermissionCapabilityList.SCOPE_OWN,
+                authorizer.capabilityFor(BOB, GovernanceReadSubjects.OPERATION_AUDIT).scope(),
+                "the capability list promises a row-level owner condition");
+
+        as(BOB);
+
+        List<Long> visible = operationIds();
+        assertFalse(visible.contains(aliceOperationId),
+                "another tenant's operation row must not be visible");
+        assertTrue(visible.contains(bobOperationId), "the caller's own row is there");
+    }
+
+    /**
+     * The ledger applies the same rule: a non-global reader sees its own rows, and naming another
+     * user does not lift the filter.
+     *
+     * <p>台账同一条规则：非全局读者看到本人的行，点名另一个用户也抬不掉过滤。
+     */
+    @Test
+    void theSideEffectLedgerHonoursTheOwnerScopeToo() {
         assertEquals(PermissionCapabilityList.SCOPE_OWN,
                 authorizer.capabilityFor(BOB, GovernanceReadSubjects.TOOL_EFFECT).scope());
 
@@ -393,6 +438,8 @@ class ReadFaceTenantIsolationTest {
                     reader.userId() + " reaches the object across tenants (roster by design)");
             assertTrue(queueTokens().contains(aliceToken),
                     reader.userId() + " reads the queue across tenants (roster by design)");
+            assertTrue(operationIds().contains(aliceOperationId),
+                    reader.userId() + " reads the operations ledger across tenants (roster by design)");
             assertTrue(effectIds(null).contains(aliceEffectId),
                     reader.userId() + " reads the ledger across tenants (global read by design)");
         }
@@ -422,6 +469,15 @@ class ReadFaceTenantIsolationTest {
 
     private List<Long> effectIds(String requestedUser) {
         Map<String, Object> page = effectController.list(requestedUser, null, 1, 100);
+        List<Long> ids = new ArrayList<>();
+        for (Object item : (List<?>) page.get("items")) {
+            ids.add(((Number) ((Map<?, ?>) item).get("id")).longValue());
+        }
+        return ids;
+    }
+
+    private List<Long> operationIds() {
+        Map<String, Object> page = operationAuditController.logs(1, 100);
         List<Long> ids = new ArrayList<>();
         for (Object item : (List<?>) page.get("items")) {
             ids.add(((Number) ((Map<?, ?>) item).get("id")).longValue());

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package cn.com.keelbase.runtime.authz;
 
+import cn.com.keelbase.protocol.PermissionCapabilityList;
 import cn.com.keelbase.protocol.PermissionDecision;
 import cn.com.keelbase.runtime.identity.Principal;
 import cn.com.keelbase.runtime.scope.ScopeFilter;
@@ -45,6 +46,26 @@ public class OwnershipGuard {
                     "当前身份对 `" + subject + "` 没有 `" + action + "` 权限；请联系管理员在授权规则中"
                             + "授予 `" + subject + ":" + action + "`，或改用本人有权访问的资源");
         }
+    }
+
+    /**
+     * Whether the capability this principal holds on {@code subject} carries a row-level owner
+     * condition. A read face whose rows carry the caller's own id must then narrow to that caller:
+     * the capability list says {@code own}, and a face that answers every row makes that claim false.
+     *
+     * <p>This is the same question {@code EffectController} asks of the ledger's capability; it
+     * lives here so the audit, confirmation and operations faces cannot answer it differently.
+     *
+     * <p>本 principal 在 {@code subject} 上持有的能力是否带行级主人条件。行上带调用者本人 id 的读面此后
+     * 必须收窄到该调用者：能力清单说 {@code own}，而回出所有行的面会让这句话变成假话。
+     *
+     * <p>这也是 `EffectController` 对台账能力所问的同一个问题；放在这里，是为了让审计、确认与操作审计
+     * 三个面不可能各答各的。
+     */
+    public boolean ownerScoped(Principal principal, String subject) {
+        PermissionCapabilityList.Resource capability = authorizer.capabilityFor(principal, subject);
+        return capability != null
+                && PermissionCapabilityList.SCOPE_OWN.equals(capability.scope());
     }
 
     /**
