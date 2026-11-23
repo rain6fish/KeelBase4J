@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cn.com.keelbase.protocol.CanonicalJson;
 import cn.com.keelbase.runtime.audit.AuditLog;
 import cn.com.keelbase.runtime.audit.AuditLogRepository;
 import cn.com.keelbase.runtime.audit.ExecutionTraceHolder;
@@ -151,7 +152,12 @@ class ExecutionIdLinksTheThreeRowsTest {
                             throw new IllegalStateException("the probe calls did not meet", failed);
                         }
                     }
-                    return ToolResult.ok(Map.of("id", resultIds.incrementAndGet()));
+                    // A second field on purpose: a retry that answered with the id alone would drop
+                    // it, and that is the difference the retry test below measures.
+                    //
+                    // 刻意多一个字段：只拿 id 作答的重发会把它丢掉，而下面那条重发测试量的正是这个差别。
+                    return ToolResult.ok(Map.of("id", resultIds.incrementAndGet(),
+                            "note", "what the write produced"));
                 }
             };
         }
@@ -358,6 +364,64 @@ class ExecutionIdLinksTheThreeRowsTest {
         assertNotNull(originalId, "the effect keeps the id of the execution that wrote it");
         assertNotEquals(reuseId, originalId, "not the reusing attempt's");
         assertEquals(first.effectId(), effect.getId());
+    }
+
+    /**
+     * A retry gets the same answer and a different trail. The caller cannot read "this attempt wrote
+     * the row" out of the response — the status, the effect and the data are what the first call
+     * returned. The distinction is written down anyway: the retry is its own attempt, under its own
+     * execution id, and its result row is the one that says it reused the earlier write.
+     *
+     * <p><b>Which surface answers the caller's question is the point.</b> Answering it in the response
+     * would take a field the response object does not declare, and whether that field may be added is
+     * a contract decision rather than one this runtime settles by adding it. So the assertion below
+     * pins both halves: the answer is identical, and the trail is not. A test that only counted rows
+     * would stay green while the caller still could not tell, which is why both are asserted here.
+     *
+     * <p>一次重发拿到**同一个答案、另一条轨迹**。调用方从响应里读不出「这一笔是这次尝试写的」—— status、
+     * effect、以及 data，都是第一次调用返回的东西。区别仍然被写下来了：重发是**它自己的一次尝试**，有它
+     * 自己的 execution id，而它那行结果正是写着「复用了先前那次写」的那一行。
+     *
+     * <p><b>要点是：调用方的问题由哪个面来答。</b>要在响应里答，就得加一个响应对象**没有声明**的字段，而
+     * 那个字段能不能加，是**契约**层面的决定，不是本运行时「顺手加上」就能定的。故下面的断言**两半都钉**：
+     * 答案相同，轨迹不同。只数行的测试会在调用方仍然分辨不出时照旧通过，所以这里两半都断言。
+     */
+    @Test
+    void theRetryDiffersOnlyInItsAuditRowNotInTheAnswer() {
+        String caller = "exec-link-retry-answer";
+        String conversation = "conv-exec-link-retry-answer";
+        Principal principal = new Principal(caller, "user");
+
+        ExecutionOutcome first = engine.execute(TOOL, Map.of("slot", "retry"), principal, conversation);
+        ExecutionOutcome retried =
+                engine.execute(TOOL, Map.of("slot", "retry"), principal, conversation);
+
+        // Half one: what the caller holds does not say which attempt wrote the row.
+        //
+        // 第一半：调用方手里那份东西，说不出是哪一次尝试写的这一笔。
+        assertEquals(first.status(), retried.status(), "both attempts report the same status");
+        assertEquals(first.effectId(), retried.effectId(), "and point at the same effect");
+        assertEquals(CanonicalJson.json(first.data()), CanonicalJson.json(retried.data()),
+                "and answer with what the write produced — a retry that came back with the id alone "
+                        + "would drop every other field the first call returned");
+
+        // Half two: the trail does say it, and says it once.
+        //
+        // 第二半：轨迹说得出，而且只说一次。
+        List<AuditLog> results = auditLogs.findByConversationIdOrderByIdAsc(conversation).stream()
+                .filter(row -> "executed".equals(row.getOutcome()))
+                .toList();
+        assertEquals(2, results.size(), "both attempts recorded a result");
+        assertNotEquals(results.get(0).getExecutionId(), results.get(1).getExecutionId(),
+                "the retry is its own attempt, so it does not inherit the first one's id");
+        List<AuditLog> reuses = results.stream()
+                .filter(row -> row.getDetail().contains("reused"))
+                .toList();
+        assertEquals(1, reuses.size(),
+                "exactly one of the two rows says it reused the earlier write — this is the only "
+                        + "place the difference between the two calls is written down");
+        assertTrue(reuses.get(0).getDetail().contains("effect " + first.effectId()),
+                "and that row names the effect the first call wrote");
     }
 
     /**

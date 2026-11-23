@@ -35,6 +35,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The trust loop. Every AI tool call goes through here — there is no path that executes a tool
@@ -55,6 +56,12 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @Service
 public class GovernedExecutionEngine {
+
+    // The reader for the snapshots this class writes. The mapper is thread-safe, so one instance
+    // serves every caller.
+    //
+    // 本类写下的快照，用这一个读取器读回。mapper 线程安全，故一个实例够所有调用方用。
+    private static final JsonMapper SNAPSHOTS = JsonMapper.builder().build();
 
     private final ToolRegistry registry;
     private final GovernanceService governance;
@@ -862,10 +869,30 @@ public class GovernedExecutionEngine {
         audit.append("tool_call", principal.userId(),
                 tool.name() + " -> ok (effect " + existing.getId() + " reused: the same call)",
                 false, "executed", tool.name(), conversationId, authorization, executionId);
-        return ExecutionOutcome.executed(
-                existing.getResultId() == null
-                        ? null : Map.of("id", ResultIds.wire(existing.getResultId())),
-                existing.getId());
+        return ExecutionOutcome.executed(reusedData(existing), existing.getId());
+    }
+
+    /**
+     * What a retry is told the write produced: the snapshot captured at the moment it was produced,
+     * read back as the payload it was — not an id-only summary of that payload. The summary was the
+     * old answer, and it cost the caller every field the tool returned except the id.
+     *
+     * <p>The snapshot is the only copy of the tool's own result, and it is the right copy: it was
+     * taken while the result was still what this decision produced. A row written before that column
+     * existed ({@code V5}) has none, and for those the id is all there is to answer with.
+     *
+     * <p>重发被告知这次写产出了什么：**产出那一刻**捕获的快照，按它原本的载荷读回 —— 不是那份载荷的
+     * 「只有 id」摘要。摘要就是旧的答案，它让调用方丢掉了工具返回的、除 id 之外的每一个字段。
+     *
+     * <p>快照是工具自己那份结果的唯一副本，而它正是该用的那份：它是在结果**仍然是这次决策产出的样子**
+     * 时取的。快照列（`V5`）之前写下的行没有它，那些行能回的就只有 id。
+     */
+    private static Object reusedData(SideEffect existing) {
+        if (existing.getAfterSnapshot() != null) {
+            return SNAPSHOTS.readValue(existing.getAfterSnapshot(), Object.class);
+        }
+        return existing.getResultId() == null
+                ? null : Map.of("id", ResultIds.wire(existing.getResultId()));
     }
 
     /**
