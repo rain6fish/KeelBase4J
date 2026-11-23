@@ -1,0 +1,9 @@
+{
+  "id": 90402,
+  "userId": "2",
+  "action": "claim_release",
+  "detail": "release write claim #3 (proxy_send_payout, as user 1) → closed_unknown; note: two probes, both said not there; lookups: 2 asked (see releaseLookups)",
+  "isError": false,
+  "createdAt": "2026-11-23T15:37:56.000Z",
+  "releaseLookups": "{\"count\":2,\"items\":[{\"at\":\"2026-11-23T02:10:00.000Z\",\"conclusion\":\"not_executed\",\"reason\":null,\"lookedUpBy\":\"admin\"},{\"at\":\"2026-11-23T02:00:00.000Z\",\"conclusion\":\"not_executed\",\"reason\":null,\"lookedUpBy\":\"system:sweep\"}]}"
+}
