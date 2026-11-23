@@ -1,0 +1,91 @@
+{
+  "vectorVersion": "v1",
+  "protocol": "ai-audit-log-row v8 — the optional `releaseLookups` (F-85b). Shape: schemas/v8/ai-audit-log-row.schema.json",
+  "license": "Apache-2.0",
+  "note": "钉的是**这一列在行上的形状**，不是某个实现的措辞：`releaseLookups` 是一段 JSON **文本**（字符串），内容由产出方决定，消费方只要求它是字符串或 null。加性：不带这一列的行仍合法（v7 形态）；`null` 与省略等价；**非字符串被拒**；键集仍封闭，多一个未知键也被拒。\n\n本向量**刻意不规定**那段 JSON 的内部结构 —— 那是产出方的数据，契约只负责「这一列在行上长什么样」。判据：消费方拿自己的一行来跑 `cases`，合法的必须通过 v8 schema，不合法的必须被拒。",
+  "schema": "schemas/v8/ai-audit-log-row.schema.json",
+  "cases": [
+    {
+      "id": "release-with-evidence",
+      "name": "释放行带 releaseLookups（JSON 文本）⇒ 合法",
+      "in": {
+        "id": 90402,
+        "userId": "2",
+        "action": "claim_release",
+        "detail": "release write claim #3 (proxy_send_payout, as user 1) → closed_unknown; note: …; lookups: 2 asked (see releaseLookups)",
+        "isError": false,
+        "createdAt": "2026-11-23T15:37:56.000Z",
+        "releaseLookups": "{\"count\":2,\"items\":[{\"at\":\"2026-11-23T02:10:00.000Z\",\"conclusion\":\"not_executed\",\"reason\":null,\"lookedUpBy\":\"admin\"},{\"at\":\"2026-11-23T02:00:00.000Z\",\"conclusion\":\"not_executed\",\"reason\":null,\"lookedUpBy\":\"system:sweep\"}]}"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "release-without-evidence",
+      "name": "释放行不带这一列（v7 形态）⇒ 仍合法（加性）",
+      "in": {
+        "id": 90402,
+        "userId": "2",
+        "action": "claim_release",
+        "detail": "release write claim #3 (proxy_send_payout, as user 1) → closed_unknown; note: …; lookups: 2 asked (see releaseLookups)",
+        "isError": false,
+        "createdAt": "2026-11-23T15:37:56.000Z"
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "release-with-null",
+      "name": "显式 null ⇒ 合法（与省略等价）",
+      "in": {
+        "id": 90402,
+        "userId": "2",
+        "action": "claim_release",
+        "detail": "release write claim #3 (proxy_send_payout, as user 1) → closed_unknown; note: …; lookups: 2 asked (see releaseLookups)",
+        "isError": false,
+        "createdAt": "2026-11-23T15:37:56.000Z",
+        "releaseLookups": null
+      },
+      "expect": {
+        "legal": true
+      }
+    },
+    {
+      "id": "release-with-object",
+      "name": "传对象而不是 JSON 文本 ⇒ 拒（这一列的线上形状是字符串）",
+      "in": {
+        "id": 90402,
+        "userId": "2",
+        "action": "claim_release",
+        "detail": "release write claim #3 (proxy_send_payout, as user 1) → closed_unknown; note: …; lookups: 2 asked (see releaseLookups)",
+        "isError": false,
+        "createdAt": "2026-11-23T15:37:56.000Z",
+        "releaseLookups": {
+          "count": 0,
+          "items": []
+        }
+      },
+      "expect": {
+        "legal": false
+      }
+    },
+    {
+      "id": "unknown-key",
+      "name": "多一个未知键 ⇒ 拒（键集仍未封闭）",
+      "in": {
+        "id": 90402,
+        "userId": "2",
+        "action": "claim_release",
+        "detail": "release write claim #3 (proxy_send_payout, as user 1) → closed_unknown; note: …; lookups: 2 asked (see releaseLookups)",
+        "isError": false,
+        "createdAt": "2026-11-23T15:37:56.000Z",
+        "releaseLookupsEvidence": "{\"count\":2,\"items\":[{\"at\":\"2026-11-23T02:10:00.000Z\",\"conclusion\":\"not_executed\",\"reason\":null,\"lookedUpBy\":\"admin\"},{\"at\":\"2026-11-23T02:00:00.000Z\",\"conclusion\":\"not_executed\",\"reason\":null,\"lookedUpBy\":\"system:sweep\"}]}"
+      },
+      "expect": {
+        "legal": false
+      }
+    }
+  ]
+}
