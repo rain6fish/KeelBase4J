@@ -171,8 +171,8 @@ const check = async (hostDir) => {
 }
 
 /**
- * 把控制台读取器的句末锚从严格改成宽容（`)$/` → `)\s*$/`），用于自检的负向对照。
  * Turn the console reader's end anchor from strict to tolerant, for the self-test's negative control.
+ * 把控制台读取器的句末锚从严格改成宽容（`)$/` → `)\s*$/`），用于自检的负向对照。
  */
 const tolerant = (src) =>
   src
