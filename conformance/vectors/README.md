@@ -88,6 +88,14 @@ unnoticed.
   nothing and is not a push gate. Add `--contract ../keelbase-contract` to read tags from a local
   clone offline, and `--strict` to exit 1 on a reminder. Suggested cadence: weekly, e.g. a Monday
   03:00 cron — `0 3 * * 1 cd /path/to/KeelBase4J && bash scripts/check-pin-lag.sh --strict`.
+- **The push order is read, not enforced:** `node scripts/check-push-order.mjs` lines up the three
+  CT-4 moments — the contract tag push, this repository's pin bump and the push that carried it —
+  and says whether the order and the same-day rule are proven, broken or undecidable. `--online`
+  asks GitHub for the tag-push run (exact once `tag-lineage.yml` has run for that tag); offline it
+  uses the local fetch bound. `--strict` exits 1 only on a proven violation; undecidable stays 0.
+  Run it in the release window right after `check-pin-lag.sh` and keep the output in the release
+  record. It writes nothing and is deliberately not a gate: the three moments span two
+  repositories, so no single-repository CI can see the order.
 
 **中文**
 
@@ -102,6 +110,12 @@ unnoticed.
   它不编辑任何文件，也不是推送门禁。加 `--contract ../keelbase-contract` 可离线从本地克隆读 tag，
   加 `--strict` 让提醒时退出 1。建议频率：每周一次，例如周一 03:00 的 cron：
   `0 3 * * 1 cd /path/to/KeelBase4J && bash scripts/check-pin-lag.sh --strict`。
+- **推送顺序只读不拦：** `node scripts/check-push-order.mjs` 对齐 CT-4 的三个时刻——契约 tag 推送、
+  本仓的 pin bump、以及把这次 bump 带上去的那次推送——并给出顺序与同日规则是「已证成立」「已证违反」
+  还是「不可判」。`--online` 向 GitHub 要 tag 推送的运行（该 tag 跑过 `tag-lineage.yml` 后即精确）；
+  离线时用本地的 fetch 上界。`--strict` 只在证明违规时退出 1，不可判仍退出 0。发布窗口内紧跟
+  `check-pin-lag.sh` 跑一次，把输出留在发布记录里。它不写任何文件，且**有意**不是一道闸：三个时刻分处
+  两个仓库，任何单仓 CI 都看不见这个先后。
 
 > **Coverage note**: the snapshot mirrors the contract's own directory, so it can hold a
 > vector or schema that no Java test consumes. `confirmation-lifecycle-v1` is one: the lifecycle is
