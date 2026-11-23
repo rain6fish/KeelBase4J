@@ -81,7 +81,9 @@ import { fileURLToPath } from 'node:url';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const DAY_SECONDS = 86400;
-const LOCAL_OFFSET_SECONDS = 8 * 3600; // CT-4's "same day" is the operator's +0800 day.
+// CT-4's "same day" is the operator's +0800 day.
+// CT-4 的「同日」按操作者的 +0800 日历日。
+const LOCAL_OFFSET_SECONDS = 8 * 3600;
 
 function usage() {
   const text = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split(/\r?\n/);
@@ -234,7 +236,9 @@ function firstPushCarrying(dir, ref, sha) {
         lo = mid + 1;
       }
     }
-    if (found > 0 && contains(found - 1)) found = -1; // not monotone: fall through
+    // Not monotone: fall through to the linear scan.
+    // 非单调：退回线性扫描。
+    if (found > 0 && contains(found - 1)) found = -1;
   }
   if (found === -1) {
     found = entries.findIndex((_, i) => contains(i));
@@ -367,9 +371,13 @@ function judge(timeline) {
       );
     }
   } else if (upper !== null && upper <= bump) {
-    order = 'ok'; // push <= upper <= bump
+    // push <= upper <= bump
+    // 推送 ≤ 上界 ≤ bump
+    order = 'ok';
   } else if (lower > bump) {
-    order = 'violation'; // push >= lower > bump
+    // push >= lower > bump
+    // 推送 ≥ 下界 > bump
+    order = 'violation';
     findings.push(
       `the contract tag was created at ${formatLocal(lower)}, after the pin bump at ${formatLocal(bump)} — ` +
         'the contract push cannot have come first',
