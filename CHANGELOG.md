@@ -16,6 +16,12 @@ Each version is written in two blocks — English first, then Chinese — marked
 
 ### Changed
 
+- **The contract pin moves to `v1.23.0`, and the vendored snapshot follows it.** v1.23.0 carries the
+  audit row's v8 shape — an optional `releaseLookups` column on `claim_release` rows. The pin had
+  stayed on v1.22.0 while the snapshot already carried the v8 files, so the drift gate read five files
+  as extra or changed; the pin now names the version the snapshot was taken from, and
+  `scripts/sync-vectors.sh --check` reports no drift.
+
 - **`AuditService.append` now refuses an action outside the contract's closed vocabulary.** The row's
   `action` is checked against the `audit-payload` v4 enum (`AuditAction` in `keelbase4j-protocol`)
   before anything is written; an unknown word raises `UnknownAuditActionException` instead of being
@@ -52,6 +58,10 @@ Each version is written in two blocks — English first, then Chinese — marked
 **中文**
 
 ### 变更
+
+- **契约 pin 移到 `v1.23.0`，vendored 快照跟随。** v1.23.0 带着审计行的 v8 形态 —— `claim_release` 行上
+  一个可选的 `releaseLookups` 列。此前 pin 停在 v1.22.0，而快照已带着 v8 文件，于是漂移闸把五个文件读成
+  extra 或 changed；现在 pin 就是快照所取自的那个版本，`scripts/sync-vectors.sh --check` 报无漂移。
 
 - **`AuditService.append` 拒绝契约闭词表之外的动作。** 行的 `action` 在写入之前先对照 `audit-payload`
   v4 枚举（`keelbase4j-protocol` 的 `AuditAction`）检查；未知的词抛 `UnknownAuditActionException`，
