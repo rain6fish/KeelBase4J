@@ -15,9 +15,11 @@
 //     records a tag push: tags have no reflog, and `ls-remote` has no time.
 //   * Consumer pin bump — the commit that moved the pin. The commit date is NOT usable as a real
 //     clock: the post-commit hook in these repositories maps weekday 05:00-19:00 commit times into
-//     19:00-03:00 (author and committer both). The real time is the oldest `HEAD` reflog entry for
-//     that commit, which sits before the `commit (amend)` line the hook writes. This script prefers
-//     the reflog and falls back to the commit date marked `approx`.
+//     19:00-03:00 (author and committer both). It does that by amending, so the `HEAD` reflog entry
+//     that carries the bump's final sha is the `commit (amend)` line and its timestamp is the
+//     rewritten one. The real time sits on the entry that created the pre-amend commit: this script
+//     follows the amend's sha chain back to it, and falls back to the commit date marked `approx`
+//     when that entry cannot be proven.
 //   * Consumer push — the remote-tracking reflog (`update by push`) records the push itself. If the
 //     bump commit is not an ancestor of the tracked remote branch, it was never pushed.
 //
@@ -34,7 +36,7 @@
 //   node scripts/check-push-order.mjs --bump-commit <sha> # any consumer, including one whose pin is a submodule
 //   node scripts/check-push-order.mjs --strict            # exit 1 only on a proven violation
 //   node scripts/check-push-order.mjs --json              # machine-readable
-//   node scripts/check-push-order.mjs --self-test         # judge the built-in fixtures
+//   node scripts/check-push-order.mjs --self-test         # judge the built-in fixtures and the reflog reader
 //
 // Exit codes: 0 report-only (whatever it found) or an OK/UNDECIDED verdict under --strict;
 // 1 --strict and a proven violation; 2 usage or environment (no pin, no tag, not a clone).
@@ -51,9 +53,10 @@
 //     本地侧，克隆的 reflog 会记录一次把该 tag 取回来的 fetch；那个时刻是**上界**（tag 那时已经在
 //     远端了）。本地没有任何别的东西记录 tag 推送：tag 没有 reflog，`ls-remote` 没有时间。
 //   * 消费方 pin bump —— 移动 pin 的那笔提交。提交日期**不能**当作真实时钟：这些仓库的 post-commit
-//     钩子把工作日 05:00–19:00 的提交时间映射到 19:00–次日 03:00（作者与提交者同时改写）。真实时刻是
-//     该提交在 `HEAD` reflog 里**最早**的那条记录——它位于钩子写下的 `commit (amend)` 那条之前。
-//     本脚本优先用 reflog，取不到才退回提交日期并标 `approx`。
+//     钩子把工作日 05:00–19:00 的提交时间映射到 19:00–次日 03:00（作者与提交者同时改写）。钩子靠
+//     amend 做到这一点，于是带着 bump 最终 sha 的 `HEAD` reflog 条目就是 `commit (amend)` 那条，
+//     它的时间是被改写的那个。真实时刻落在创建 amend 前那笔提交的条目上：本脚本沿 amend 的 sha 链
+//     回溯到它；证不出该条目时退回提交日期并标 `approx`。
 //   * 消费方推送 —— 远端跟踪 reflog 的 `update by push` 记录的就是推送本身。若 bump 提交不是被跟踪
 //     远端分支的祖先，说明它从未被推送。
 //
@@ -67,7 +70,7 @@
 //   node scripts/check-push-order.mjs --bump-commit <sha> # 任意消费方，含 pin 是 submodule 的那种
 //   node scripts/check-push-order.mjs --strict            # 只有在**证明**违规时才退出 1
 //   node scripts/check-push-order.mjs --json              # 机器可读
-//   node scripts/check-push-order.mjs --self-test         # 用内置夹具跑判决
+//   node scripts/check-push-order.mjs --self-test         # 用内置夹具跑判决与 reflog 读数器
 //
 // 退出码：0 只报告（不论发现什么），或 `--strict` 下 OK/UNDECIDED；1 `--strict` 且证明违规；
 // 2 用法或环境问题（读不到 pin、没有 tag、不是克隆）。
@@ -247,39 +250,87 @@ function firstPushCarrying(dir, ref, sha) {
   return { epoch: entries[found].epoch, tip: entries[found].newSha, message: entries[found].message };
 }
 
-function realBumpTime(consumerDir, bump) {
-  const out = gitOrNull(consumerDir, [
-    'reflog',
-    'show',
-    'HEAD',
-    '--date=iso-strict',
-    '--format=%H%x09%gd%x09%gs',
-  ]);
-  if (out) {
-    const hits = [];
-    for (const line of out.split(/\r?\n/)) {
-      const [sha, selector] = line.split('\t');
-      if (sha !== bump.sha) continue;
-      const m = (selector || '').match(/@\{(.+)\}$/);
-      if (!m) continue;
-      hits.push(epochOf(m[1]));
-    }
-    if (hits.length) {
-      // Newest first; the oldest entry is before the hook's `commit (amend)`.
-      // 新在前；取最早那条——它位于钩子的 `commit (amend)` 之前。
-      return { epoch: hits[hits.length - 1], basis: 'exact' };
-    }
+// The post-commit hook amends every commit and stamps the rewrite with the mapped (rewritten)
+// committer date, so the HEAD reflog entry that carries the bump's final sha is the amend, and its
+// timestamp is not the real commit time. The real time is on the entry that created the pre-amend
+// commit: follow the amend's sha chain backwards until the entry is not an amend. Anything that
+// cannot be proven — a missing pre-image, a checkout instead of a commit, a chain that never
+// reaches a commit entry — returns null, so the caller can look in its other log, then fall back.
+// post-commit 钩子会把每笔提交 amend 一次，并给改写配上映射后的（被改写的）提交者时间，于是带着 bump
+// 最终 sha 的 HEAD reflog 条目是 amend 那条，它的时间不是真实提交时刻。真实时刻在创建 amend 前那笔提交
+// 的条目上：沿 amend 的 sha 链往回走，直到条目不再是 amend。证不出来的情况——前像不在日志里、命中的是
+// checkout 而非提交、或链始终没落到一条提交条目——返回 null，由调用方去查另一份日志，再退回。
+function bumpMomentFromReflog(entries, sha) {
+  const isAmend = (entry) => /^commit \(amend\)/.test(entry.message);
+  // Entries are chronological (oldest first), so the first match is the oldest operation that put
+  // this sha on HEAD — the commit itself, or, when the hook amended it, the amend.
+  // 条目按时间排列（旧在前），故第一条匹配就是把这个 sha 放上 HEAD 的最早操作——提交本身；被钩子
+  // amend 过时，就是 amend 那条。
+  let index = entries.findIndex((entry) => entry.newSha === sha);
+  if (index === -1) return null;
+  if (!isAmend(entries[index])) {
+    // A commit operation records the real committer date; a checkout or reset that merely moved HEAD
+    // here records a later moment, so it proves nothing about the creation. Another log may hold the
+    // commit itself — the caller looks there before falling back.
+    // 提交操作记的是真实提交者时间；只是把 HEAD 挪到这里的 checkout / reset 记的是更晚的时刻，证不出
+    // 提交何时产生。另一份日志里可能就有那笔提交本身——调用方先查它，再退回。
+    if (!/^commit/.test(entries[index].message)) return null;
+    return { epoch: entries[index].epoch, basis: 'exact' };
   }
-  // A linked worktree has its own HEAD log; the commit may have been made in the main checkout,
-  // whose log sits in the common git dir. Reading it keeps the reading exact instead of `approx`.
-  // 链接 worktree 有它自己的 HEAD 日志；该提交可能是在主检出里产生的，其日志在公共 git 目录。
-  // 读它可以让读数保持 exact，而不是退回 `approx`。
+  while (isAmend(entries[index])) {
+    const before = entries[index].oldSha;
+    let previous = -1;
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (entries[i].newSha === before) {
+        previous = i;
+        break;
+      }
+    }
+    if (previous === -1) return null;
+    index = previous;
+  }
+  // Any non-amend commit operation records the real committer date — `commit:`, `commit (initial):`,
+  // `commit (merge):` and so on; only the amend rewrote it. Anything else is not the commit itself.
+  // 任何非 amend 的提交操作记的都是真实提交者时间——`commit:`、`commit (initial):`、`commit (merge):`
+  // 等；只有 amend 改写过它。其它操作不是那笔提交本身。
+  if (!/^commit/.test(entries[index].message)) return null;
+  return { epoch: entries[index].epoch, basis: 'exact' };
+}
+
+// The older, looser reading, kept for commits whose creation this clone never logged as a commit
+// (a rebase pick, a fetch, a clone): the oldest entry that moved HEAD to the sha, exact — but never
+// an amend, whose timestamp is the hook's rewrite rather than a clock.
+// 较宽松的旧口径，留给本克隆从未以「提交操作」记录过其产生的提交（rebase 摘取、fetch、clone）：取最早
+// 把 HEAD 挪到该 sha 的条目，标 exact——但绝不取 amend，它的时间戳是钩子的改写而不是时钟。
+function fallbackBumpMoment(entries, sha) {
+  const hit = entries.find((entry) => entry.newSha === sha);
+  if (!hit || /^commit \(amend\)/.test(hit.message)) return null;
+  return { epoch: hit.epoch, basis: 'exact' };
+}
+
+// A linked worktree has its own HEAD log; a commit made in the main checkout — or a worktree entered
+// on someone else's branch — leaves only a `checkout` entry here and the commit itself in the common
+// log. Look for a proven creation in every log first, so a later checkout cannot stand in for it.
+// 链接 worktree 有它自己的 HEAD 日志；在主检出里做的提交——或在别人的分支上进入 worktree——在本日志里
+// 只留下一条 `checkout`，提交本身在公共日志。先在每一份日志里找可证明的创建时刻，免得一条更晚的 checkout
+// 顶替了它。
+function realBumpTime(consumerDir, bump) {
+  const files = [];
+  const own = reflogPath(consumerDir, 'HEAD');
+  if (own) files.push(own);
   const common = gitOrNull(consumerDir, ['rev-parse', '--git-common-dir']);
   if (common) {
-    const logFile = path.resolve(consumerDir, common, 'logs/HEAD');
-    const entries = parseRawReflog(logFile);
-    const hit = entries.find((entry) => entry.newSha === bump.sha);
-    if (hit) return { epoch: hit.epoch, basis: 'exact' };
+    const shared = path.resolve(consumerDir, common, 'logs/HEAD');
+    if (!files.includes(shared)) files.push(shared);
+  }
+  const logs = files.map((file) => parseRawReflog(file));
+  for (const entries of logs) {
+    const proven = bumpMomentFromReflog(entries, bump.sha);
+    if (proven) return proven;
+  }
+  for (const entries of logs) {
+    const loose = fallbackBumpMoment(entries, bump.sha);
+    if (loose) return loose;
   }
   return { epoch: epochOf(bump.commitDate), basis: 'approx' };
 }
@@ -522,6 +573,131 @@ const SELF_TEST_CASES = [
   },
 ];
 
+// The judge fixtures above exercise `judge()`; the defect this file was fixed for lives in how the
+// bump moment is read out of the reflog, which `judge()` never sees. These fixtures run that reader
+// directly. The two constants are the seconds of the incident this reader was fixed for — the real
+// commit time and the value the hook's amend mapped it to (2026-11-23, KeelBase `2ea7f597`).
+// 上面的判决夹具只练 `judge()`；本文件修的那个缺陷在「从 reflog 读出 bump 时刻」这一步，而 `judge()`
+// 看不到它。下面这些夹具直接跑那个读数器。两个常量取自本读数器因之而修的那次事故——真实提交时刻，以及
+// 钩子 amend 映射出的那个（2026-11-23，KeelBase `2ea7f597`）。
+const REAL_SECOND = epochOf('2026-11-23T13:33:06+08:00');
+const REWRITTEN_SECOND = epochOf('2026-11-23T23:53:06+08:00');
+const SHA_P = '1'.repeat(40);
+const SHA_A = '2'.repeat(40);
+const SHA_B = '3'.repeat(40);
+const SHA_C = '4'.repeat(40);
+
+const REFLOG_TEST_CASES = [
+  {
+    name: 'unamended commit: the oldest matching entry, exact',
+    run: () =>
+      bumpMomentFromReflog(
+        [
+          { oldSha: SHA_P, newSha: SHA_A, epoch: REAL_SECOND, message: 'commit: move the pin' },
+          { oldSha: SHA_A, newSha: SHA_B, epoch: REWRITTEN_SECOND, message: 'checkout: moving from wip to main' },
+        ],
+        SHA_A,
+      ),
+    expect: { epoch: REAL_SECOND, basis: 'exact' },
+  },
+  {
+    name: 'hook-amended commit: the pre-amend commit time, never the amend',
+    run: () =>
+      bumpMomentFromReflog(
+        [
+          // A repository's first commit says `commit (initial)`, not `commit`.
+          // 仓库的第一笔提交写作 `commit (initial)`，不是 `commit`。
+          { oldSha: SHA_P, newSha: SHA_A, epoch: REAL_SECOND, message: 'commit (initial): move the pin' },
+          { oldSha: SHA_A, newSha: SHA_B, epoch: REWRITTEN_SECOND, message: 'commit (amend): move the pin' },
+        ],
+        SHA_B,
+      ),
+    expect: { epoch: REAL_SECOND, basis: 'exact' },
+  },
+  {
+    name: 'amend on a commit that arrived by checkout: no proven reading',
+    run: () =>
+      bumpMomentFromReflog(
+        [
+          { oldSha: SHA_P, newSha: SHA_A, epoch: REAL_SECOND, message: 'checkout: moving from main to wip' },
+          { oldSha: SHA_A, newSha: SHA_B, epoch: REWRITTEN_SECOND, message: 'commit (amend): move the pin' },
+        ],
+        SHA_B,
+      ),
+    expect: null,
+  },
+  {
+    name: 'checkout-only hit: the proven reader refuses it',
+    run: () =>
+      bumpMomentFromReflog(
+        [{ oldSha: SHA_P, newSha: SHA_A, epoch: REAL_SECOND, message: 'checkout: moving from main to wip' }],
+        SHA_A,
+      ),
+    expect: null,
+  },
+  {
+    name: 'checkout-only hit: the loose fallback keeps the old reading',
+    run: () =>
+      fallbackBumpMoment(
+        [{ oldSha: SHA_P, newSha: SHA_A, epoch: REAL_SECOND, message: 'checkout: moving from main to wip' }],
+        SHA_A,
+      ),
+    expect: { epoch: REAL_SECOND, basis: 'exact' },
+  },
+  {
+    name: 'loose fallback never takes an amend timestamp',
+    run: () =>
+      fallbackBumpMoment(
+        [{ oldSha: SHA_A, newSha: SHA_B, epoch: REWRITTEN_SECOND, message: 'commit (amend): move the pin' }],
+        SHA_B,
+      ),
+    expect: null,
+  },
+  {
+    name: 'amended twice: still the original commit time',
+    run: () =>
+      bumpMomentFromReflog(
+        [
+          { oldSha: SHA_P, newSha: SHA_A, epoch: REAL_SECOND, message: 'commit: move the pin' },
+          { oldSha: SHA_A, newSha: SHA_B, epoch: REWRITTEN_SECOND, message: 'commit (amend): move the pin' },
+          { oldSha: SHA_B, newSha: SHA_C, epoch: REWRITTEN_SECOND + 10, message: 'commit (amend): move the pin' },
+        ],
+        SHA_C,
+      ),
+    expect: { epoch: REAL_SECOND, basis: 'exact' },
+  },
+  {
+    name: 'amend whose pre-image is not in the log: no exact reading',
+    run: () =>
+      bumpMomentFromReflog(
+        [{ oldSha: SHA_A, newSha: SHA_B, epoch: REWRITTEN_SECOND, message: 'commit (amend): move the pin' }],
+        SHA_B,
+      ),
+    expect: null,
+  },
+  {
+    name: 'sha absent from the log: no exact reading',
+    run: () =>
+      bumpMomentFromReflog(
+        [{ oldSha: SHA_P, newSha: SHA_A, epoch: REAL_SECOND, message: 'commit: move the pin' }],
+        SHA_C,
+      ),
+    expect: null,
+  },
+  {
+    name: 'no HEAD log at all: the commit date, marked approx',
+    // realBumpTime() is run rather than the pure reader: a directory that is not a clone has no
+    // reflog, so this is the fallback path.
+    // 这里直接跑 realBumpTime()：不是克隆的目录没有 reflog，跑的就是回退那条路。
+    run: () =>
+      realBumpTime(path.join(SCRIPT_DIR, '.self-test-no-clone'), {
+        sha: SHA_B,
+        commitDate: '2026-11-08T10:00:00+08:00',
+      }),
+    expect: { epoch: epochOf('2026-11-08T10:00:00+08:00'), basis: 'approx' },
+  },
+];
+
 function selfTest() {
   let failures = 0;
   for (const testCase of SELF_TEST_CASES) {
@@ -531,11 +707,24 @@ function selfTest() {
     process.stdout.write(`${ok ? 'PASS' : 'FAIL'}  ${testCase.name}: ${verdict.status} (expected ${testCase.expect})\n`);
     if (!ok) for (const f of verdict.findings) process.stdout.write(`      ${f}\n`);
   }
+  const show = (moment) => (moment === null ? 'no reading' : `${moment.epoch} (${moment.basis})`);
+  for (const testCase of REFLOG_TEST_CASES) {
+    const got = testCase.run();
+    const ok =
+      testCase.expect === null
+        ? got === null
+        : Boolean(got) && got.epoch === testCase.expect.epoch && got.basis === testCase.expect.basis;
+    if (!ok) failures += 1;
+    process.stdout.write(`${ok ? 'PASS' : 'FAIL'}  ${testCase.name}: ${show(got)} (expected ${show(testCase.expect)})\n`);
+  }
   if (failures) {
     process.stdout.write(`self-test: ${failures} case(s) did not match\n`);
     process.exit(1);
   }
-  process.stdout.write(`self-test: ${SELF_TEST_CASES.length}/${SELF_TEST_CASES.length} cases match\n`);
+  process.stdout.write(
+    `self-test: ${SELF_TEST_CASES.length}/${SELF_TEST_CASES.length} judge and ` +
+      `${REFLOG_TEST_CASES.length}/${REFLOG_TEST_CASES.length} reflog cases match\n`,
+  );
   process.exit(0);
 }
 
