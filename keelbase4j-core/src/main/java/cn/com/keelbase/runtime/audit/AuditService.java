@@ -64,6 +64,22 @@ public class AuditService {
         this(repository, heads, policy, chainKey, traceLinks, null, AuditReadLimits.defaults());
     }
 
+    /**
+     * The published six-argument shape, kept for the same reason the shorter {@code append} overloads
+     * are: an artifact already compiled against it must still link. The deployment values arrive only
+     * through the Spring constructor below; this one uses the documented defaults.
+     *
+     * <p>已发布的六参形状，保留的理由与更短的 {@code append} 重载相同：已对着它编译的产物必须仍能链接。
+     * 部署值只经下面那个 Spring 构造器进入；这一个使用文档中的默认值。
+     */
+    public AuditService(AuditLogRepository repository, AuditChainHeadRepository heads,
+                        GovernancePolicyStore policy,
+                        @Value("${keelbase.audit.hmac-key}") String chainKey,
+                        ExecutionTraceLinkService traceLinks,
+                        SideEffectRepository sideEffects) {
+        this(repository, heads, policy, chainKey, traceLinks, sideEffects, AuditReadLimits.defaults());
+    }
+
     @Autowired
     public AuditService(AuditLogRepository repository, AuditChainHeadRepository heads,
                         GovernancePolicyStore policy,
