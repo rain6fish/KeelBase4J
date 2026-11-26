@@ -409,18 +409,13 @@ public class AuditService {
         int skip = readLimits.offset(offset);
         Specification<AuditLog> filter = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            if (userId != null) {
-                predicates.add(cb.equal(root.get("userId"), userId));
-            }
-            if (since != null) {
-                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), since));
-            }
-            if (until != null) {
-                predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), until));
-            }
-            if (isError != null) {
-                predicates.add(cb.equal(root.get("error"), isError));
-            }
+            // The same scope the object scan's window is cut with, from one definition: if the two
+            // lists ever diverge, the scan would select a window this page then filters differently,
+            // and rows would silently disappear from the page.
+            //
+            // 与对象扫描切窗口所用的同一个范围，出自同一份定义：两份谓词一旦分叉，扫描选出的窗口会被这一页
+            // 按另一套规则再过滤，行就会从页里悄悄消失。
+            addScope(predicates, root, cb, since, until, userId, isError);
             if (objectRowIds != null) {
                 predicates.add(root.get("id").in(objectRowIds));
             }
