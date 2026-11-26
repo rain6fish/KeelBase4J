@@ -35,6 +35,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -889,7 +890,19 @@ public class GovernedExecutionEngine {
      */
     private static Object reusedData(SideEffect existing) {
         if (existing.getAfterSnapshot() != null) {
-            return SNAPSHOTS.readValue(existing.getAfterSnapshot(), Object.class);
+            try {
+                return SNAPSHOTS.readValue(existing.getAfterSnapshot(), Object.class);
+            } catch (JacksonException unreadable) {
+                // The snapshot column is free-form text a host may have filled with something this
+                // reader cannot parse. The retry has already been recorded as "ok" on the trail, so
+                // failing here would answer 500 for a write that landed — and would keep doing so for
+                // every later retry of the same call.
+                //
+                // 快照列是自由文本，宿主可能写进读不回来的东西；这一行已经按 "ok" 记在轨上，在这里抛出去
+                // 等于给一次已落地的写永远答 500，且同一调用的每次重发都会如此。
+                return existing.getResultId() == null
+                        ? null : Map.of("id", ResultIds.wire(existing.getResultId()));
+            }
         }
         return existing.getResultId() == null
                 ? null : Map.of("id", ResultIds.wire(existing.getResultId()));
