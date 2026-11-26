@@ -337,11 +337,11 @@ jobs:
         with:
           node-version: '22'
       # CI has no host checkout, so each gate is checked against itself here: the written definition must
-      # be internally consistent, and the source-level checker must catch all five drifts. The comparisons
-      # against the host writer and console run locally behind HOST_ENV=1.
-      # CI 没有宿主检出，故这里让每道闸各自自证：写下来的定义必须自洽，源码级检查器必须抓住五种漂移；
-      # 与宿主写入方/控制台的比对在本地 HOST_ENV=1 之后跑。
-      - name: The definition is internally consistent
+      # parse and carry the shape it declares, and the source-level checker must catch all five drifts. The
+      # comparisons against the host writer and console run locally behind HOST_ENV=1.
+      # CI 没有宿主检出，故这里让每道闸各自自证：写下来的定义必须能解析、且带着它声明的形状，源码级检查器
+      # 必须抓住五种漂移；与宿主写入方/控制台的比对在本地 HOST_ENV=1 之后跑。
+      - name: The definition file's shape holds
         run: node scripts/check-object-key-contract.mjs --strict --definition-only
       - name: Every claimed drift is caught
         run: node scripts/check-host-object-key.mjs --self-test
