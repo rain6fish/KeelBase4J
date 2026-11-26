@@ -33,6 +33,13 @@ Each version is written in two blocks — English first, then Chinese — marked
   recomputes their hashes without consulting the vocabulary. A conformance test pins the Java list to
   the vendored schema, so a contract bump that adds or removes a word fails there rather than drifting.
 
+- **The governance read faces now honour an owner-scoped grant.** When a capability for `AuditLog`,
+  `Confirmation` or `OperationAudit` carries an owner field, `GET /audit/logs` (including its object
+  search), `GET /ai/confirmations` and `GET /audit/operations/logs` narrow to the caller's own rows
+  instead of answering every caller's; a global reader keeps reading across callers. On the audit
+  face an owner-scoped grant that resolves to a principal with no local user id is refused with 403
+  rather than widened, because there is no key to narrow to.
+
 ### Fixed
 
 - **Both typed-object-key gates are kept, as the 2026-11-21 hold required.** The source-level checker
@@ -55,6 +62,11 @@ Each version is written in two blocks — English first, then Chinese — marked
   row's sentence when the ledger answers nothing, and applies the object filter before pagination.
   The internal execution id is not part of the frozen row shape or the hash payload.
 
+- **A repeated tool call answers with what the write produced.** An idempotent retry used to answer
+  with an id-only summary of the earlier write; it now returns the payload captured in that write's
+  after-snapshot, so the caller gets the fields the tool returned. A row from before the snapshot
+  column, or one whose snapshot is not readable, still answers with the id.
+
 **中文**
 
 ### 变更
@@ -71,6 +83,11 @@ Each version is written in two blocks — English first, then Chinese — marked
   本身就在词表内。**已在链上的行不受影响**：这道闸只覆盖新的写入，而校验仍只重算哈希、不查词表。
   一份符合性测试把 Java 词表钉在 vendored schema 上，故契约增删一个词会在那里失败，而不是两边漂开。
 
+- **治理读面现在兑现带主人范围的授予。** `AuditLog`、`Confirmation`、`OperationAudit` 的能力带 owner 字段
+  时，`GET /audit/logs`（含其对象检索）、`GET /ai/confirmations` 与 `GET /audit/operations/logs` 收窄到
+  调用者本人的行，而不是答所有调用方的；全局读者仍跨调用方读。审计面上，主人范围授予若解析到没有本地
+  user id 的 principal，则答 403 而**不放宽** —— 没有可收窄到的键。
+
 ### 修复
 
 - **带类型对象键的两道闸按 2026-11-21 的 hold 保留。** 源码级检查器（`scripts/check-host-object-key.mjs`）
@@ -86,6 +103,10 @@ Each version is written in two blocks — English first, then Chinese — marked
   起点、没有对象过滤，于是按一个业务对象去问的调用方会静默拿到更宽的列表。现在它声明 `until`、
   `objectType` 与 `objectId`，半个对象过滤回 400，经生成物自己的台账与内部执行 id 解析对象，台账答不出时
   回落到行末句子里那个带类型的键，并在分页之前施加对象过滤。内部执行 id 不进冻结的行形状，也不进哈希载荷。
+
+- **重复的工具调用按这次写产出了什么作答。** 幂等重发过去只回先前那次写的「只有 id」摘要；现在回那次写
+  的 after-snapshot 里捕获的载荷，调用方因此拿得到工具返回的字段。快照列之前写下的行、或快照读不回来的行，
+  仍只回 id。
 
 
 ## [0.1.20] - 2026-11-21
