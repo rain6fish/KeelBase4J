@@ -358,7 +358,15 @@ check_absent "without the other tool's rows" 'analyze_customer_risk' "$OBJ_LOGS"
 check_absent "and without a block, which is a mention rather than a write" 'create_followup blocked' "$OBJ_LOGS"
 check_absent "or the proposal that was still waiting on a person" 'pending confirmation' "$OBJ_LOGS"
 OBJ_ROWS=$(printf '%s' "$OBJ_LOGS" | grep -o '"id":' | wc -l | tr -d ' ')
-check "with exactly those three rows and nothing else" '3' "$OBJ_ROWS"
+# An exact comparison, not the substring helper: '' and 13/23/30 all contain the substring the
+# helper would search for, so a dropped filter or a widened answer would read as ok.
+# 用精确比较而非子串助手：'' 与 13/23/30 都含助手要搜的那个子串，故过滤被丢掉或答案被放宽都会读成 ok。
+if [ "$OBJ_ROWS" = "3" ]; then
+  echo "  ok   with exactly those three rows and nothing else"
+else
+  echo "  FAIL with exactly those three rows and nothing else -- got '$OBJ_ROWS' in: $OBJ_LOGS"
+  fail=1
+fi
 check "an object nothing wrote answers no rows, not the whole chain" '[]' \
   "$(curl -s -H "Authorization: Bearer $CAROL" "$BASE/audit/logs?objectType=follow_up&objectId=99999999")"
 check "half an object filter is refused rather than widened" '400' \

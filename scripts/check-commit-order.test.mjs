@@ -138,8 +138,12 @@ test('a bare merge is not reported and does not fail', () =>
 
 test('only commits inside the range are judged', () =>
   withRepo([ZH_FIRST], (dir) => {
-    const old = commitMessage(dir, EN_FIRST)
-    // The Chinese-first commit is the base itself, so it is outside `base..HEAD`.
+    // Capture the base *before* the clean commit: `commitMessage` returns the new HEAD, so taking it
+    // afterwards would leave an empty range and prove nothing about filtering.
+    // 在干净提交**之前**取基线：`commitMessage` 返回的是新的 HEAD，之后取会留下空区间、什么都证明不了。
+    const old = git(dir, ['rev-parse', 'HEAD']).trim()
+    commitMessage(dir, EN_FIRST)
+    // The Chinese-first commit is now HEAD~1, so it is outside `base..HEAD`.
     const r = run(['--base', old], dir)
     assert.equal(r.status, 0, r.stdout)
     assert.doesNotMatch(r.stdout, /\[order\]/)
