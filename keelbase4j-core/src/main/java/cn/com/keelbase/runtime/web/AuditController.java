@@ -192,11 +192,23 @@ public class AuditController {
         // caller answers the caller's own rows rather than theirs — the same rule the ledger
         // applies. A global reader keeps the request's filter.
         //
+        // An owner-scoped grant whose principal carries no local user id is refused rather than
+        // widened: `rows` drops the caller predicate when the id is null, so narrowing to null would
+        // answer every caller's rows. A host adapter that maps an OIDC subject without a local user
+        // id gets a 403, not a cross-caller read.
+        //
         // 带主人范围的授予在这里收窄到调用者，故点名别人的请求答的是调用者本人的行、不是那个人的 ——
         // 与台账同一条规则。全局读者保留请求里的筛选。
-        String scopedUser = guard.ownerScoped(principal, GovernanceReadSubjects.AUDIT_LOG)
-                ? principal.userId()
-                : userId;
+        //
+        // 带主人范围、而 principal 没有本地 user id 时**拒绝**而非放宽：id 为 null 时 `rows` 会丢掉
+        // 调用方谓词，收窄到 null 等于回出所有调用方的行。把 OIDC 主体映射成没有本地 user id 的宿主适配器，
+        // 得到的是 403，不是一次跨调用方的读。
+        boolean ownerScoped = guard.ownerScoped(principal, GovernanceReadSubjects.AUDIT_LOG);
+        if (ownerScoped && principal.userId() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "this grant is narrowed to the caller's own rows, but the caller carries no user id");
+        }
+        String scopedUser = ownerScoped ? principal.userId() : userId;
         // The ledger is asked within the same scope the answer is scoped to: a write that landed for
         // another caller, outside the period, or with a different outcome must not suppress the row
         // that names the object inside this request's scope.
