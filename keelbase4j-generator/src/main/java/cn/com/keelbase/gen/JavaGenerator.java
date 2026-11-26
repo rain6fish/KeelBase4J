@@ -4758,24 +4758,9 @@ public class JavaGenerator {
                     }
 
                     /**
-                     * The reference reads this with {@code new Date(...)}, which takes a date and a
-                     * date-time alike; a deployment off by a day is worse than one that says so.
-                     *
-                     * 参照实现用 {@code new Date(...)} 解析它，日期与日期时间都收；一个**差了一天**的部署比一个
-                     * **说明自己读不懂输入**的部署更糟。
-                     */
-                    private static Instant since(String text) {
-                        return instant("since", text);
-                    }
-
-                    /** The same parser, for the closed end of the period. / 同一个解析器，用于区间的闭合端。 */
-                    private static Instant until(String text) {
-                        return instant("until", text);
-                    }
-
-                    /**
-                     * The reference parses both bounds with {@code new Date(...)}; the parser names the
-                     * field it is refusing, so a bad {@code until} does not read as a bad {@code since}.
+                     * The reference parses both bounds with {@code new Date(...)}, which takes a date
+                     * and a date-time alike; the parser names the field it is refusing, so a bad
+                     * {@code until} does not read as a bad {@code since}.
                      *
                      * 参照实现用 {@code new Date(...)} 解析两个边界；这个解析器**点名**它拒绝的是哪个字段，故
                      * 一个坏的 {@code until} 不会被读成一个坏的 {@code since}。
