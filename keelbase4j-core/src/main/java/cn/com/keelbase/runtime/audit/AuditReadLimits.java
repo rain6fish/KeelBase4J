@@ -67,6 +67,17 @@ public class AuditReadLimits {
             throw new IllegalArgumentException(
                     "keelbase.audit.logs.max-offset must be 0 or more, got " + maxOffset);
         }
+        // window() adds the two, so their sum must stay an int; otherwise PageRequest would get a
+        // negative size on every request instead of this constructor refusing the setting.
+        //
+        // `window()` 把两者相加，故它们的和必须留在 int 范围；否则每个请求都会把负的页大小交给
+        // PageRequest，而不是由这个构造器拒绝该设置。
+        if (maxOffset > Integer.MAX_VALUE - maxLimit) {
+            throw new IllegalArgumentException(
+                    "keelbase.audit.logs.max-offset (" + maxOffset
+                            + ") plus keelbase.audit.logs.max-limit (" + maxLimit
+                            + ") must not overflow an int");
+        }
         if (defaultLimit > maxLimit) {
             throw new IllegalArgumentException(
                     "keelbase.audit.logs.default-limit (" + defaultLimit
@@ -94,8 +105,11 @@ public class AuditReadLimits {
         return maxOffset;
     }
 
-    /** A requested page size, resolved against the default and clamped into {@code [1, maxLimit]}. */
-    /** 所请求的页大小，按默认值解析并钳进 {@code [1, maxLimit]}。 */
+    /**
+     * A requested page size, resolved against the default and clamped into {@code [1, maxLimit]}.
+     *
+     * 所请求的页大小，按默认值解析并钳进 {@code [1, maxLimit]}。
+     */
     public int limit(Integer requested) {
         if (requested == null) {
             return defaultLimit;
