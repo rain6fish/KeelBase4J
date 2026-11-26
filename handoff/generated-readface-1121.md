@@ -83,4 +83,6 @@
 - 未新增「用生成物真实调用 `/audit/logs?objectType=...`」的端到端 demo 检查（demo 脚本不在
   「生成器与它的测试」范围）；本次以结构断言 + 生成物编译 + 既有 demo 的回归通过作证。
   若需要行为级端到端证据，建议在 `scripts/demo-generated-app.sh` 增加一节（下一项工作）。
+- **后续已补（2026-11-26 追记）**：`cb45c53` 把 14 条对象过滤与区间终点断言加进
+  `scripts/demo-generated-app.sh`，在现有生成器上实跑 121 ok / 0 fail。上面「下一项工作」已由该提交完成。
 
