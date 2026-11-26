@@ -200,7 +200,7 @@ function parseRawReflog(file) {
   if (!fs.existsSync(file)) return [];
   const entries = [];
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^([0-9a-f]{40}) ([0-9a-f]{40}) .*? (\d{9,}) ([+-]\d{4})\t(.*)$/);
+    const m = line.match(/^([0-9a-f]{40,64}) ([0-9a-f]{40,64}) .*? (\d{9,}) ([+-]\d{4})\t(.*)$/);
     if (!m) continue;
     entries.push({ oldSha: m[1], newSha: m[2], epoch: Number(m[3]), message: m[5] });
   }
@@ -881,7 +881,8 @@ function main() {
   }
 
   const verdict = judge(timeline);
-  printReport(opts, timeline, verdict, { tag, consumer: opts.consumer, contract: opts.contract });
+  printReport(opts, timeline, verdict,
+      { tag, branch: opts.branch, consumer: opts.consumer, contract: opts.contract });
 
   const exitCode = opts.strict && verdict.status === 'VIOLATION' ? 1 : 0;
   process.exit(exitCode);
