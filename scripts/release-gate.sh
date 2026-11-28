@@ -22,6 +22,9 @@
 #      self-test (`check-host-object-key.mjs`, five drifts) and the written definition
 #      (`conformance/typed-object-key.json`) both run by default; their host-writer/console comparisons
 #      sit behind `HOST_ENV=1` because they need the host checkout.
+#   9. the JDK build-number gate's own parser still tells a three-part version (`25.0.5+8`) from a
+#      four-part one (`17.0.20.1+1`) — the shape it used to mis-split. The live reading stays in CI:
+#      a machine whose JDK is below the line would otherwise turn this gate red for its environment.
 #
 # Five things are deliberately out of the default run, each for a reason rather than for time:
 #   * `demo-golden-path.sh` needs the main repository's Web-Admin-Vue checkout. A gate that depends on a
@@ -70,6 +73,8 @@
 #   8. 带类型对象键由**两道闸**同时守着：源码级检查器的自检（`check-host-object-key.mjs`，五种漂移）与
 #      写下来的单一定义（`conformance/typed-object-key.json`）都默认跑；与宿主写入方/控制台的比对放在
 #      `HOST_ENV=1` 之后，因为它们需要宿主检出。
+#   9. JDK 构建号闸自己的解析器仍分得清三段版本（`25.0.5+8`）与四段版本（`17.0.20.1+1`）—— 它此前
+#      拆错过的那种形状。**实读**留在 CI：否则一台 JDK 低于修复线的机器会让这道门禁因**环境**变红。
 #
 # 有五件事**有意**不在默认跑，理由各有其理、不是省时间：
 #   * `demo-golden-path.sh` 需要主仓的 Web-Admin-Vue 检出。门禁若依赖相邻仓库的工作树，就会在本就没有它
@@ -279,6 +284,21 @@ if grep -qE '^[[:space:]]*run: bash scripts/publish-signing-key\.sh[[:space:]]*$
 else
   gate "Release(release.yml 仍调用有界的脚本，且没有裸 gpg --send-keys)" fail \
     "release.yml 里找不到 run: bash scripts/publish-signing-key.sh，或仍有裸 --send-keys"
+fi
+
+# ── Security：JDK 构建号闸的解析自检（三段 / 四段形状）─────────────────────────────
+echo "→ [Security] JDK 构建号闸：三段 / 四段版本串的拆法与比较"
+# The gate's own parser is what decides whether a runner is below the fix line, so its regression is
+# checked here. The live reading is not asserted locally: this machine's JDK can legitimately be below
+# the line, and a gate that fails for its environment is one people learn to ignore.
+#
+# 决定 runner 是否低于修复线的正是这道闸自己的解析器，故它的回归在这里核。**实读**不在本地断言：
+# 本机的 JDK 可能确实低于修复线，而一道因环境变红的门禁是会被人们学会忽略的那种。
+if JDK_SELF=$(bash scripts/check-jdk-build.sh --self-test 2>&1); then
+  gate "Security(JDK 构建号闸自检：三段 / 四段)" pass
+else
+  gate "Security(JDK 构建号闸自检)" fail "check-jdk-build.sh --self-test"
+  echo "── 明细 — 自检输出尾部 ──"; printf '%s\n' "$JDK_SELF" | tail -n 40; echo "── /明细 ──"
 fi
 
 # ── Run / Adversarial：LLM 部分（需 LLM_ENV=1）────────────────────────────────
