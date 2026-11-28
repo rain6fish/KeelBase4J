@@ -10,6 +10,33 @@ by contract version; a number in this file never renames or re-versions a contra
 
 Each version is written in two blocks — English first, then Chinese — marked as such.
 
+## [Unreleased]
+
+**English**
+
+### Changed
+
+- **The contract pin moves to `v1.24.0`, and the vendored snapshot follows it.** v1.24.0 carries the
+  evidence package's v7 shape: `keelbase-audit-evidence/5` adds a required `releaseReadings` array and
+  `/6` adds a required `targetStatusReadings` array, both inside the package canonical, so a flipped
+  reading kind breaks the signature. The snapshot is re-copied from that tag and every file already
+  vendored stays — nothing is removed — and `scripts/sync-vectors.sh --check` reports no drift.
+
+- **The reactor version opens at `0.1.22-SNAPSHOT`.** The parent pom and the seven module poms move
+  together, so the next release window starts from one version everywhere.
+
+**中文**
+
+### 变更
+
+- **契约 pin 移到 `v1.24.0`，vendored 快照跟随。** v1.24.0 带着证据包的 v7 形态：
+  `keelbase-audit-evidence/5` 加一个必填的 `releaseReadings` 数组，`/6` 加一个必填的
+  `targetStatusReadings` 数组，两者都在证据包 canonical 里，故改一个读数种类会破签。快照从该 tag
+  重新复制，已引入的文件全部保留 —— 不删任何文件 —— 且 `scripts/sync-vectors.sh --check` 报无漂移。
+
+- **reactor 版本开口于 `0.1.22-SNAPSHOT`。** 父 pom 与七个模块 pom 一同移动，下一个发布窗口从处处的
+  同一个版本开始。
+
 ## [0.1.21] - 2026-11-26
 
 **English**

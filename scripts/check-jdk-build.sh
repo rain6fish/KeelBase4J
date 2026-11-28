@@ -16,9 +16,9 @@
 # silenced by editing the number down rather than by looking. The build it passes on is printed
 # either way, so the log says which one ran.
 #
-#   bash scripts/check-jdk-build.sh 17.0.21+9   # exit 0 at or above 17.0.21+9, 1 below it
+#   bash scripts/check-jdk-build.sh 17.0.21+9      # exit 0 at or above 17.0.21+9, 1 below it
 #   bash scripts/check-jdk-build.sh --tolerate-below 25.0.5+8
-#   bash scripts/check-jdk-build.sh --self-test # the comparisons, through a stand-in `java`
+#   bash scripts/check-jdk-build.sh --self-test
 #
 # Where this runs. `.github/workflows/ci.yml` asserts it in the conformance and release-rehearsal
 # jobs (both matrix legs), and `.github/workflows/release.yml` in the release job — the release one
@@ -36,10 +36,16 @@
 #
 # `--tolerate-below` records a below-fix-line build as `"verdict":"unverified"` and exits 0. It is for
 # one situation only: a leg whose *environment* is known to be below the line, where a red step is
-# read as a code failure and the state is lost. Today that is the JDK 25 leg on GitHub's runner,
-# until its image ships 25.0.5+8 (CTO ruling, 2026-11-28: keep the fix line, print the reading, do
-# not count the leg as code-green, re-verify after the runner is patched). It does not move the fix
-# line, and every other failure — no `Temurin-` line, a different major — still exits non-zero.
+# read as a code failure and the state is lost. No caller uses it today: the JDK 25 leg carried it
+# for a day on a reading that turned out to be the parser's, not the runner's — 25.0.5.1+2 is above
+# 25.0.5+8 — and the flag was withdrawn with that ruling (2026-11-28). It stays for the situation it
+# names, not as a way to quiet a red: it does not move the fix line, and every other failure — no
+# `Temurin-` line, a different major — still exits non-zero.
+#
+# `--self-test` checks the parse and the comparison against both version shapes — a three-part
+# version (`25.0.5+8`) and a four-part one (`17.0.20.1+1`) — by putting a stand-in `java` on PATH.
+# The parse used to hand the build number to the update slot for a three-part version, which compared
+# two different numbers whenever the shapes were mixed; the self-test reddens if that returns.
 #
 # Exit codes:
 #   0  at or above the fix line, or below it under `--tolerate-below` (verdict `unverified`)
@@ -60,9 +66,9 @@
 # 是一道红得说不出自己名字的闸 —— 那种红最后是被把数字改小消掉的，而不是被看出来的。无论哪种它都会打印
 # 通过的构建号，日志因此始终记着跑的是哪一个。
 #
-#   bash scripts/check-jdk-build.sh 17.0.21+9   # 不低于 17.0.21+9 退出 0，低于则退出 1
+#   bash scripts/check-jdk-build.sh 17.0.21+9      # 不低于 17.0.21+9 退出 0，低于则退出 1
 #   bash scripts/check-jdk-build.sh --tolerate-below 25.0.5+8
-#   bash scripts/check-jdk-build.sh --self-test # 借一个替身 `java` 跑那几种比较
+#   bash scripts/check-jdk-build.sh --self-test
 #
 # 它在哪里跑。`.github/workflows/ci.yml` 的 conformance 与 release-rehearsal 两个 job（两条 matrix 腿都跑），
 # 以及 `.github/workflows/release.yml` 的发布 job —— 发布那个最要紧，因为 tag 收不回来，而它发布的产物
@@ -77,9 +83,14 @@
 # 故不必读散文即可 grep。
 #
 # `--tolerate-below` 把低于修复线的构建记为 `"verdict":"unverified"` 并退出 0。它只为一件事存在：
-# 某条腿的**环境**已知低于修复线，此时红色步骤会被读成代码失败、状态反而丢失。当下就是 GitHub runner 上的
-# JDK 25 腿，直到其镜像带上 25.0.5+8（CTO 裁决，2026-11-28：保留修复线、输出读数、不计入代码绿、
-# runner 更新后复验）。它不移动修复线；其它失败（没有 `Temurin-` 行、大版本不同）在该腿上照样非零退出。
+# 某条腿的**环境**已知低于修复线，此时红色步骤会被读成代码失败、状态反而丢失。今天没有调用方：JDK 25 腿
+# 曾挂了一天，而它依据的读数是解析器给的、不是 runner 给的 —— `25.0.5.1+2` 在 `25.0.5+8` 之上 —— 旗随那次
+# 裁决一并撤回（2026-11-28）。它留着是为了它点名的那个情形，不是用来把红压掉的：它不移动修复线；
+# 其它失败（没有 `Temurin-` 行、大版本不同）照样非零退出。
+#
+# `--self-test` 用 PATH 上一个替身 `java`，把解析与比较对**两种版本形状**都跑一遍 —— 三段版本
+# （`25.0.5+8`）与四段版本（`17.0.20.1+1`）。此前的解析会把三段版本的构建号交给 update 槽，两种形状
+# 混用时就是拿两个不同的数去比；这条回归一旦回来，自测立刻变红。
 #
 # 退出码：
 #   0  不低于修复线，或低于修复线但带 `--tolerate-below`（verdict 为 `unverified`）
@@ -88,30 +99,53 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: bash scripts/check-jdk-build.sh [--tolerate-below] <major>.<minor>.<patch>[.<update>]+<build>  e.g. 17.0.21+9" >&2
+  echo "usage: bash scripts/check-jdk-build.sh [--tolerate-below] <major>.<minor>.<patch>[.<update>]+<build>" >&2
   echo "       bash scripts/check-jdk-build.sh --self-test" >&2
+  echo "  e.g. bash scripts/check-jdk-build.sh 17.0.21+9" >&2
   exit 2
 }
 
-# Split a `MAJOR.MINOR.PATCH[.UPDATE]+BUILD` word into its five numeric fields, empty `UPDATE` -> 0.
-# Prints nothing when the word does not have that shape, which the callers turn into a usage error.
+# Split a `MAJOR.MINOR.PATCH[.UPDATE]+BUILD` word into `major minor patch update build`, with UPDATE
+# defaulting to 0 so both version shapes compare in the same five slots. Prints nothing when the word
+# does not have that shape, which the callers turn into a usage error.
 #
-# The two shapes are matched separately so that every field printed is non-empty. One pattern with an
-# optional update group leaves a hole there, and whitespace splitting closes the hole by shifting the
-# build number into it: `25.0.5+8` was read as version 25.0.5.8 build 0, so Temurin 25.0.5.1+2 — newer
-# than the fix line — came out BELOW it while `17.0.21+9` against itself still passed, which is the
-# only reason this stayed hidden.
+# The field count, not a field position, is what separates the shapes: sed leaves an empty field where
+# UPDATE is missing, and awk's default field splitting collapses it — so a three-part version arrives
+# as four fields (build last) and a four-part one as five. The previous form defaulted the fourth
+# field by position, read the collapsed line as four fields, and handed `build` to `update`.
 #
-# 把 `MAJOR.MINOR.PATCH[.UPDATE]+BUILD` 拆成五个数字字段，缺省 `UPDATE` 为 0。形状不符时什么都不打印，
-# 调用方据此报用法错误。
+# 把 `MAJOR.MINOR.PATCH[.UPDATE]+BUILD` 拆成 `major minor patch update build`，UPDATE 缺省为 0，
+# 两种版本形状因此落在同样五个槽里比较。形状不对时什么都不打印，调用方把它转成用法错误。
 #
-# 两种形状分开匹配，好让打印出的每个字段都非空。用一条带可选更新组的模式会在那里留一个空位，而按空白切分
-# 会把空位合上、把构建号挪进去：`25.0.5+8` 曾被读成版本 25.0.5.8、构建号 0，于是比修复线更新的
-# Temurin 25.0.5.1+2 被算成低于它；而 `17.0.21+9` 与自身比较仍然通过，这正是它一直没被发现的原因。
+# 分开两种形状的是**字段个数**，不是某个字段的位置：UPDATE 缺失时 sed 留一个空字段，而 awk 默认的
+# 字段切分会把它合并掉 —— 于是三段版本到手是四个字段（build 在最后），四段版本是五个。此前的写法
+# 按位置给第四个字段填缺省、又把合并后的行读成四个字段，结果把 `build` 交给了 `update`。
 split_build() {
-  sed -nE \
-    -e 's/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)\+([0-9]+)$/\1 \2 \3 \4 \5/p' \
-    -e 's/^([0-9]+)\.([0-9]+)\.([0-9]+)\+([0-9]+)$/\1 \2 \3 0 \4/p' <<<"$1"
+  local fields
+  fields=$(sed -nE 's/^([0-9]+)\.([0-9]+)\.([0-9]+)(\.([0-9]+))?\+([0-9]+)$/\1 \2 \3 \5 \6/p' <<<"$1")
+  [ -n "$fields" ] || return 0
+  awk '{ if (NF == 4) print $1, $2, $3, 0, $4; else if (NF == 5) print }' <<<"$fields"
+}
+
+# Compare two split words field by field, most significant first. Prints `below`, `above` or `equal`;
+# prints `malformed` and returns 1 when either word does not carry five fields.
+#
+# 逐字段比较两个拆好的词，先比高位。打印 `below`、`above` 或 `equal`；任一词不足五个字段时打印
+# `malformed` 并返回 1。
+state_of() { # cur_fields req_fields
+  local -a cur req
+  read -r -a cur <<<"$1"
+  read -r -a req <<<"$2"
+  if [ "${#cur[@]}" -ne 5 ] || [ "${#req[@]}" -ne 5 ]; then
+    echo malformed
+    return 1
+  fi
+  local i
+  for i in 0 1 2 3 4; do
+    if ((cur[i] > req[i])); then echo above; return 0; fi
+    if ((cur[i] < req[i])); then echo below; return 0; fi
+  done
+  echo equal
 }
 
 # Print the one machine-readable line. `major` and `running` take the literal `null` when no
@@ -126,89 +160,101 @@ reading() { # major running fix_line state below verdict
     "$major" "$running_json" "$fix_line" "$state" "$below" "$verdict"
 }
 
-# A stand-in `java` printing the version lines a chosen build would print. The self-test runs this
-# script as a subprocess against these, so what is tested is the gate the workflows call — argument
-# handling, the Temurin line extraction and the comparison included — not a copy of its arithmetic.
-#
-# 一个替身 `java`，打印指定构建会打印的那几行版本串。自检把本脚本以子进程方式对这些替身跑，于是被测的是
-# 工作流真正调用的那道闸 —— 含参数处理、Temurin 行提取与比较 —— 而不是它算术的一份副本。
 self_test() {
-  local failures=0 tmp
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  local failures=0 tmp case_rc=0 last_out=
+  tmp=$(mktemp -d)
+  trap "rm -rf '$tmp'" EXIT
+  mkdir -p "$tmp/bin"
 
-  shim() { # name, version lines
-    local dir="$tmp/$1/bin"
-    mkdir -p "$dir"
-    {
-      printf '%s\n' '#!/usr/bin/env bash'
-      printf '%s\n' "cat >&2 <<'JAVA'"
-      printf '%s\n' "$2"
-      printf '%s\n' 'JAVA'
-    } >"$dir/java"
-    chmod +x "$dir/java"
-    printf '%s\n' "$dir"
+  # A stand-in `java` that prints whatever the case asks for, so the parse and the decision run end
+  # to end without a second JDK installed.
+  # 一个替身 `java`，按用例打印指定文本，于是解析与判定能端到端跑，不必装第二个 JDK。
+  cat > "$tmp/bin/java" <<'STANDIN'
+#!/usr/bin/env bash
+printf '%s\n' "${STANDIN_JAVA_VERSION:?STANDIN_JAVA_VERSION is not set}"
+STANDIN
+  chmod +x "$tmp/bin/java"
+
+  ok() { echo "  ok   $1"; }
+  fail() { echo "  FAIL $1" >&2; failures=$((failures + 1)); }
+
+  expect_split() { # word expected
+    local got
+    got=$(split_build "$1")
+    if [ "$got" = "$2" ]; then ok "split_build $1 -> $2"; else fail "split_build $1 -> '$got', wanted '$2'"; fi
   }
 
-  expect_rc() { # label, wanted-rc, actual-rc
-    if [ "$3" = "$2" ]; then
-      echo "  ok   $1 (exit $3)"
-    else
-      echo "  FAIL $1 (exit $3, wanted $2)" >&2
-      failures=$((failures + 1))
-    fi
+  expect_rc() { # label wanted actual
+    if [ "$3" = "$2" ]; then ok "$1 (exit $3)"; else fail "$1 (exit $3, wanted $2)"; fi
   }
 
-  run_case() { # label, wanted-rc, fix line, version lines [, extra args...]
-    local bin rc=0 label=$1 wanted=$2 fix=$3 versions=$4
-    shift 4
-    bin="$(shim "$label" "$versions")"
-    PATH="$bin:$PATH" bash "$0" "$@" "$fix" >/dev/null 2>&1 || rc=$?
-    expect_rc "$label" "$wanted" "$rc"
+  expect_out() { # label needle
+    if grep -qF -- "$2" <<<"$last_out"; then ok "$1"; else fail "$1 (missing '$2' in output)"; fi
   }
 
-  echo "self-test: the fix line read with and without an update component"
-  run_case 'update above the fix line' 0 25.0.5+8 \
-    'OpenJDK Runtime Environment Temurin-25.0.5.1+2 (build 25.0.5.1+2-LTS)'
-  run_case 'exactly the fix line' 0 25.0.5+8 \
-    'OpenJDK Runtime Environment Temurin-25.0.5+8 (build 25.0.5+8-LTS)'
-  run_case 'same patch, lower build' 1 25.0.5+8 \
-    'OpenJDK Runtime Environment Temurin-25.0.5+2 (build 25.0.5+2-LTS)'
-  run_case 'later patch, first build' 0 25.0.5+8 \
-    'OpenJDK Runtime Environment Temurin-25.0.6+1 (build 25.0.6+1-LTS)'
-  run_case 'update below an update fix line' 1 17.0.21+9 \
-    'OpenJDK Runtime Environment Temurin-17.0.20.1+1 (build 17.0.20.1+1-LTS)'
-  # Mixed shapes: a three-part running build against a four-part fix line. The two shapes used to be
-  # compared field-to-field in different slots, which answered "above" for a build that is below.
-  #
-  # 混用两种形状：三段的运行构建对四段的修复线。两种形状此前落在不同槽里逐字段比，把一个更低的构建
-  # 答成了「更高」。
-  run_case 'three-part build against a four-part fix line' 1 17.0.20.1+1 \
-    'OpenJDK Runtime Environment Temurin-17.0.20+5 (build 17.0.20+5-LTS)'
-  run_case 'another vendor reports no Temurin build' 1 25.0.5+8 \
-    'OpenJDK 64-Bit Server VM Zulu25.30+17 (build 25.0.5.1+2-LTS, mixed mode, sharing)'
-  run_case 'major other than the fix line' 1 25.0.5+8 \
-    'OpenJDK Runtime Environment Temurin-21.0.13+9 (build 21.0.13+9-LTS)'
-  run_case 'a below-line build under --tolerate-below' 0 25.0.5+8 \
-    'OpenJDK Runtime Environment Temurin-25.0.5+2 (build 25.0.5+2-LTS)' --tolerate-below
-  run_case '--tolerate-below still refuses an unreadable JDK' 1 25.0.5+8 \
-    'OpenJDK 64-Bit Server VM (build 25, mixed mode)' --tolerate-below
+  run_gate() { # java_version fix [extra args...]
+    local text=$1 fix=$2
+    shift 2
+    case_rc=0
+    last_out=$(PATH="$tmp/bin:$PATH" STANDIN_JAVA_VERSION="$text" bash "$0" "$@" "$fix" 2>&1) || case_rc=$?
+  }
 
-  # Clear the trap here rather than letting it run at script exit: `tmp` is local to this function,
-  # and under `set -u` a trap that outlives it fails the script with an unbound variable — a green
-  # self-test would then report exit 1.
-  #
-  # 在这里撤掉 trap，而不是让它留到脚本退出时跑：`tmp` 是本函数的局部变量，而 `set -u` 下比它活得久的
-  # trap 会以「未绑定变量」让脚本失败 —— 一次全过的自检反而报退出码 1。
-  rm -rf "$tmp"
-  trap - EXIT
+  # The shapes first. A three-part version must keep update at 0 and leave the build in the build
+  # slot — the regression this self-test exists for moved the build into update.
+  # 先测形状。三段版本必须让 update 保持 0、构建号留在 build 槽 —— 本自测要防的那条回归正是把构建号
+  # 挪进了 update。
+  expect_split "25.0.5+8" "25 0 5 0 8"
+  expect_split "17.0.20.1+1" "17 0 20 1 1"
+  expect_split "21.0.13+9" "21 0 13 0 9"
+  expect_split "25.0.5" ""
 
-  if [ "$failures" -ne 0 ]; then
+  run_gate "OpenJDK Runtime Environment Temurin-25.0.5+8 (build 25.0.5+8-LTS)" 25.0.5+8
+  expect_rc "at the fix line, three-part" 0 "$case_rc"
+  expect_out "at the fix line, three-part reading" '"jdk_below_fix_line":false'
+  expect_out "at the fix line, three-part verdict" '"verdict":"pass"'
+
+  run_gate "Temurin-25.0.5+7" 25.0.5+8
+  expect_rc "one build below the line" 1 "$case_rc"
+  expect_out "one build below the line reading" '"jdk_below_fix_line":true'
+  expect_out "one build below the line verdict" '"verdict":"below_fix_line"'
+
+  run_gate "Temurin-25.0.6+1" 25.0.5+8
+  expect_rc "a later version outranks an earlier build" 0 "$case_rc"
+
+  run_gate "Temurin-25.0.4.1+1" 25.0.5+8
+  expect_rc "a four-part version below the line" 1 "$case_rc"
+
+  run_gate "Temurin-25.0.5.1+1" 25.0.5+8
+  expect_rc "a four-part version at the line (update outranks build 0)" 0 "$case_rc"
+
+  # Mixed shapes. The old parse compared the three-part build against the four-part update and
+  # answered "above" for a build that is below.
+  # 混用两种形状。旧解析拿三段版本的构建号去比四段版本的 update，把一个更低的构建答成了「更高」。
+  run_gate "Temurin-17.0.20+5" 17.0.20.1+1
+  expect_rc "three-part version against a four-part fix line" 1 "$case_rc"
+
+  run_gate "Temurin-25.0.4.1+1" 25.0.5+8 --tolerate-below
+  expect_rc "below the line under --tolerate-below exits 0" 0 "$case_rc"
+  expect_out "below the line under --tolerate-below is named unverified" '"verdict":"unverified"'
+  expect_out "below the line under --tolerate-below keeps the reading" '"jdk_below_fix_line":true'
+
+  run_gate "OpenJDK 64-Bit Server VM (build 25, mixed mode)" 25.0.5+8 --tolerate-below
+  expect_rc "--tolerate-below does not tolerate an unreadable JDK" 1 "$case_rc"
+  expect_out "an unreadable JDK still has a verdict" '"verdict":"unreadable"'
+
+  run_gate "Temurin-21.0.13+9" 25.0.5+8 --tolerate-below
+  expect_rc "--tolerate-below does not tolerate another major" 1 "$case_rc"
+  expect_out "another major still has a verdict" '"verdict":"major_mismatch"'
+
+  case_rc=0
+  bash "$0" >/dev/null 2>&1 || case_rc=$?
+  expect_rc "no fix line is a usage error" 2 "$case_rc"
+
+  if [ "$failures" -gt 0 ]; then
     echo "self-test: $failures case(s) failed" >&2
     return 1
   fi
   echo "self-test: all cases passed"
-  return 0
 }
 
 tolerate=0
@@ -226,6 +272,9 @@ done
 
 # Accept the fix line as one word or as two (`17.0.21` `+9`), because a shell that is not bash can
 # take the bare `+9` for an operator instead of part of the word. Concatenating covers both.
+#
+# 修复线接受一个词或两个词（`17.0.21` `+9`），因为不是 bash 的 shell 会把裸 `+9` 当成运算符而非词的一部分。
+# 拼接一下两种都覆盖。
 [ "${#args[@]}" -ge 1 ] || usage
 [ "${#args[@]}" -le 2 ] || usage
 require="${args[0]}${args[1]:-}"
@@ -233,7 +282,7 @@ require="${args[0]}${args[1]:-}"
 
 req_fields=$(split_build "$require")
 [[ -n $req_fields ]] || usage
-read -r req_major req_minor req_patch req_update req_build <<<"$req_fields"
+read -r req_major _ <<<"$req_fields"
 
 java_version=$(java -version 2>&1 || true)
 printf '%s\n' "$java_version"
@@ -241,6 +290,9 @@ printf '%s\n' "$java_version"
 # `Temurin-` with a three-part version and a `+` build. The vendor prefix is part of the match on
 # purpose: a JDK from another vendor reports a build number in its own scheme, and reading it against
 # a Temurin fix line would be comparing two different numberings.
+#
+# `Temurin-` 加三段版本与 `+` 构建号。厂商前缀**有意**参与匹配：别家 JDK 报的构建号是它自己的一套编号，
+# 拿它去比 Temurin 修复线，比的是两套不同的编号。
 build_line=$(grep -E 'Temurin-[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?\+[0-9]+' <<<"$java_version" | head -n1 || true)
 
 if [[ -z $build_line ]]; then
@@ -253,13 +305,21 @@ fi
 
 running=$(sed -nE 's/.*Temurin-([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?\+[0-9]+).*/\1/p' <<<"$build_line" | head -n1)
 cur_fields=$(split_build "$running")
-[[ -n $cur_fields ]] || {
+if [[ -z $cur_fields ]]; then
   echo "check-jdk-build: could not split '$build_line' into a version and a build number." >&2
   echo "check-jdk-build: 无法从 '$build_line' 里拆出版本号与构建号。" >&2
   reading null null "$require" unknown null unreadable
   exit 1
-}
-read -r cur_major cur_minor cur_patch cur_update cur_build <<<"$cur_fields"
+fi
+
+cur_major=${cur_fields%% *}
+state=$(state_of "$cur_fields" "$req_fields") || state=malformed
+if [[ $state == malformed ]]; then
+  echo "check-jdk-build: could not compare '$running' with the fix line '$require'." >&2
+  echo "check-jdk-build: 无法把 '$running' 与修复线 '$require' 放在一起比较。" >&2
+  reading "$cur_major" "$running" "$require" unknown null unreadable
+  exit 1
+fi
 
 if [[ $cur_major != "$req_major" ]]; then
   echo "check-jdk-build: running JDK is major $cur_major, but the fix line given is for major $req_major." >&2
@@ -267,24 +327,6 @@ if [[ $cur_major != "$req_major" ]]; then
   reading "$cur_major" "$running" "$require" unknown null major_mismatch
   exit 1
 fi
-
-state=above # equal so far
-for i in 1 2 3 4 5; do
-  case $i in
-    1) cur=$cur_major req=$req_major ;;
-    2) cur=$cur_minor req=$req_minor ;;
-    3) cur=$cur_patch req=$req_patch ;;
-    4) cur=$cur_update req=$req_update ;;
-    5) cur=$cur_build req=$req_build ;;
-  esac
-  if ((cur > req)); then
-    state=above
-    break
-  elif ((cur < req)); then
-    state=below
-    break
-  fi
-done
 
 if [[ $state == below ]]; then
   echo "check-jdk-build: $running is BELOW the $require fix line (CVE-2026-91403 / CVE-2026-114820)." >&2
