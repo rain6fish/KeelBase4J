@@ -201,6 +201,13 @@ jobs:
           # 2026-11-24 抬到 v1.23.0，即带着审计行 v8 形态的那个发布。快照早已带着 v8 文件，而本 pin 仍写着
           # v1.22.0，于是本作业把其中五个读成漂移 —— 三个 extra、两份 registry。让它们可被 vendor 的正是
           # 「版本」，故抬起 pin 就是让两半重新一致的那一步。
+          #
+          # Raised to v1.24.0 on 2026-11-28, the release that signs the evidence package's reading
+          # kinds. The v7 files were already vendored, so only the pin moved, and the snapshot matches
+          # that tag exactly.
+          #
+          # 2026-11-28 抬到 v1.24.0，即把证据包的读数种类入签的那个发布。v7 文件早已引入，故这次只动了
+          # pin，快照与该 tag 逐字节一致。
           ref: v1.24.0
           path: contract-repo
       # Scenario packs are not part of the contract, so they are still taken from where they live —
