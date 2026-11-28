@@ -36,10 +36,11 @@
 #
 # `--tolerate-below` records a below-fix-line build as `"verdict":"unverified"` and exits 0. It is for
 # one situation only: a leg whose *environment* is known to be below the line, where a red step is
-# read as a code failure and the state is lost. Today that is the JDK 25 leg on GitHub's runner,
-# until its image ships 25.0.5+8 (CTO ruling, 2026-11-28: keep the fix line, print the reading, do
-# not count the leg as code-green, re-verify after the runner is patched). It does not move the fix
-# line, and every other failure — no `Temurin-` line, a different major — still exits non-zero.
+# read as a code failure and the state is lost. No caller uses it today: the JDK 25 leg carried it
+# for a day on a reading that turned out to be the parser's, not the runner's — 25.0.5.1+2 is above
+# 25.0.5+8 — and the flag was withdrawn with that ruling (2026-11-28). It stays for the situation it
+# names, not as a way to quiet a red: it does not move the fix line, and every other failure — no
+# `Temurin-` line, a different major — still exits non-zero.
 #
 # `--self-test` checks the parse and the comparison against both version shapes — a three-part
 # version (`25.0.5+8`) and a four-part one (`17.0.20.1+1`) — by putting a stand-in `java` on PATH.
@@ -82,9 +83,10 @@
 # 故不必读散文即可 grep。
 #
 # `--tolerate-below` 把低于修复线的构建记为 `"verdict":"unverified"` 并退出 0。它只为一件事存在：
-# 某条腿的**环境**已知低于修复线，此时红色步骤会被读成代码失败、状态反而丢失。当下就是 GitHub runner 上的
-# JDK 25 腿，直到其镜像带上 25.0.5+8（CTO 裁决，2026-11-28：保留修复线、输出读数、不计入代码绿、
-# runner 更新后复验）。它不移动修复线；其它失败（没有 `Temurin-` 行、大版本不同）在该腿上照样非零退出。
+# 某条腿的**环境**已知低于修复线，此时红色步骤会被读成代码失败、状态反而丢失。今天没有调用方：JDK 25 腿
+# 曾挂了一天，而它依据的读数是解析器给的、不是 runner 给的 —— `25.0.5.1+2` 在 `25.0.5+8` 之上 —— 旗随那次
+# 裁决一并撤回（2026-11-28）。它留着是为了它点名的那个情形，不是用来把红压掉的：它不移动修复线；
+# 其它失败（没有 `Temurin-` 行、大版本不同）照样非零退出。
 #
 # `--self-test` 用 PATH 上一个替身 `java`，把解析与比较对**两种版本形状**都跑一遍 —— 三段版本
 # （`25.0.5+8`）与四段版本（`17.0.20.1+1`）。此前的解析会把三段版本的构建号交给 update 槽，两种形状

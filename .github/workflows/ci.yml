@@ -141,23 +141,26 @@ jobs:
       # `25.0.5+8.0.LTS`，而它按精确版本查 `25.0.5+8` 会得到 404 —— 那正是 setup-java 发出的查询。
       # 一条装不起来的腿，是一道红得说不出自己名字的闸。
       #
-      # On the 25 leg the runner's build is below the line, and the ruling is to record that rather
-      # than hide it or lower the line: the gate runs with `--tolerate-below`, prints its reading, and
-      # the step summary names the leg UNVERIFIED, so the leg is not counted as code green. The fix
-      # line and every other failure — an unreadable JDK, a different major — still fail the step
-      # (CTO ruling, 2026-11-28; re-verify after the runner is patched).
+      # Both legs assert the line directly. The 25 leg carried `--tolerate-below` for one day, on the
+      # reading that the runner's build was below the line — and that reading was the parser's: a
+      # three-part fix line had its build number shifted into the update slot, so a four-part running
+      # JDK (`25.0.5.1+2`, above `25.0.5+8`) was compared in the wrong field and read as below. The
+      # parse is fixed and self-tested above, so the tolerance is gone rather than kept as a red that
+      # names the wrong reason (CTO ruling 2026-11-28, withdrawn the same day once the parse was shown
+      # to be the cause).
       #
-      # 25 那条腿所用 runner 的构建低于修复线，裁决是**记录**它：既不藏起来，也不降线。闸带
-      # `--tolerate-below` 跑、打印读数，步骤摘要把该腿点名 UNVERIFIED，故不计入代码绿。修复线与其它
-      # 所有失败 —— 读不出构建号的 JDK、大版本不同 —— 仍让这一步失败（CTO 裁决，2026-11-28；
-      # runner 更新后复验）。
+      # 两条腿都直接断言修复线。25 腿曾挂了一天的 `--tolerate-below`，依据是「runner 的构建低于修复线」
+      # 这个读数 —— 而那个读数是解析器给的：三段修复线的构建号被挪进了 update 槽，于是一个四段运行构建
+      # （`25.0.5.1+2`，在 `25.0.5+8` 之上）在错误的字段上被比较，被读成低于。解析已修好、并由上面的
+      # 自测看住，所以这面旗撤掉，而不是留着当一道说出错误理由的红（CTO 裁决 2026-11-28，当日查明成因是
+      # 解析后撤回）。
       #
       - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820 (JDK ${{ matrix.java }})
         run: |
           set -euo pipefail
           case "${{ matrix.java }}" in
-            17) fix=17.0.21+9; tolerate= ;;
-            25) fix=25.0.5+8; tolerate=--tolerate-below ;;
+            17) fix=17.0.21+9 ;;
+            25) fix=25.0.5+8 ;;
             *) echo "no fix line recorded for JDK ${{ matrix.java }}" >&2
                echo "widening the matrix means recording the fix line for the new major first" >&2
                exit 1 ;;
@@ -170,7 +173,7 @@ jobs:
           # 曾被左移一格，于是被读成低于一条它其实在之上的修复线。
           bash scripts/check-jdk-build.sh --self-test
           rc=0
-          out=$(bash scripts/check-jdk-build.sh $tolerate "$fix") || rc=$?
+          out=$(bash scripts/check-jdk-build.sh "$fix") || rc=$?
           printf '%s\n' "$out"
           reading=$(printf '%s\n' "$out" | grep '^jdk-build-gate: ' | tail -n1 || true)
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -n "$reading" ]; then
@@ -181,13 +184,6 @@ jobs:
               echo "$reading"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if printf '%s\n' "$reading" | grep -q '"verdict":"unverified"'; then
-            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "**UNVERIFIED — this leg's environment is below the $fix fix line; not counted as code green.**" >> "$GITHUB_STEP_SUMMARY"
-            fi
-            echo "::warning title=JDK ${{ matrix.java }} leg is unverified::the runner's build is below the $fix fix line (CVE-2026-91403 / CVE-2026-114820); recorded as unverified, not code green, and re-verified after the runner is patched (CTO ruling 2026-11-28)."
           fi
           exit "$rc"
 
@@ -521,17 +517,18 @@ jobs:
       # JDK 上构建出来」，所以发布真正会跑的那个构建值得被点名。为什么读构建号而不是版本串、为什么两条腿不钉
       # 死精确构建号，见 conformance job 里那段说明。
       #
-      # The 25 leg records a below-fix-line build the same way the conformance leg does — reading and
-      # step summary, not a lowered line, not a code-green claim (CTO ruling, 2026-11-28).
+      # Both legs assert the line directly, and the 25 leg's `--tolerate-below` was withdrawn together
+      # with conformance's: the reading it rested on was the parser's, not the runner's (see that job
+      # for the detail; CTO ruling 2026-11-28, withdrawn the same day).
       #
-      # 25 那条腿与 conformance 那条一样**记录**低于修复线的构建 —— 输出读数与步骤摘要，不降线、不声称
-      # 代码绿（CTO 裁决，2026-11-28）。
+      # 两条腿都直接断言修复线；25 腿的 `--tolerate-below` 随 conformance 那条一起撤掉 —— 它所依据的读数
+      # 是解析器给的，不是 runner 给的（细节见 conformance job；CTO 裁决 2026-11-28，当日撤回）。
       - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820 (JDK ${{ matrix.java }})
         run: |
           set -euo pipefail
           case "${{ matrix.java }}" in
-            17) fix=17.0.21+9; tolerate= ;;
-            25) fix=25.0.5+8; tolerate=--tolerate-below ;;
+            17) fix=17.0.21+9 ;;
+            25) fix=25.0.5+8 ;;
             *) echo "no fix line recorded for JDK ${{ matrix.java }}" >&2
                echo "widening the matrix means recording the fix line for the new major first" >&2
                exit 1 ;;
@@ -544,7 +541,7 @@ jobs:
           # 曾被左移一格，于是被读成低于一条它其实在之上的修复线。
           bash scripts/check-jdk-build.sh --self-test
           rc=0
-          out=$(bash scripts/check-jdk-build.sh $tolerate "$fix") || rc=$?
+          out=$(bash scripts/check-jdk-build.sh "$fix") || rc=$?
           printf '%s\n' "$out"
           reading=$(printf '%s\n' "$out" | grep '^jdk-build-gate: ' | tail -n1 || true)
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -n "$reading" ]; then
@@ -555,13 +552,6 @@ jobs:
               echo "$reading"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if printf '%s\n' "$reading" | grep -q '"verdict":"unverified"'; then
-            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "**UNVERIFIED — this leg's environment is below the $fix fix line; not counted as code green.**" >> "$GITHUB_STEP_SUMMARY"
-            fi
-            echo "::warning title=JDK ${{ matrix.java }} leg is unverified::the runner's build is below the $fix fix line (CVE-2026-91403 / CVE-2026-114820); recorded as unverified, not code green, and re-verified after the runner is patched (CTO ruling 2026-11-28)."
           fi
           exit "$rc"
       # The same count release.yml asserts, asserted here as well: there it is the last thing between
