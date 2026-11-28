@@ -132,6 +132,12 @@ jobs:
       # `25.0.5+8` answers 404 — which is the query setup-java makes. A leg that cannot be set up is
       # a red for a reason this gate does not name.
       #
+      # On the 25 leg the runner's build is below the line, and the ruling is to record that rather
+      # than hide it or lower the line: the gate runs with `--tolerate-below`, prints its reading, and
+      # the step summary names the leg UNVERIFIED, so the leg is not counted as code green. The fix
+      # line and every other failure — an unreadable JDK, a different major — still fail the step
+      # (CTO ruling, 2026-11-28; re-verify after the runner is patched).
+      #
       # 这条腿所用的 JDK 不只是构建输入，也是安全输入。CVE-2026-91403 与 CVE-2026-114820 的修复线是
       # Temurin 17.0.21+9 / 25.0.5+8，而 Oracle 的风险矩阵把**同样的版本串**（「17.0.21」）列在**受影响**
       # 版本里 —— 所以版本串回答不了这个问题，`+` 之后的构建号是这一行里唯一能回答它的部分。
@@ -140,12 +146,17 @@ jobs:
       # 两条腿**有意**仍挂在浮动的 `17` / `25` 大版本上。钉死精确构建号对 25 解析不出来：Adoptium 把它发布成
       # `25.0.5+8.0.LTS`，而它按精确版本查 `25.0.5+8` 会得到 404 —— 那正是 setup-java 发出的查询。
       # 一条装不起来的腿，是一道红得说不出自己名字的闸。
-      - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820
+      #
+      # 25 那条腿所用 runner 的构建低于修复线，裁决是**记录**它：既不藏起来，也不降线。闸带
+      # `--tolerate-below` 跑、打印读数，步骤摘要把该腿点名 UNVERIFIED，故不计入代码绿。修复线与其它
+      # 所有失败 —— 读不出构建号的 JDK、大版本不同 —— 仍让这一步失败（CTO 裁决，2026-11-28；
+      # runner 更新后复验）。
+      - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820 (JDK ${{ matrix.java }})
         run: |
           set -euo pipefail
           case "${{ matrix.java }}" in
-            17) fix=17.0.21+9 ;;
-            25) fix=25.0.5+8 ;;
+            17) fix=17.0.21+9; tolerate= ;;
+            25) fix=25.0.5+8; tolerate=--tolerate-below ;;
             *) echo "no fix line recorded for JDK ${{ matrix.java }}" >&2
                echo "widening the matrix means recording the fix line for the new major first" >&2
                exit 1 ;;
@@ -157,7 +168,27 @@ jobs:
           # 先让这道比较跑一遍自己的用例，再让它判这一次：运行构建带更新段（`25.0.5.1+2`）时，它的构建号
           # 曾被左移一格，于是被读成低于一条它其实在之上的修复线。
           bash scripts/check-jdk-build.sh --self-test
-          bash scripts/check-jdk-build.sh "$fix"
+          rc=0
+          out=$(bash scripts/check-jdk-build.sh $tolerate "$fix") || rc=$?
+          printf '%s\n' "$out"
+          reading=$(printf '%s\n' "$out" | grep '^jdk-build-gate: ' | tail -n1 || true)
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -n "$reading" ]; then
+            {
+              echo "### JDK ${{ matrix.java }} build gate"
+              echo ""
+              echo '```json'
+              echo "$reading"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if printf '%s\n' "$reading" | grep -q '"verdict":"unverified"'; then
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "**UNVERIFIED — this leg's environment is below the $fix fix line; not counted as code green.**" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "::warning title=JDK ${{ matrix.java }} leg is unverified::the runner's build is below the $fix fix line (CVE-2026-91403 / CVE-2026-114820); recorded as unverified, not code green, and re-verified after the runner is patched (CTO ruling 2026-11-28)."
+          fi
+          exit "$rc"
 
   vector-drift:
     name: Vendored snapshot matches its sources
@@ -488,12 +519,18 @@ jobs:
       # 与 conformance 相同的断言、同样的两条腿，在这里多一个理由：这个 job 回答的正是「一次发布会不会在这个
       # JDK 上构建出来」，所以发布真正会跑的那个构建值得被点名。为什么读构建号而不是版本串、为什么两条腿不钉
       # 死精确构建号，见 conformance job 里那段说明。
-      - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820
+      #
+      # The 25 leg records a below-fix-line build the same way the conformance leg does — reading and
+      # step summary, not a lowered line, not a code-green claim (CTO ruling, 2026-11-28).
+      #
+      # 25 那条腿与 conformance 那条一样**记录**低于修复线的构建 —— 输出读数与步骤摘要，不降线、不声称
+      # 代码绿（CTO 裁决，2026-11-28）。
+      - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820 (JDK ${{ matrix.java }})
         run: |
           set -euo pipefail
           case "${{ matrix.java }}" in
-            17) fix=17.0.21+9 ;;
-            25) fix=25.0.5+8 ;;
+            17) fix=17.0.21+9; tolerate= ;;
+            25) fix=25.0.5+8; tolerate=--tolerate-below ;;
             *) echo "no fix line recorded for JDK ${{ matrix.java }}" >&2
                echo "widening the matrix means recording the fix line for the new major first" >&2
                exit 1 ;;
@@ -505,7 +542,27 @@ jobs:
           # 先让这道比较跑一遍自己的用例，再让它判这一次：运行构建带更新段（`25.0.5.1+2`）时，它的构建号
           # 曾被左移一格，于是被读成低于一条它其实在之上的修复线。
           bash scripts/check-jdk-build.sh --self-test
-          bash scripts/check-jdk-build.sh "$fix"
+          rc=0
+          out=$(bash scripts/check-jdk-build.sh $tolerate "$fix") || rc=$?
+          printf '%s\n' "$out"
+          reading=$(printf '%s\n' "$out" | grep '^jdk-build-gate: ' | tail -n1 || true)
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -n "$reading" ]; then
+            {
+              echo "### JDK ${{ matrix.java }} build gate"
+              echo ""
+              echo '```json'
+              echo "$reading"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if printf '%s\n' "$reading" | grep -q '"verdict":"unverified"'; then
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "**UNVERIFIED — this leg's environment is below the $fix fix line; not counted as code green.**" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "::warning title=JDK ${{ matrix.java }} leg is unverified::the runner's build is below the $fix fix line (CVE-2026-91403 / CVE-2026-114820); recorded as unverified, not code green, and re-verified after the runner is patched (CTO ruling 2026-11-28)."
+          fi
+          exit "$rc"
       # The same count release.yml asserts, asserted here as well: there it is the last thing between
       # a mistake and Maven Central, here it is the first thing that notices one.
       - name: The publish set is still exactly four modules
