@@ -201,7 +201,7 @@ jobs:
           # 2026-11-24 抬到 v1.23.0，即带着审计行 v8 形态的那个发布。快照早已带着 v8 文件，而本 pin 仍写着
           # v1.22.0，于是本作业把其中五个读成漂移 —— 三个 extra、两份 registry。让它们可被 vendor 的正是
           # 「版本」，故抬起 pin 就是让两半重新一致的那一步。
-          ref: v1.23.0
+          ref: v1.24.0
           path: contract-repo
       # Scenario packs are not part of the contract, so they are still taken from where they live —
       # but at a version, not at `main`. Read at the branch tip, this gate's verdict for one commit

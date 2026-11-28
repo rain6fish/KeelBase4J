@@ -131,11 +131,13 @@
     },
     {
       "id": "evidence-package",
-      "version": "v6",
+      "version": "v7",
       "schema": "evidence-package.schema.json",
-      "title": "审计证据包 keelbase-audit-evidence/1|2|3|4（v6：新增 /4 —— 形状与 /3 逐字相同，另加一个必填 coverage 段「覆盖声明」；v3：signature 段扩为 oneOf[null, 字符串 HMAC, {hmac, sm2?}]，SM2 国密非对称验签）",
-      "source": "src/ai/audit/audit.service.ts:123-180; src/ai/audit/coverage.service.ts; scripts/verify-evidence.mjs",
+      "title": "审计证据包 keelbase-audit-evidence/1|2|3|4|5|6（v7：/5 包与 /6 证据根各加入签的读数种类段 releaseReadings / targetStatusReadings；v6：/4 加入签 coverage；v3：signature 段扩为 oneOf[null, 字符串 HMAC, {hmac, sm2?}]，SM2 国密非对称验签）",
+      "source": "src/governance-shared/services/audit-evidence.service.ts; src/governance-shared/services/coverage.service.ts; scripts/verify-evidence.mjs",
       "samples": [
+        "schemas/v7/samples/evidence-package-v5.json",
+        "schemas/v7/samples/evidence-package-v6.json",
         "schemas/v6/samples/evidence-package.json",
         "schemas/v3/samples/evidence-package.json",
         "schemas/v3/samples/evidence-package-legacy-signature.json"
