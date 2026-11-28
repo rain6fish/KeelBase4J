@@ -150,6 +150,13 @@ jobs:
                echo "widening the matrix means recording the fix line for the new major first" >&2
                exit 1 ;;
           esac
+          # The comparison runs its own cases before it is trusted with this one: a running build with
+          # an update component (`25.0.5.1+2`) once had its build number shifted a field to the left
+          # and was read as below a fix line it is above.
+          #
+          # 先让这道比较跑一遍自己的用例，再让它判这一次：运行构建带更新段（`25.0.5.1+2`）时，它的构建号
+          # 曾被左移一格，于是被读成低于一条它其实在之上的修复线。
+          bash scripts/check-jdk-build.sh --self-test
           bash scripts/check-jdk-build.sh "$fix"
 
   vector-drift:
@@ -482,6 +489,13 @@ jobs:
                echo "widening the matrix means recording the fix line for the new major first" >&2
                exit 1 ;;
           esac
+          # The comparison runs its own cases before it is trusted with this one: a running build with
+          # an update component (`25.0.5.1+2`) once had its build number shifted a field to the left
+          # and was read as below a fix line it is above.
+          #
+          # 先让这道比较跑一遍自己的用例，再让它判这一次：运行构建带更新段（`25.0.5.1+2`）时，它的构建号
+          # 曾被左移一格，于是被读成低于一条它其实在之上的修复线。
+          bash scripts/check-jdk-build.sh --self-test
           bash scripts/check-jdk-build.sh "$fix"
       # The same count release.yml asserts, asserted here as well: there it is the last thing between
       # a mistake and Maven Central, here it is the first thing that notices one.
