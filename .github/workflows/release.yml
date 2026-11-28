@@ -134,7 +134,14 @@ jobs:
       # CVE-2026-114820 在 Oracle 的风险矩阵里是按**版本串**列的，于是已修与受影响的两个构建的版本串一模一样。
       # 完整理由见 ci.yml 的 conformance job。
       - name: The JDK is at or above the fix line for CVE-2026-91403 / CVE-2026-114820
-        run: bash scripts/check-jdk-build.sh 17.0.21+9
+        run: |
+          # The comparison runs its own cases before it is trusted with this one — see the conformance
+          # job in ci.yml for the update-component case it now covers.
+          #
+          # 先让这道比较跑一遍自己的用例，再让它判这一次 —— 它现在覆盖的「带更新段」情形见 ci.yml 的
+          # conformance job。
+          bash scripts/check-jdk-build.sh --self-test
+          bash scripts/check-jdk-build.sh 17.0.21+9
 
 
       # ci.yml gates this on main and on pull requests, but a tag can be cut from a commit that never
