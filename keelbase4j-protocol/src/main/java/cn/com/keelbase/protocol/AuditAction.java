@@ -8,7 +8,7 @@ import java.util.Set;
  * AI Governance Protocol §2.3 — the closed vocabulary an audit row's {@code action} is drawn from.
  *
  * <p>The list is the contract's own, taken from the {@code action} enum of the current
- * {@code audit-payload} schema (v4 at contract v1.23.0). It is a <em>closed</em> vocabulary: a row
+ * {@code audit-payload} schema (v4 at contract v1.24.0). It is a <em>closed</em> vocabulary: a row
  * whose action is not on it does not describe something the protocol knows, and a runtime that writes
  * it anyway puts a word on the chain that no consumer can classify. {@link #require} is the guard a
  * writer calls before a row goes in; {@code AuditActionTest} pins this list to the vendored schema, so
@@ -19,7 +19,7 @@ import java.util.Set;
  *
  * AI 治理协议 §2.3 —— 审计行的 {@code action} 所取自的**闭词表**。
  *
- * <p>这张表就是契约自己的那张，取自当前 {@code audit-payload} schema（本仓 pin 的契约 v1.23.0 下为 v4）的
+ * <p>这张表就是契约自己的那张，取自当前 {@code audit-payload} schema（本仓 pin 的契约 v1.24.0 下为 v4）的
  * {@code action} 枚举。它是**闭**词表：一个不在表上的动作，不描述协议认识的任何东西；运行时照写不误，就是往链上
  * 放一个**没有任何消费方能归类**的词。{@link #require} 是写入方在行落库前调用的那道闸；`AuditActionTest`
  * 把这张表钉在 vendored schema 上，故契约增删一个词会在那里失败，而不是让两边悄悄漂开。
