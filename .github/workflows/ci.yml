@@ -150,6 +150,13 @@ jobs:
                echo "widening the matrix means recording the fix line for the new major first" >&2
                exit 1 ;;
           esac
+          # The comparison runs its own cases before it is trusted with this one: a running build with
+          # an update component (`25.0.5.1+2`) once had its build number shifted a field to the left
+          # and was read as below a fix line it is above.
+          #
+          # 先让这道比较跑一遍自己的用例，再让它判这一次：运行构建带更新段（`25.0.5.1+2`）时，它的构建号
+          # 曾被左移一格，于是被读成低于一条它其实在之上的修复线。
+          bash scripts/check-jdk-build.sh --self-test
           bash scripts/check-jdk-build.sh "$fix"
 
   vector-drift:
@@ -201,7 +208,16 @@ jobs:
           # 2026-11-24 抬到 v1.23.0，即带着审计行 v8 形态的那个发布。快照早已带着 v8 文件，而本 pin 仍写着
           # v1.22.0，于是本作业把其中五个读成漂移 —— 三个 extra、两份 registry。让它们可被 vendor 的正是
           # 「版本」，故抬起 pin 就是让两半重新一致的那一步。
-          ref: v1.23.0
+          #
+          # Raised to v1.24.0 on 2026-11-28, the release that carries the evidence-package v7 schema and
+          # its `/5` and `/6` samples. The snapshot had vendored those three files while this pin still
+          # said v1.23.0, so this job read them as three extra files. Same shape as the raise above: a
+          # version is what makes them vendorable, so the two halves agree again by raising the pin.
+          #
+          # 2026-11-28 抬到 v1.24.0，即带着证据包 v7 schema 及其 `/5`、`/6` 两份样例的那个发布。快照早已把
+          # 这三个文件 vendor 进来，而本 pin 仍写着 v1.23.0，于是本作业把它们读成三个 extra。形状与上面那次相同：
+          # 让它们可被 vendor 的正是「版本」，故抬起 pin 就是让两半重新一致的那一步。
+          ref: v1.24.0
           path: contract-repo
       # Scenario packs are not part of the contract, so they are still taken from where they live —
       # but at a version, not at `main`. Read at the branch tip, this gate's verdict for one commit
@@ -482,6 +498,13 @@ jobs:
                echo "widening the matrix means recording the fix line for the new major first" >&2
                exit 1 ;;
           esac
+          # The comparison runs its own cases before it is trusted with this one: a running build with
+          # an update component (`25.0.5.1+2`) once had its build number shifted a field to the left
+          # and was read as below a fix line it is above.
+          #
+          # 先让这道比较跑一遍自己的用例，再让它判这一次：运行构建带更新段（`25.0.5.1+2`）时，它的构建号
+          # 曾被左移一格，于是被读成低于一条它其实在之上的修复线。
+          bash scripts/check-jdk-build.sh --self-test
           bash scripts/check-jdk-build.sh "$fix"
       # The same count release.yml asserts, asserted here as well: there it is the last thing between
       # a mistake and Maven Central, here it is the first thing that notices one.
