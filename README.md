@@ -341,7 +341,7 @@ language and still be the *same* protocol, rather than a similar-looking one:
 
 ## Contract coverage
 
-The snapshot under `conformance/vectors/` corresponds to contract **v1.23.0**. One member of that
+The snapshot under `conformance/vectors/` corresponds to contract **v1.24.0**. One member of that
 version is **not implemented** here in its full form: `audit-chain-anchor`, the daily chain anchor.
 This runtime neither signs nor verifies an anchor, and there is no route (the contract defines the
 record and its semantics, not an endpoint). Since 2026-11-20 it does supply the two halves that need
@@ -364,7 +364,7 @@ and this runtime is a consumer of the protocol rather than an implementation of 
 
 ## 契约覆盖
 
-`conformance/vectors/` 下的快照对应契约 **v1.23.0**。该版本有一个成员在这里**尚未实现完整形态**：
+`conformance/vectors/` 下的快照对应契约 **v1.24.0**。该版本有一个成员在这里**尚未实现完整形态**：
 `audit-chain-anchor`，即每日链锚。本运行时既不签名也不验签，也没有路由（契约定义的是记录与语义，不是
 端点）。自 2026-11-20 起，它提供不需要签名密钥、也不需要 SM2 的那两半：`ChainAnchorService` 读 AI 审计链
 的已入链链尾（`rows` / `lastId` / `lastHash`），把它与一份从别处读来的链尾对照（`ok` / `grew` /

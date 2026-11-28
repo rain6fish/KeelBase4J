@@ -18,7 +18,7 @@ rain6fish/keelbase-contract/                    → this directory
 ├── failure-semantics-v1-vector.json
 ├── wire-schema-registry.json           ← contract id → schema file (v1: two spellings)
 ├── wire-schema-registry-v2.json        ← the same index written one way — what the Java tests read
-└── schemas/                            ← v1 … v5 (+ samples)
+└── schemas/                            ← v1 … v8 (+ samples)
 
 KeelBase/Server-NestJS/specs/scenarios/         → scenarios/
 ├── golden-application-v1.json          ← the packs' `replay` (conformance-profile §2.4)
